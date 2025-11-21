@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use snpm_core::{Project, SnpmConfig, operations};
+use snpm_core::{Project, SnpmConfig, Workspace, operations};
 use std::env;
 use tracing_subscriber::EnvFilter;
 
@@ -21,6 +21,23 @@ async fn main() -> Result<()> {
             production,
         } => {
             let cwd = env::current_dir()?;
+            if packages.is_empty() {
+                if let Some(workspace) = Workspace::discover(&cwd)? {
+                    if workspace.root == cwd {
+                        for project in workspace.projects.iter() {
+                            let options = operations::InstallOptions {
+                                requested: Vec::new(),
+                                dev: false,
+                                include_dev: !production,
+                            };
+                            operations::install(&config, project, options).await?;
+                        }
+
+                        return Ok(());
+                    }
+                }
+            }
+
             let project = Project::discover(&cwd)?;
             let options = operations::InstallOptions {
                 requested: packages,

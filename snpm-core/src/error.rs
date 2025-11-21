@@ -52,6 +52,9 @@ pub enum SnpmError {
     #[error("Lockfile error at {path:?}: {reason}")]
     Lockfile { path: PathBuf, reason: String },
 
+    #[error("Workspace config error at {path:?}: {reason}")]
+    WorkspaceConfig { path: PathBuf, reason: String },
+
     #[error("Archive error at {path:?}: {source}")]
     Archive {
         path: PathBuf,

@@ -5,6 +5,7 @@ use std::env;
 use tracing_subscriber::EnvFilter;
 
 mod cli;
+
 use cli::{Cli, Command};
 
 #[tokio::main]

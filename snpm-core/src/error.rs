@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum SnpmError {
     #[error("Failed to read file {path:?}: {source}")]
     ReadFile {
@@ -21,37 +21,26 @@ pub enum SnpmError {
         source: serde_json::Error,
     },
 
-    #[error("Failed to serialize JSON for {path:?}: {source}")]
-    SerializeJson {
-        path: PathBuf,
+    #[error("Failed to serialize JSON for {path:?}: {reason}")]
+    SerializeJson { path: PathBuf, reason: String },
+
+    #[error("Failed to create HTTP client: {source}")]
+    HttpClient { source: reqwest::Error },
+
+    #[error("HTTP error when requesting {url}: {source}")]
+    Http { url: String, source: reqwest::Error },
+
+    #[error("Failed to decode registry response for {name}: {source}")]
+    RegistryDecode {
+        name: String,
         source: serde_json::Error,
     },
 
-    #[error("HTTP request to {url} failed: {source}")]
-    Http { url: String, source: reqwest::Error },
-
-    #[error("Invalid semver value {value}: {source}")]
-    Semver {
-        value: String,
-        source: semver::Error,
-    },
-
-    #[error("Failed to resolve package {name}@{range}")]
-    ResolutionFailed { name: String, range: String },
-
-    #[error("Failed to write lockfile at {path:?}: {source}")]
-    LockfileWrite {
-        path: PathBuf,
-        source: serde_yaml::Error,
-    },
-
-    #[error("Package not found in store: {name}@{version}")]
-    StoreMissing { name: String, version: String },
-
-    #[error("Failed to unpack archive into {path:?}: {source}")]
-    Archive {
-        path: PathBuf,
-        source: std::io::Error,
+    #[error("Unable to resolve {name}@{range}: {reason}")]
+    ResolutionFailed {
+        name: String,
+        range: String,
+        reason: String,
     },
 
     #[error("Project manifest package.json not found at {path:?}")]
@@ -59,4 +48,31 @@ pub enum SnpmError {
 
     #[error("Invalid manifest in {path:?}: {reason}")]
     ManifestInvalid { path: PathBuf, reason: String },
+
+    #[error("Lockfile error at {path:?}: {reason}")]
+    Lockfile { path: PathBuf, reason: String },
+
+    #[error("Archive error at {path:?}: {source}")]
+    Archive {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("Failed to download tarball from {url}: {reason}")]
+    Tarball { url: String, reason: String },
+
+    #[error("Failed to write lockfile to {path:?}: {source}")]
+    LockfileWrite {
+        path: PathBuf,
+        source: serde_yaml::Error,
+    },
+
+    #[error("Invalid semver {value}: {source}")]
+    Semver {
+        value: String,
+        source: semver::Error,
+    },
+
+    #[error("Package {name}@{version} missing from store")]
+    StoreMissing { name: String, version: String },
 }

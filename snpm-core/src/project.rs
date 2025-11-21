@@ -1,10 +1,10 @@
 use crate::{Result, SnpmError};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
     pub name: Option<String>,
@@ -56,7 +56,7 @@ impl Project {
                 .map(Path::to_path_buf)
                 .ok_or_else(|| SnpmError::ManifestInvalid {
                     path: path.clone(),
-                    reason: "manifest has no parent directory".to_string(),
+                    reason: "manifest has no parent directory".into(),
                 })?;
 
         Ok(Project {
@@ -68,9 +68,9 @@ impl Project {
 
     pub fn write_manifest(&self, manifest: &Manifest) -> Result<()> {
         let data =
-            serde_json::to_string_pretty(manifest).map_err(|source| SnpmError::SerializeJson {
+            serde_json::to_string_pretty(manifest).map_err(|e| SnpmError::SerializeJson {
                 path: self.manifest_path.clone(),
-                source,
+                reason: e.to_string(),
             })?;
 
         fs::write(&self.manifest_path, data).map_err(|source| SnpmError::WriteFile {

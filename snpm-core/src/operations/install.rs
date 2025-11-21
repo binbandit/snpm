@@ -56,7 +56,7 @@ pub async fn install(
     };
 
     let store_paths = materialize_store(config, &graph).await?;
-    write_manifest(project, &graph, &additions, options.include_dev)?;
+    write_manifest(project, &graph, &additions, options.dev)?;
     linker::link(project, &graph, &store_paths, options.include_dev)?;
 
     Ok(())

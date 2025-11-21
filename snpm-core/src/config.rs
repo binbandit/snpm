@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use directories::ProjectDirs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct SnpmConfig {

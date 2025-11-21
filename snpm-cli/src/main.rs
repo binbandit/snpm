@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::Parser;
 use snpm_core::{Project, SnpmConfig, operations};
 use std::env;
-use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 mod cli;

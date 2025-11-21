@@ -29,6 +29,11 @@ async fn main() -> Result<()> {
             let project = Project::discover(&cwd)?;
             operations::run_script(&project, &script, &args)?;
         }
+        Command::Remove { packages } => {
+            let cwd = env::current_dir()?;
+            let mut project = Project::discover(&cwd)?;
+            operations::remove(&config, &mut project, packages).await?;
+        }
     }
 
     Ok(())

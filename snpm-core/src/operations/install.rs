@@ -57,6 +57,29 @@ pub async fn install(
     Ok(())
 }
 
+pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<String>) -> Result<()> {
+    if specs.is_empty() {
+        return Ok(());
+    }
+
+    let mut manifest = project.manifest.clone();
+
+    for spec in specs {
+        let (name, _) = parse_spec(&spec);
+        manifest.dependencies.remove(&name);
+        manifest.dev_dependencies.remove(&name);
+    }
+
+    project.write_manifest(&manifest)?;
+    project.manifest = manifest;
+
+    let options = InstallOptions {
+        requested: Vec::new(),
+    };
+
+    install(config, project, options).await
+}
+
 fn parse_requested(specs: &[String]) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
 

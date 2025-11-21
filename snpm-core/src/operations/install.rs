@@ -4,11 +4,13 @@ use crate::{Project, Result, SnpmConfig, linker, resolve, store};
 use futures::future::join_all;
 use reqwest::Client;
 use std::collections::BTreeMap;
+
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
     pub requested: Vec<String>,
     pub dev: bool,
     pub include_dev: bool,
+    pub frozen_lockfile: bool,
 }
 
 pub async fn install(
@@ -18,13 +20,21 @@ pub async fn install(
 ) -> Result<()> {
     let additions = parse_requested(&options.requested);
 
-    let mut manifest_root = project.manifest.dependencies.clone();
+    let mut deps_only = project.manifest.dependencies.clone();
+    let mut full_root = deps_only.clone();
 
-    if options.include_dev {
-        for (name, range) in project.manifest.dev_dependencies.iter() {
-            manifest_root.entry(name.clone()).or_insert(range.clone());
+    for (name, range) in project.manifest.dev_dependencies.iter() {
+        full_root.entry(name.clone()).or_insert(range.clone());
+        if options.include_dev {
+            deps_only.entry(name.clone()).or_insert(range.clone());
         }
     }
+
+    let manifest_root = if options.include_dev {
+        full_root.clone()
+    } else {
+        deps_only.clone()
+    };
 
     let mut root_deps = manifest_root.clone();
 
@@ -33,9 +43,22 @@ pub async fn install(
     }
 
     let lockfile_path = project.root.join("snpm-lock.yaml");
-    let use_lockfile = options.include_dev && additions.is_empty() && lockfile_path.is_file();
 
-    let graph = if use_lockfile {
+    let graph = if options.frozen_lockfile {
+        if !lockfile_path.is_file() {
+            return Err(crate::SnpmError::Lockfile {
+                path: lockfile_path.clone(),
+                reason: "lockfile is required when using frozen-lockfile".into(),
+            });
+        }
+
+        if !additions.is_empty() {
+            return Err(crate::SnpmError::Lockfile {
+                path: lockfile_path.clone(),
+                reason: "cannot add packages when using frozen-lockfile".into(),
+            });
+        }
+
         let existing = lockfile::read(&lockfile_path)?;
         let mut lock_requested = BTreeMap::new();
 
@@ -43,19 +66,40 @@ pub async fn install(
             lock_requested.insert(name.clone(), dep.requested.clone());
         }
 
-        if lock_requested == manifest_root {
-            lockfile::to_graph(&existing)
+        if lock_requested != full_root {
+            return Err(crate::SnpmError::Lockfile {
+                path: lockfile_path.clone(),
+                reason: "manifest dependencies do not match lockfile in frozen-lockfile mode"
+                    .into(),
+            });
+        }
+
+        lockfile::to_graph(&existing)
+    } else {
+        let use_lockfile = options.include_dev && additions.is_empty() && lockfile_path.is_file();
+
+        if use_lockfile {
+            let existing = lockfile::read(&lockfile_path)?;
+            let mut lock_requested = BTreeMap::new();
+
+            for (name, dep) in existing.root.dependencies.iter() {
+                lock_requested.insert(name.clone(), dep.requested.clone());
+            }
+
+            if lock_requested == manifest_root {
+                lockfile::to_graph(&existing)
+            } else {
+                let graph = resolve::resolve(&root_deps).await?;
+                lockfile::write(&lockfile_path, &graph)?;
+                graph
+            }
         } else {
             let graph = resolve::resolve(&root_deps).await?;
-            lockfile::write(&lockfile_path, &graph)?;
+            if options.include_dev {
+                lockfile::write(&lockfile_path, &graph)?;
+            }
             graph
         }
-    } else {
-        let graph = resolve::resolve(&root_deps).await?;
-        if options.include_dev {
-            lockfile::write(&lockfile_path, &graph)?;
-        }
-        graph
     };
 
     let store_paths = materialize_store(config, &graph).await?;
@@ -85,6 +129,7 @@ pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<Strin
         requested: Vec::new(),
         dev: false,
         include_dev: true,
+        frozen_lockfile: false,
     };
 
     install(config, project, options).await

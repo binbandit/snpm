@@ -1,0 +1,31 @@
+# Build artifacts
+/target
+**/target
+/debug
+
+# Coverage and profiling
+coverage/
+*.profraw
+*.profdata
+
+# Rust tooling caches
+/.cargo/
+/.rustup/
+**/*.rs.bk
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+tmp/
+
+# Editor and OS metadata
+.DS_Store
+.idea/
+.vscode/
+
+# Environment files
+.env
+.env.*
+!.env.example

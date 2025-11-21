@@ -2,7 +2,7 @@ use crate::{Result, SnpmError};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RegistryPackage {
     pub versions: BTreeMap<String, RegistryVersion>,
 }

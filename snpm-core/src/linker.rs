@@ -149,7 +149,29 @@ fn create_bin_file(bin_dir: &Path, name: &str, target: &Path) -> Result<()> {
         })?;
     }
 
-    fs::copy(target, &dest).map_err(|source| SnpmError::WriteFile { path: dest, source })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+
+        if let Err(_source) = symlink(target, &dest) {
+            fs::copy(target, &dest).map_err(|source| SnpmError::WriteFile {
+                path: dest.clone(),
+                source,
+            })?;
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::symlink_file;
+
+        if let Err(_source) = symlink_file(target, &dest) {
+            fs::copy(target, &dest).map_err(|source| SnpmError::WriteFile {
+                path: dest.clone(),
+                source,
+            })?;
+        }
+    }
 
     Ok(())
 }

@@ -10,6 +10,7 @@ pub fn link(
     project: &Project,
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
+    include_dev: bool,
 ) -> Result<()> {
     let root_node_modules = project.root.join("node_modules");
 
@@ -26,6 +27,10 @@ pub fn link(
     })?;
 
     for (name, dep) in graph.root.dependencies.iter() {
+        if !include_dev && project.manifest.dev_dependencies.contains_key(name) {
+            continue;
+        }
+
         let id = &dep.resolved;
         let dest = root_node_modules.join(name);
         link_package(id, &dest, &root_node_modules, graph, store_paths)?;

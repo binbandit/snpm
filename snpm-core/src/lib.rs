@@ -1,7 +1,7 @@
 pub mod config;
 pub mod error;
-pub mod project;
 pub mod operations;
+pub mod project;
 
 pub use config::SnpmConfig;
 pub use error::SnpmError;

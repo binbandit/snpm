@@ -9,5 +9,12 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    Install { packages: Vec<String> },
+    Install {
+        packages: Vec<String>,
+    },
+    Run {
+        script: String,
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
 }

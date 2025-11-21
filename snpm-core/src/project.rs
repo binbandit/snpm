@@ -13,6 +13,8 @@ pub struct Manifest {
     pub dependencies: BTreeMap<String, String>,
     #[serde(default)]
     pub dev_dependencies: BTreeMap<String, String>,
+    #[serde(default)]
+    pub scripts: BTreeMap<String, String>,
 }
 
 #[derive(Debug)]

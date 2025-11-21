@@ -24,6 +24,11 @@ async fn main() -> Result<()> {
             };
             operations::install(&config, &project, options).await?;
         }
+        Command::Run { script, args } => {
+            let cwd = env::current_dir()?;
+            let project = Project::discover(&cwd)?;
+            operations::run_script(&project, &script, &args)?;
+        }
     }
 
     Ok(())

@@ -75,4 +75,13 @@ pub enum SnpmError {
 
     #[error("Package {name}@{version} missing from store")]
     StoreMissing { name: String, version: String },
+
+    #[error("Script {name} not found in package.json")]
+    ScriptMissing { name: String },
+
+    #[error("Script {name} failed with exit code {code}")]
+    ScriptFailed { name: String, code: i32 },
+
+    #[error("Failed to run script {name}: {reason}")]
+    ScriptRun { name: String, reason: String },
 }

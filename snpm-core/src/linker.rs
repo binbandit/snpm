@@ -1,3 +1,5 @@
+use serde_json::Value;
+
 use crate::resolve::{PackageId, ResolutionGraph};
 use crate::{Project, Result, SnpmError};
 use std::collections::BTreeMap;
@@ -10,6 +12,14 @@ pub fn link(
     store_paths: &BTreeMap<PackageId, PathBuf>,
 ) -> Result<()> {
     let root_node_modules = project.root.join("node_modules");
+
+    if root_node_modules.exists() {
+        fs::remove_dir_all(&root_node_modules).map_err(|source| SnpmError::WriteFile {
+            path: root_node_modules.clone(),
+            source,
+        })?;
+    }
+
     fs::create_dir_all(&root_node_modules).map_err(|source| SnpmError::WriteFile {
         path: root_node_modules.clone(),
         source,
@@ -18,7 +28,7 @@ pub fn link(
     for (name, dep) in graph.root.dependencies.iter() {
         let id = &dep.resolved;
         let dest = root_node_modules.join(name);
-        link_package(id, &dest, graph, store_paths)?;
+        link_package(id, &dest, &root_node_modules, graph, store_paths)?;
     }
 
     Ok(())
@@ -27,6 +37,7 @@ pub fn link(
 fn link_package(
     id: &PackageId,
     dest: &Path,
+    bin_root: &Path,
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
 ) -> Result<()> {
@@ -43,6 +54,7 @@ fn link_package(
     })?;
 
     copy_dir(store_root, dest)?;
+    link_bins(dest, bin_root, &id.name)?;
 
     let package = graph
         .packages
@@ -60,8 +72,75 @@ fn link_package(
         })?;
 
         let child_dest = node_modules.join(dep_name);
-        link_package(dep_id, &child_dest, graph, store_paths)?;
+        link_package(dep_id, &child_dest, &node_modules, graph, store_paths)?;
     }
+
+    Ok(())
+}
+
+fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
+    let manifest_path = dest.join("package.join");
+
+    if !manifest_path.is_file() {
+        return Ok(());
+    }
+
+    let data = fs::read_to_string(&manifest_path).map_err(|source| SnpmError::ReadFile {
+        path: manifest_path.clone(),
+        source,
+    })?;
+
+    let value: Value = serde_json::from_str(&data).map_err(|source| SnpmError::ParseJson {
+        path: manifest_path.clone(),
+        source,
+    })?;
+
+    let bin = value.get("bin");
+
+    if bin.is_none() {
+        return Ok(());
+    }
+
+    let bin_dir = bin_root.join(".bin");
+    fs::create_dir_all(&bin_dir).map_err(|source| SnpmError::WriteFile {
+        path: bin_dir.clone(),
+        source,
+    })?;
+
+    match bin {
+        Some(Value::String(script)) => {
+            let target = dest.join(script);
+            create_bin_file(&bin_dir, name, &target)?;
+        }
+        Some(Value::Object(map)) => {
+            for (entry_name, v) in map.iter() {
+                if let Some(script) = v.as_str() {
+                    let target = dest.join(script);
+                    create_bin_file(&bin_dir, entry_name, &target)?;
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn create_bin_file(bin_dir: &Path, name: &str, target: &Path) -> Result<()> {
+    if !target.is_file() {
+        return Ok(());
+    }
+
+    let dest = bin_dir.join(name);
+
+    if dest.exists() {
+        fs::remove_file(&dest).map_err(|source| SnpmError::WriteFile {
+            path: dest.clone(),
+            source,
+        })?;
+    }
+
+    fs::copy(target, &dest).map_err(|source| SnpmError::WriteFile { path: dest, source })?;
 
     Ok(())
 }

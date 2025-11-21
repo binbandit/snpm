@@ -79,7 +79,7 @@ fn link_package(
 }
 
 fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
-    let manifest_path = dest.join("package.join");
+    let manifest_path = dest.join("package.json");
 
     if !manifest_path.is_file() {
         return Ok(());

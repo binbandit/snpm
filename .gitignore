@@ -3,6 +3,8 @@
 **/target
 /debug
 
+e2e/
+
 # Coverage and profiling
 coverage/
 *.profraw

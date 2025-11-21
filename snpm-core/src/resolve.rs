@@ -93,18 +93,20 @@ async fn resolve_package(
 }
 
 fn select_version(name: &str, range: &str, package: &RegistryPackage) -> Result<RegistryVersion> {
-    let normalized = if range == "latest" { "*" } else { range };
-    let req = VersionReq::parse(normalized).map_err(|source| SnpmError::Semver {
-        value: format!("{}@{}", name, range),
-        source,
-    })?;
+    let normalized = if range == "latest" || range.is_empty() {
+        "*"
+    } else {
+        range
+    };
+
+    let ranges = parse_range_set(name, range, normalized)?;
 
     let mut selected: Option<(Version, RegistryVersion)> = None;
 
     for (version_str, meta) in package.versions.iter() {
         let parsed = Version::parse(version_str);
         if let Ok(ver) = parsed {
-            if req.matches(&ver) {
+            if matches_any_range(&ranges, &ver) {
                 match &selected {
                     Some((best, _)) if ver <= *best => {}
                     _ => selected = Some((ver, meta.clone())),
@@ -122,4 +124,42 @@ fn select_version(name: &str, range: &str, package: &RegistryPackage) -> Result<
             reason: "Version not found matching range".to_string(),
         })
     }
+}
+
+fn parse_range_set(name: &str, original: &str, normalized: &str) -> Result<Vec<VersionReq>> {
+    let parts: Vec<&str> = normalized
+        .split("||")
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .collect();
+
+    let mut ranges = Vec::new();
+
+    for part in parts {
+        let req = VersionReq::parse(part).map_err(|source| SnpmError::Semver {
+            value: format!("{}@{}", name, original),
+            source,
+        })?;
+        ranges.push(req);
+    }
+
+    if ranges.is_empty() {
+        let req = VersionReq::parse("*").map_err(|source| SnpmError::Semver {
+            value: format!("{}@{}", name, original),
+            source,
+        })?;
+        ranges.push(req);
+    }
+
+    Ok(ranges)
+}
+
+fn matches_any_range(ranges: &[VersionReq], version: &Version) -> bool {
+    for range in ranges {
+        if range.matches(version) {
+            return true;
+        }
+    }
+
+    false
 }

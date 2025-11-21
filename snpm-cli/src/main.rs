@@ -16,23 +16,38 @@ async fn main() -> Result<()> {
     let config = SnpmConfig::from_env();
 
     match args.command {
-        Command::Install { packages } => {
+        Command::Install {
+            packages,
+            production,
+        } => {
             let cwd = env::current_dir()?;
             let project = Project::discover(&cwd)?;
             let options = operations::InstallOptions {
                 requested: packages,
+                dev: false,
+                include_dev: !production,
             };
             operations::install(&config, &project, options).await?;
         }
-        Command::Run { script, args } => {
+        Command::Add { dev, packages } => {
             let cwd = env::current_dir()?;
             let project = Project::discover(&cwd)?;
-            operations::run_script(&project, &script, &args)?;
+            let options = operations::InstallOptions {
+                requested: packages,
+                dev,
+                include_dev: true,
+            };
+            operations::install(&config, &project, options).await?;
         }
         Command::Remove { packages } => {
             let cwd = env::current_dir()?;
             let mut project = Project::discover(&cwd)?;
             operations::remove(&config, &mut project, packages).await?;
+        }
+        Command::Run { script, args } => {
+            let cwd = env::current_dir()?;
+            let project = Project::discover(&cwd)?;
+            operations::run_script(&project, &script, &args)?;
         }
     }
 

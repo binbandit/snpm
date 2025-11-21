@@ -1,11 +1,14 @@
 use crate::lockfile;
 use crate::resolve::ResolutionGraph;
 use crate::{Project, Result, SnpmConfig, linker, resolve, store};
+use futures::future::join_all;
 use reqwest::Client;
 use std::collections::BTreeMap;
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
     pub requested: Vec<String>,
+    pub dev: bool,
+    pub include_dev: bool,
 }
 
 pub async fn install(
@@ -17,8 +20,10 @@ pub async fn install(
 
     let mut manifest_root = project.manifest.dependencies.clone();
 
-    for (name, range) in project.manifest.dev_dependencies.iter() {
-        manifest_root.entry(name.clone()).or_insert(range.clone());
+    if options.include_dev {
+        for (name, range) in project.manifest.dev_dependencies.iter() {
+            manifest_root.entry(name.clone()).or_insert(range.clone());
+        }
     }
 
     let mut root_deps = manifest_root.clone();
@@ -51,8 +56,8 @@ pub async fn install(
     };
 
     let store_paths = materialize_store(config, &graph).await?;
-    write_manifest(project, &graph, &additions)?;
-    linker::link(project, &graph, &store_paths)?;
+    write_manifest(project, &graph, &additions, options.include_dev)?;
+    linker::link(project, &graph, &store_paths, options.include_dev)?;
 
     Ok(())
 }
@@ -75,6 +80,8 @@ pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<Strin
 
     let options = InstallOptions {
         requested: Vec::new(),
+        dev: false,
+        include_dev: true,
     };
 
     install(config, project, options).await
@@ -118,11 +125,27 @@ async fn materialize_store(
     graph: &ResolutionGraph,
 ) -> Result<BTreeMap<crate::resolve::PackageId, std::path::PathBuf>> {
     let client = Client::new();
-    let mut paths = BTreeMap::new();
+    let mut futures = Vec::new();
 
     for package in graph.packages.values() {
-        let path = store::ensure_package(config, package, &client).await?;
-        paths.insert(package.id.clone(), path);
+        let config = config.clone();
+        let client = client.clone();
+
+        let future = async move {
+            let path = store::ensure_package(&config, &package, &client).await?;
+            let id = package.id.clone();
+            Ok::<(crate::resolve::PackageId, std::path::PathBuf), crate::SnpmError>((id, path))
+        };
+
+        futures.push(future);
+    }
+
+    let results = join_all(futures).await;
+    let mut paths = BTreeMap::new();
+
+    for result in results {
+        let (id, path) = result?;
+        paths.insert(id, path);
     }
 
     Ok(paths)
@@ -132,22 +155,29 @@ fn write_manifest(
     project: &Project,
     graph: &ResolutionGraph,
     additions: &BTreeMap<String, String>,
+    dev: bool,
 ) -> Result<()> {
     if additions.is_empty() {
         return Ok(());
     }
 
     let mut new_dependencies = project.manifest.dependencies.clone();
+    let mut new_dev_dependencies = project.manifest.dev_dependencies.clone();
 
     for (name, dep) in graph.root.dependencies.iter() {
         if additions.contains_key(name) {
             let range = format!("^{}", dep.resolved.version);
-            new_dependencies.insert(name.clone(), range);
+            if dev {
+                new_dev_dependencies.insert(name.clone(), range);
+            } else {
+                new_dependencies.insert(name.clone(), range);
+            }
         }
     }
 
     let mut manifest = project.manifest.clone();
     manifest.dependencies = new_dependencies;
+    manifest.dev_dependencies = new_dev_dependencies;
 
     project.write_manifest(&manifest)
 }

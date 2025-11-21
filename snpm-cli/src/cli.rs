@@ -10,14 +10,21 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     Install {
+        #[arg(long)]
+        production: bool,
+        packages: Vec<String>,
+    },
+    Add {
+        #[arg(short = 'D', long = "dev")]
+        dev: bool,
+        packages: Vec<String>,
+    },
+    Remove {
         packages: Vec<String>,
     },
     Run {
         script: String,
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
-    },
-    Remove {
-        packages: Vec<String>,
     },
 }

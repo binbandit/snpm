@@ -26,8 +26,12 @@ pub fn link(
         source,
     })?;
 
+    let deps = &project.manifest.dependencies;
+    let dev_deps = &project.manifest.dev_dependencies;
+
     for (name, dep) in graph.root.dependencies.iter() {
-        if !include_dev && project.manifest.dev_dependencies.contains_key(name) {
+        let only_dev = dev_deps.contains_key(name) && !deps.contains_key(name);
+        if !include_dev && only_dev {
             continue;
         }
 

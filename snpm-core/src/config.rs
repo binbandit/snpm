@@ -24,4 +24,8 @@ impl SnpmConfig {
             }
         }
     }
+
+    pub fn packages_dir(&self) -> PathBuf {
+        self.data_dir.join("packages")
+    }
 }

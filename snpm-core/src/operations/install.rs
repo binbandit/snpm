@@ -33,8 +33,9 @@ pub async fn install(
     }
 
     let lockfile_path = project.root.join("snpm-lock.yaml");
+    let use_lockfile = options.include_dev && additions.is_empty() && lockfile_path.is_file();
 
-    let graph = if additions.is_empty() && lockfile_path.is_file() {
+    let graph = if use_lockfile {
         let existing = lockfile::read(&lockfile_path)?;
         let mut lock_requested = BTreeMap::new();
 
@@ -51,7 +52,9 @@ pub async fn install(
         }
     } else {
         let graph = resolve::resolve(&root_deps).await?;
-        lockfile::write(&lockfile_path, &graph)?;
+        if options.include_dev {
+            lockfile::write(&lockfile_path, &graph)?;
+        }
         graph
     };
 

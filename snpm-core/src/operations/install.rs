@@ -13,19 +13,45 @@ pub async fn install(
     project: &Project,
     options: InstallOptions,
 ) -> Result<()> {
-    let mut root_deps = project.manifest.dependencies.clone();
+    let additions = parse_requested(&options.requested);
 
-    if !options.requested.is_empty() {
-        let additions = parse_requested(&options.requested);
-        for (name, request) in additions {
-            root_deps.insert(name, request);
-        }
+    let mut manifest_root = project.manifest.dependencies.clone();
+
+    for (name, range) in project.manifest.dev_dependencies.iter() {
+        manifest_root.entry(name.clone()).or_insert(range.clone());
     }
 
-    let graph = resolve::resolve(&root_deps).await?;
+    let mut root_deps = manifest_root.clone();
+
+    for (name, range) in additions.iter() {
+        root_deps.insert(name.clone(), range.clone());
+    }
+
+    let lockfile_path = project.root.join("snpm-lock.yaml");
+
+    let graph = if additions.is_empty() && lockfile_path.is_file() {
+        let existing = lockfile::read(&lockfile_path)?;
+        let mut lock_requested = BTreeMap::new();
+
+        for (name, dep) in existing.root.dependencies.iter() {
+            lock_requested.insert(name.clone(), dep.requested.clone());
+        }
+
+        if lock_requested == manifest_root {
+            lockfile::to_graph(&existing)
+        } else {
+            let graph = resolve::resolve(&root_deps).await?;
+            lockfile::write(&lockfile_path, &graph)?;
+            graph
+        }
+    } else {
+        let graph = resolve::resolve(&root_deps).await?;
+        lockfile::write(&lockfile_path, &graph)?;
+        graph
+    };
+
     let store_paths = materialize_store(config, &graph).await?;
-    write_lockfile(project, &graph)?;
-    write_manifest(project, &graph)?;
+    write_manifest(project, &graph, &additions)?;
     linker::link(project, &graph, &store_paths)?;
 
     Ok(())
@@ -79,18 +105,19 @@ async fn materialize_store(
     Ok(paths)
 }
 
-fn write_lockfile(project: &Project, graph: &ResolutionGraph) -> Result<()> {
-    let path = project.root.join("snpm-lock.yaml");
-    lockfile::write(&path, graph)
-}
+fn write_manifest(
+    project: &Project,
+    graph: &ResolutionGraph,
+    additions: &BTreeMap<String, String>,
+) -> Result<()> {
+    if additions.is_empty() {
+        return Ok(());
+    }
 
-fn write_manifest(project: &Project, graph: &ResolutionGraph) -> Result<()> {
-    let mut new_dependencies = BTreeMap::new();
+    let mut new_dependencies = project.manifest.dependencies.clone();
 
     for (name, dep) in graph.root.dependencies.iter() {
-        if let Some(existing) = project.manifest.dependencies.get(name) {
-            new_dependencies.insert(name.clone(), existing.clone());
-        } else {
+        if additions.contains_key(name) {
             let range = format!("^{}", dep.resolved.version);
             new_dependencies.insert(name.clone(), range);
         }

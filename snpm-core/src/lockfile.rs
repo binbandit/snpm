@@ -1,4 +1,4 @@
-use crate::resolve::ResolutionGraph;
+use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency};
 use crate::{Result, SnpmError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -84,4 +84,91 @@ pub fn write(path: &Path, graph: &ResolutionGraph) -> Result<()> {
     })?;
 
     Ok(())
+}
+
+pub fn read(path: &Path) -> Result<Lockfile> {
+    let data = fs::read_to_string(path).map_err(|source| SnpmError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let lockfile: Lockfile = serde_yaml::from_str(&data).map_err(|err| SnpmError::Lockfile {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+
+    Ok(lockfile)
+}
+
+pub fn to_graph(lockfile: &Lockfile) -> ResolutionGraph {
+    let mut packages = BTreeMap::new();
+
+    for lock_pkg in lockfile.packages.values() {
+        let id = PackageId {
+            name: lock_pkg.name.clone(),
+            version: lock_pkg.version.clone(),
+        };
+
+        let resolved = ResolvedPackage {
+            id: id.clone(),
+            tarball: lock_pkg.tarball.clone(),
+            integrity: lock_pkg.integrity.clone(),
+            dependencies: BTreeMap::new(),
+        };
+
+        packages.insert(id, resolved);
+    }
+
+    for lock_pkg in lockfile.packages.values() {
+        let id = PackageId {
+            name: lock_pkg.name.clone(),
+            version: lock_pkg.version.clone(),
+        };
+
+        if let Some(package) = packages.get_mut(&id) {
+            let mut deps = BTreeMap::new();
+
+            for (dep_name, dep_key) in lock_pkg.dependencies.iter() {
+                if let Some((dep_pkg_name, dep_pkg_version)) = split_dep_key(dep_key) {
+                    let dep_id = PackageId {
+                        name: dep_pkg_name,
+                        version: dep_pkg_version,
+                    };
+                    deps.insert(dep_name.clone(), dep_id);
+                }
+            }
+
+            package.dependencies = deps;
+        }
+    }
+
+    let mut root_dependencies = BTreeMap::new();
+
+    for (name, dep) in lockfile.root.dependencies.iter() {
+        let id = PackageId {
+            name: name.clone(),
+            version: dep.version.clone(),
+        };
+        let root_dep = RootDependency {
+            requested: dep.requested.clone(),
+            resolved: id,
+        };
+        root_dependencies.insert(name.clone(), root_dep);
+    }
+
+    let root = ResolutionRoot {
+        dependencies: root_dependencies,
+    };
+
+    ResolutionGraph { root, packages }
+}
+
+fn split_dep_key(key: &str) -> Option<(String, String)> {
+    if let Some(idx) = key.rfind('@') {
+        let (name, version_part) = key.split_at(idx);
+        let version = version_part.trim_start_matches('@').to_string();
+        Some((name.to_string(), version))
+    } else {
+        None
+    }
 }

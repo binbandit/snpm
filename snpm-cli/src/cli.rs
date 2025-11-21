@@ -17,4 +17,7 @@ pub enum Command {
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
+    Remove {
+        packages: Vec<String>,
+    },
 }

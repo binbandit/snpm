@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
         Command::Install {
             packages,
             production,
+            frozen_lockfile,
         } => {
             let cwd = env::current_dir()?;
             if packages.is_empty() {
@@ -29,6 +30,7 @@ async fn main() -> Result<()> {
                                 requested: Vec::new(),
                                 dev: false,
                                 include_dev: !production,
+                                frozen_lockfile,
                             };
                             operations::install(&config, project, options).await?;
                         }
@@ -43,6 +45,7 @@ async fn main() -> Result<()> {
                 requested: packages,
                 dev: false,
                 include_dev: !production,
+                frozen_lockfile,
             };
             operations::install(&config, &project, options).await?;
         }
@@ -53,6 +56,7 @@ async fn main() -> Result<()> {
                 requested: packages,
                 dev,
                 include_dev: true,
+                frozen_lockfile: false,
             };
             operations::install(&config, &project, options).await?;
         }

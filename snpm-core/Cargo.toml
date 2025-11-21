@@ -1,0 +1,10 @@
+[package]
+name = "snpm-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"]}
+directories = "6.0.0"
+serde_json = "1.0.145"
+thiserror.workspace = true

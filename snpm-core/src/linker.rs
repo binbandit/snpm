@@ -110,13 +110,15 @@ fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
     match bin {
         Some(Value::String(script)) => {
             let target = dest.join(script);
-            create_bin_file(&bin_dir, name, &target)?;
+            let bin_name = sanitize_bin_name(name);
+            create_bin_file(&bin_dir, &bin_name, &target)?;
         }
         Some(Value::Object(map)) => {
             for (entry_name, v) in map.iter() {
                 if let Some(script) = v.as_str() {
                     let target = dest.join(script);
-                    create_bin_file(&bin_dir, entry_name, &target)?;
+                    let bin_name = sanitize_bin_name(entry_name);
+                    create_bin_file(&bin_dir, &bin_name, &target)?;
                 }
             }
         }
@@ -133,6 +135,13 @@ fn create_bin_file(bin_dir: &Path, name: &str, target: &Path) -> Result<()> {
 
     let dest = bin_dir.join(name);
 
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+
     if dest.exists() {
         fs::remove_file(&dest).map_err(|source| SnpmError::WriteFile {
             path: dest.clone(),
@@ -143,6 +152,10 @@ fn create_bin_file(bin_dir: &Path, name: &str, target: &Path) -> Result<()> {
     fs::copy(target, &dest).map_err(|source| SnpmError::WriteFile { path: dest, source })?;
 
     Ok(())
+}
+
+fn sanitize_bin_name(name: &str) -> String {
+    name.rsplit('/').next().unwrap_or(name).to_string()
 }
 
 fn copy_dir(source: &Path, dest: &Path) -> Result<()> {

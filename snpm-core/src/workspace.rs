@@ -13,8 +13,16 @@ pub struct WorkspaceConfig {
     pub catalogs: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(default, rename = "onlyBuiltDependencies")]
     pub only_built_dependencies: Vec<String>,
-    #[serde(default, rename = "ignoreBuiltDependencies")]
+    #[serde(default, rename = "ignoredBuiltDependencies")]
     pub ignored_built_dependencies: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SnpmCatalogFile {
+    #[serde(default)]
+    pub catalog: BTreeMap<String, String>,
+    #[serde(default)]
+    pub catalogs: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Debug)]
@@ -59,13 +67,15 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
     };
 
     let root = dir.to_path_buf();
-    let cfg = read_config(&path)?;
+    let mut cfg = read_config(&path)?;
+    merge_snpm_catalog(&root, &mut cfg)?;
     let projects = load_projects(&root, &cfg)?;
-    Ok(Some(Workspace {
+    Ok(Workspace {
         root,
         projects,
         config: cfg,
-    }))
+    }
+    .into())
 }
 
 fn read_config(path: &Path) -> Result<WorkspaceConfig> {
@@ -81,6 +91,41 @@ fn read_config(path: &Path) -> Result<WorkspaceConfig> {
         })?;
 
     Ok(cfg)
+}
+
+fn merge_snpm_catalog(root: &Path, cfg: &mut WorkspaceConfig) -> Result<()> {
+    let path = root.join("snpm-catalog.yaml");
+    if !path.is_file() {
+        return Ok(());
+    }
+
+    let data = fs::read_to_string(&path).map_err(|source| SnpmError::ReadFile {
+        path: path.clone(),
+        source,
+    })?;
+
+    let file: SnpmCatalogFile =
+        serde_yaml::from_str(&data).map_err(|err| SnpmError::WorkspaceConfig {
+            path: path.clone(),
+            reason: err.to_string(),
+        })?;
+
+    for (name, range) in file.catalog.iter() {
+        cfg.catalog.entry(name.clone()).or_insert(range.clone());
+    }
+
+    for (catalog_name, entries) in file.catalogs.iter() {
+        let catalog = cfg
+            .catalogs
+            .entry(catalog_name.clone())
+            .or_insert_with(BTreeMap::new);
+
+        for (name, range) in entries.iter() {
+            catalog.entry(name.clone()).or_insert(range.clone());
+        }
+    }
+
+    Ok(())
 }
 
 fn load_projects(root: &Path, cfg: &WorkspaceConfig) -> Result<Vec<Project>> {

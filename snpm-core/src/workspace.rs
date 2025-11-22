@@ -34,6 +34,12 @@ impl Workspace {
 
         Ok(None)
     }
+
+    pub fn project_by_name(&self, name: &str) -> Option<&Project> {
+        self.projects
+            .iter()
+            .find(|project| project.manifest.name.as_deref() == Some(name))
+    }
 }
 
 fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {

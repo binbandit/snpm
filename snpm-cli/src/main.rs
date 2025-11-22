@@ -1,6 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use snpm_core::{Project, SnpmConfig, Workspace, operations};
+use snpm_core::{
+    Project, SnpmConfig, Workspace,
+    operations::{self, InstallOptions},
+};
 use std::env;
 use tracing_subscriber::EnvFilter;
 
@@ -49,16 +52,42 @@ async fn main() -> Result<()> {
             };
             operations::install(&config, &project, options).await?;
         }
-        Command::Add { dev, packages } => {
+        Command::Add {
+            dev,
+            workspace: target,
+            packages,
+        } => {
             let cwd = env::current_dir()?;
-            let project = Project::discover(&cwd)?;
-            let options = operations::InstallOptions {
-                requested: packages,
-                dev,
-                include_dev: true,
-                frozen_lockfile: false,
-            };
-            operations::install(&config, &project, options).await?;
+
+            if let Some(workspace_name) = target {
+                let workspace = Workspace::discover(&cwd)?
+                    .ok_or_else(|| anyhow::anyhow!("snpm add -w used outside a workspace"))?;
+
+                let project = workspace
+                    .projects
+                    .iter()
+                    .find(|p| p.manifest.name.as_deref() == Some(workspace_name.as_str()))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(format!("workspace project {workspace_name} not found"))
+                    })?;
+
+                let options = operations::InstallOptions {
+                    requested: packages,
+                    dev,
+                    include_dev: true,
+                    frozen_lockfile: false,
+                };
+                operations::install(&config, project, options).await?;
+            } else {
+                let project = Project::discover(&cwd)?;
+                let options = InstallOptions {
+                    requested: packages,
+                    dev,
+                    include_dev: true,
+                    frozen_lockfile: false,
+                };
+                operations::install(&config, &project, options).await?;
+            }
         }
         Command::Remove { packages } => {
             let cwd = env::current_dir()?;

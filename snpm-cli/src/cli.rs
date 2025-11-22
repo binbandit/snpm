@@ -20,6 +20,9 @@ pub enum Command {
         #[arg(short = 'D', long = "dev")]
         dev: bool,
         packages: Vec<String>,
+        /// Target a specific workspace broject by its package name
+        #[arg(short = 'w', long = "workspace")]
+        workspace: Option<String>,
     },
     Remove {
         packages: Vec<String>,

@@ -12,7 +12,15 @@ pub struct RegistryVersion {
     pub version: String,
     #[serde(default)]
     pub dependencies: BTreeMap<String, String>,
+    #[serde(default, rename = "optionalDependencies")]
+    pub optional_dependencies: BTreeMap<String, String>,
     pub dist: RegistryDist,
+
+    #[serde(default)]
+    pub os: Vec<String>,
+
+    #[serde(default)]
+    pub cpu: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

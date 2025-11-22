@@ -13,7 +13,7 @@ pub enum Command {
         #[arg(long)]
         production: bool,
         packages: Vec<String>,
-        #[arg(long = "frozen-lockfile")]
+        #[arg(long = "frozen-lockfile", alias = "immutable")]
         frozen_lockfile: bool,
     },
     Add {

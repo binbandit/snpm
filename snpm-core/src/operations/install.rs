@@ -1,9 +1,10 @@
 use crate::lockfile;
 use crate::resolve::ResolutionGraph;
-use crate::{Project, Result, SnpmConfig, linker, resolve, store};
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, store};
 use futures::future::join_all;
 use reqwest::Client;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
@@ -20,21 +21,29 @@ pub async fn install(
 ) -> Result<()> {
     let additions = parse_requested(&options.requested);
 
-    let mut deps_only = project.manifest.dependencies.clone();
-    let mut full_root = deps_only.clone();
+    let workspace = Workspace::discover(&project.root)?;
 
-    for (name, range) in project.manifest.dev_dependencies.iter() {
-        full_root.entry(name.clone()).or_insert(range.clone());
-        if options.include_dev {
-            deps_only.entry(name.clone()).or_insert(range.clone());
+    let mut local_deps = BTreeSet::new();
+    let mut local_dev_deps = BTreeSet::new();
+
+    let deps = apply_specs(
+        &project.manifest.dependencies,
+        workspace.as_ref(),
+        &mut local_deps,
+    )?;
+    let dev_deps = apply_specs(
+        &project.manifest.dev_dependencies,
+        workspace.as_ref(),
+        &mut local_dev_deps,
+    )?;
+
+    let mut manifest_root = deps.clone();
+
+    if options.include_dev {
+        for (name, range) in dev_deps.iter() {
+            manifest_root.entry(name.clone()).or_insert(range.clone());
         }
     }
-
-    let manifest_root = if options.include_dev {
-        full_root.clone()
-    } else {
-        deps_only.clone()
-    };
 
     let mut root_deps = manifest_root.clone();
 
@@ -46,14 +55,14 @@ pub async fn install(
 
     let graph = if options.frozen_lockfile {
         if !lockfile_path.is_file() {
-            return Err(crate::SnpmError::Lockfile {
+            return Err(SnpmError::Lockfile {
                 path: lockfile_path.clone(),
-                reason: "lockfile is required when using frozen-lockfile".into(),
+                reason: "frozen-lockfile requested but snpm-lock.yaml is missing".into(),
             });
         }
 
         if !additions.is_empty() {
-            return Err(crate::SnpmError::Lockfile {
+            return Err(SnpmError::Lockfile {
                 path: lockfile_path.clone(),
                 reason: "cannot add packages when using frozen-lockfile".into(),
             });
@@ -66,19 +75,21 @@ pub async fn install(
             lock_requested.insert(name.clone(), dep.requested.clone());
         }
 
-        if lock_requested != full_root {
-            return Err(crate::SnpmError::Lockfile {
+        if lock_requested != manifest_root {
+            return Err(SnpmError::Lockfile {
                 path: lockfile_path.clone(),
-                reason: "manifest dependencies do not match lockfile in frozen-lockfile mode"
-                    .into(),
+                reason:
+                    "manifest dependencies do not match snpm-lock.yaml when using frozen-lockfile"
+                        .into(),
             });
         }
 
         lockfile::to_graph(&existing)
     } else {
-        let use_lockfile = options.include_dev && additions.is_empty() && lockfile_path.is_file();
+        let can_reuse_lockfile =
+            options.include_dev && additions.is_empty() && lockfile_path.is_file();
 
-        if use_lockfile {
+        if can_reuse_lockfile {
             let existing = lockfile::read(&lockfile_path)?;
             let mut lock_requested = BTreeMap::new();
 
@@ -105,6 +116,13 @@ pub async fn install(
     let store_paths = materialize_store(config, &graph).await?;
     write_manifest(project, &graph, &additions, options.dev)?;
     linker::link(project, &graph, &store_paths, options.include_dev)?;
+    link_local_workspace_deps(
+        project,
+        workspace.as_ref(),
+        &local_deps,
+        &local_dev_deps,
+        options.include_dev,
+    )?;
 
     Ok(())
 }
@@ -228,4 +246,132 @@ fn write_manifest(
     manifest.dev_dependencies = new_dev_dependencies;
 
     project.write_manifest(&manifest)
+}
+
+fn apply_specs(
+    specs: &BTreeMap<String, String>,
+    workspace: Option<&Workspace>,
+    local_set: &mut BTreeSet<String>,
+) -> Result<BTreeMap<String, String>> {
+    let mut result = BTreeMap::new();
+
+    for (name, value) in specs.iter() {
+        if value.starts_with("workspace:") {
+            local_set.insert(name.clone());
+            continue;
+        }
+
+        let resolved = if value.starts_with("catalog:") {
+            let ws = workspace.ok_or_else(|| SnpmError::WorkspaceConfig {
+                path: std::path::PathBuf::from("."),
+                reason: "catalog protocol used but no workspace configuration found".into(),
+            })?;
+            resolve_catalog_spec(name, value, ws)?
+        } else {
+            value.clone()
+        };
+
+        result.insert(name.clone(), resolved);
+    }
+
+    Ok(result)
+}
+
+fn resolve_catalog_spec(name: &str, value: &str, workspace: &Workspace) -> Result<String> {
+    let selector = &value["catalog:".len()..];
+    let cfg = &workspace.config;
+
+    let range_opt = if selector.is_empty() || selector == "default" {
+        cfg.catalog.get(name)
+    } else {
+        cfg.catalogs
+            .get(selector)
+            .and_then(|catalog| catalog.get(name))
+    };
+
+    match range_opt {
+        Some(range) => Ok(range.clone()),
+        None => Err(SnpmError::WorkspaceConfig {
+            path: workspace.root.clone(),
+            reason: format!("no catalog entry found for dependency {name} and selector {value}"),
+        }),
+    }
+}
+
+fn link_local_workspace_deps(
+    project: &Project,
+    workspace: Option<&Workspace>,
+    local_deps: &BTreeSet<String>,
+    local_dev_deps: &BTreeSet<String>,
+    include_dev: bool,
+) -> Result<()> {
+    if local_deps.is_empty() && local_dev_deps.is_empty() {
+        return Ok(());
+    }
+
+    let ws = match workspace {
+        Some(ws) => ws,
+        None => {
+            return Err(SnpmError::WorkspaceConfig {
+                path: project.root.clone(),
+                reason: "workspace: protocol used but no workspace configuration found".into(),
+            });
+        }
+    };
+
+    let node_modules = project.root.join("node_modules");
+
+    for name in local_deps.iter().chain(local_dev_deps.iter()) {
+        let only_dev = local_dev_deps.contains(name) && !local_deps.contains(name);
+        if !include_dev && only_dev {
+            continue;
+        }
+
+        let source_project = ws
+            .projects
+            .iter()
+            .find(|p| p.manifest.name.as_deref() == Some(name.as_str()))
+            .ok_or_else(|| SnpmError::WorkspaceConfig {
+                path: ws.root.clone(),
+                reason: format!("workspace dependency {name} not found in workspace projects"),
+            })?;
+
+        let dest = node_modules.join(name);
+
+        if dest.exists() {
+            if dest.is_dir() {
+                fs::remove_dir_all(&dest)
+            } else {
+                fs::remove_file(&dest)
+            }
+            .map_err(|source| SnpmError::WriteFile {
+                path: dest.clone(),
+                source,
+            })?;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            if let Err(source) = symlink(&source_project.root, &dest) {
+                return Err(SnpmError::WriteFile {
+                    path: dest.clone(),
+                    source,
+                });
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::symlink_dir;
+            if let Err(source) = symlink_dir(&source_project.root, &dest) {
+                return Err(SnpmError::WriteFile {
+                    path: dest.clone(),
+                    source,
+                });
+            }
+        }
+    }
+
+    Ok(())
 }

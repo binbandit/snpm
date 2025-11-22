@@ -38,9 +38,10 @@ pub struct ResolutionGraph {
 pub async fn resolve(root_deps: &BTreeMap<String, String>) -> Result<ResolutionGraph> {
     let mut packages = BTreeMap::new();
     let mut root_dependencies = BTreeMap::new();
+    let mut package_cache = BTreeMap::new();
 
     for (name, range) in root_deps {
-        let id = resolve_package(name, range, &mut packages).await?;
+        let id = resolve_package(name, range, &mut packages, &mut package_cache).await?;
         let entry = RootDependency {
             requested: range.clone(),
             resolved: id,
@@ -61,8 +62,16 @@ async fn resolve_package(
     name: &str,
     range: &str,
     packages: &mut BTreeMap<PackageId, ResolvedPackage>,
+    package_cache: &mut BTreeMap<String, RegistryPackage>,
 ) -> Result<PackageId> {
-    let package = fetch_package(name).await?;
+    let package = if let Some(cached) = package_cache.get(name) {
+        cached.clone()
+    } else {
+        let fetched = fetch_package(name).await?;
+        package_cache.insert(name.to_string(), fetched.clone());
+        fetched
+    };
+
     let version_meta = select_version(name, range, &package)?;
     let id = PackageId {
         name: name.to_string(),
@@ -76,7 +85,7 @@ async fn resolve_package(
     let mut dependencies = BTreeMap::new();
 
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
-        let dep_id = resolve_package(dep_name, dep_range, packages).await?;
+        let dep_id = resolve_package(dep_name, dep_range, packages, package_cache).await?;
         dependencies.insert(dep_name.clone(), dep_id);
     }
 

@@ -73,6 +73,15 @@ async fn resolve_package(
     };
 
     let version_meta = select_version(name, range, &package)?;
+
+    if !is_compatible(&version_meta.os, &version_meta.cpu) {
+        return Err(SnpmError::ResolutionFailed {
+            name: name.to_string(),
+            range: range.to_string(),
+            reason: "package is not compatible with current OS/CPU".to_string(),
+        });
+    }
+
     let id = PackageId {
         name: name.to_string(),
         version: version_meta.version.clone(),
@@ -84,9 +93,17 @@ async fn resolve_package(
 
     let mut dependencies = BTreeMap::new();
 
+    // Regular dependencies
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
         let dep_id = resolve_package(dep_name, dep_range, packages, package_cache).await?;
         dependencies.insert(dep_name.clone(), dep_id);
+    }
+
+    // Optional dependencies
+    for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
+        if let Ok(dep_id) = resolve_package(dep_name, dep_range, packages, package_cache).await {
+            dependencies.insert(dep_name.clone(), dep_id);
+        }
     }
 
     let resolved = ResolvedPackage {
@@ -171,4 +188,76 @@ fn matches_any_range(ranges: &[VersionReq], version: &Version) -> bool {
     }
 
     false
+}
+
+fn is_compatible(os: &[String], cpu: &[String]) -> bool {
+    matches_os(os) && matches_cpu(cpu)
+}
+
+fn matches_os(list: &[String]) -> bool {
+    if list.is_empty() {
+        return true;
+    }
+
+    let current = current_os();
+    let mut has_positive = false;
+    let mut allowed = false;
+
+    for entry in list {
+        if let Some(negated) = entry.strip_prefix('!') {
+            if negated == current {
+                return false;
+            }
+        } else {
+            has_positive = true;
+            if entry == current {
+                allowed = true;
+            }
+        }
+    }
+
+    if has_positive { allowed } else { true }
+}
+
+fn matches_cpu(list: &[String]) -> bool {
+    if list.is_empty() {
+        return true;
+    }
+
+    let current = current_cpu();
+    let mut has_positive = false;
+    let mut allowed = false;
+
+    for entry in list {
+        if let Some(negated) = entry.strip_prefix('!') {
+            if negated == current {
+                return false;
+            }
+        } else {
+            has_positive = true;
+            if entry == current {
+                allowed = true;
+            }
+        }
+    }
+
+    if has_positive { allowed } else { true }
+}
+
+fn current_os() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        other => other,
+    }
+}
+
+fn current_cpu() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "x86" => "ia32",
+        "aarch64" => "arm64",
+        "arm" => "arm",
+        other => other,
+    }
 }

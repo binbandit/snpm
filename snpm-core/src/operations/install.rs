@@ -5,6 +5,7 @@ use futures::future::join_all;
 use reqwest::Client;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
@@ -37,13 +38,11 @@ pub async fn install(
         &mut local_dev_deps,
     )?;
 
-    let mut manifest_root = deps.clone();
-
-    if options.include_dev {
-        for (name, range) in dev_deps.iter() {
-            manifest_root.entry(name.clone()).or_insert(range.clone());
-        }
-    }
+    let manifest_root = if let Some(ws) = workspace.as_ref() {
+        collect_workspace_root_deps(ws, options.include_dev)?
+    } else {
+        build_project_manifest_root(&deps, &dev_deps, options.include_dev)
+    };
 
     let mut root_deps = manifest_root.clone();
 
@@ -51,7 +50,10 @@ pub async fn install(
         root_deps.insert(name.clone(), range.clone());
     }
 
-    let lockfile_path = project.root.join("snpm-lock.yaml");
+    let lockfile_path = workspace
+        .as_ref()
+        .map(|w| w.root.join("snpm-lock.yaml"))
+        .unwrap_or_else(|| project.root.join("snpm-lock.yaml"));
 
     let graph = if options.frozen_lockfile {
         if !lockfile_path.is_file() {
@@ -189,7 +191,7 @@ fn parse_spec(spec: &str) -> (String, String) {
 async fn materialize_store(
     config: &SnpmConfig,
     graph: &ResolutionGraph,
-) -> Result<BTreeMap<crate::resolve::PackageId, std::path::PathBuf>> {
+) -> Result<BTreeMap<crate::resolve::PackageId, PathBuf>> {
     let client = Client::new();
     let mut futures = Vec::new();
 
@@ -200,7 +202,7 @@ async fn materialize_store(
         let future = async move {
             let path = store::ensure_package(&config, &package, &client).await?;
             let id = package.id.clone();
-            Ok::<(crate::resolve::PackageId, std::path::PathBuf), crate::SnpmError>((id, path))
+            Ok::<(crate::resolve::PackageId, PathBuf), crate::SnpmError>((id, path))
         };
 
         futures.push(future);
@@ -248,6 +250,75 @@ fn write_manifest(
     project.write_manifest(&manifest)
 }
 
+fn build_project_manifest_root(
+    deps: &BTreeMap<String, String>,
+    dev_deps: &BTreeMap<String, String>,
+    include_dev: bool,
+) -> BTreeMap<String, String> {
+    let mut root = deps.clone();
+
+    if include_dev {
+        for (name, range) in dev_deps.iter() {
+            root.entry(name.clone()).or_insert(range.clone());
+        }
+    }
+
+    root
+}
+
+fn collect_workspace_root_deps(
+    workspace: &Workspace,
+    include_dev: bool,
+) -> Result<BTreeMap<String, String>> {
+    let mut combined = BTreeMap::new();
+
+    for member in workspace.projects.iter() {
+        let mut local = BTreeSet::new();
+        let deps = apply_specs(&member.manifest.dependencies, Some(workspace), &mut local)?;
+
+        for (name, range) in deps.iter() {
+            insert_workspace_root_dep(&mut combined, &workspace.root, name, range)?;
+        }
+
+        if include_dev {
+            let mut local_dev = BTreeSet::new();
+            let dev_deps = apply_specs(
+                &member.manifest.dev_dependencies,
+                Some(workspace),
+                &mut local_dev,
+            )?;
+
+            for (name, range) in dev_deps.iter() {
+                insert_workspace_root_dep(&mut combined, &workspace.root, name, range)?;
+            }
+        }
+    }
+
+    Ok(combined)
+}
+
+fn insert_workspace_root_dep(
+    combined: &mut BTreeMap<String, String>,
+    root: &Path,
+    name: &str,
+    range: &str,
+) -> Result<()> {
+    if let Some(existing) = combined.get(name) {
+        if existing != range {
+            return Err(SnpmError::WorkspaceConfig {
+                path: root.to_path_buf(),
+                reason: format!(
+                    "dependency {name} has conflicting ranges {existing} and {range} across workspace projects"
+                ),
+            });
+        }
+    } else {
+        combined.insert(name.to_string(), range.to_string());
+    }
+
+    Ok(())
+}
+
 fn apply_specs(
     specs: &BTreeMap<String, String>,
     workspace: Option<&Workspace>,
@@ -263,7 +334,7 @@ fn apply_specs(
 
         let resolved = if value.starts_with("catalog:") {
             let ws = workspace.ok_or_else(|| SnpmError::WorkspaceConfig {
-                path: std::path::PathBuf::from("."),
+                path: PathBuf::from("."),
                 reason: "catalog protocol used but no workspace configuration found".into(),
             })?;
             resolve_catalog_spec(name, value, ws)?
@@ -353,23 +424,19 @@ fn link_local_workspace_deps(
         #[cfg(unix)]
         {
             use std::os::unix::fs::symlink;
-            if let Err(source) = symlink(&source_project.root, &dest) {
-                return Err(SnpmError::WriteFile {
-                    path: dest.clone(),
-                    source,
-                });
-            }
+            symlink(&source_project.root, &dest).map_err(|source| SnpmError::WriteFile {
+                path: dest.clone(),
+                source,
+            })?;
         }
 
         #[cfg(windows)]
         {
             use std::os::windows::fs::symlink_dir;
-            if let Err(source) = symlink_dir(&source_project.root, &dest) {
-                return Err(SnpmError::WriteFile {
-                    path: dest.clone(),
-                    source,
-                });
-            }
+            symlink_dir(&source_project.root, &dest).map_err(|source| SnpmError::WriteFile {
+                path: dest.clone(),
+                source,
+            })?;
         }
     }
 

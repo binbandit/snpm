@@ -12,9 +12,9 @@ pub enum Command {
     Install {
         #[arg(long)]
         production: bool,
-        packages: Vec<String>,
         #[arg(long = "frozen-lockfile", alias = "immutable")]
         frozen_lockfile: bool,
+        packages: Vec<String>,
     },
     Add {
         #[arg(short = 'D', long = "dev")]

@@ -1,17 +1,23 @@
 use crate::{Project, Result, SnpmError};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct WorkspaceConfig {
     pub packages: Vec<String>,
+    #[serde(default)]
+    pub catalog: BTreeMap<String, String>,
+    #[serde(default)]
+    pub catalogs: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Debug)]
 pub struct Workspace {
     pub root: PathBuf,
     pub projects: Vec<Project>,
+    pub config: WorkspaceConfig,
 }
 
 impl Workspace {
@@ -45,7 +51,11 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
     let root = dir.to_path_buf();
     let cfg = read_config(&path)?;
     let projects = load_projects(&root, &cfg)?;
-    Ok(Some(Workspace { root, projects }))
+    Ok(Some(Workspace {
+        root,
+        projects,
+        config: cfg,
+    }))
 }
 
 fn read_config(path: &Path) -> Result<WorkspaceConfig> {

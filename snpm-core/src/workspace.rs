@@ -11,6 +11,10 @@ pub struct WorkspaceConfig {
     pub catalog: BTreeMap<String, String>,
     #[serde(default)]
     pub catalogs: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default, rename = "onlyBuiltDependencies")]
+    pub only_built_dependencies: Vec<String>,
+    #[serde(default, rename = "ignoreBuiltDependencies")]
+    pub ignored_built_dependencies: Vec<String>,
 }
 
 #[derive(Debug)]

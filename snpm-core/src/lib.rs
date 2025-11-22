@@ -1,5 +1,6 @@
 pub mod config;
 pub mod error;
+pub mod lifecycle;
 pub mod linker;
 pub mod lockfile;
 pub mod operations;

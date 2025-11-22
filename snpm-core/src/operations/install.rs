@@ -1,3 +1,4 @@
+use crate::lifecycle;
 use crate::lockfile;
 use crate::resolve::ResolutionGraph;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, store};
@@ -125,6 +126,7 @@ pub async fn install(
         &local_dev_deps,
         options.include_dev,
     )?;
+    lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?;
 
     Ok(())
 }

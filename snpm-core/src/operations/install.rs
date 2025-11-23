@@ -1,5 +1,6 @@
 use crate::lifecycle;
 use crate::lockfile;
+use crate::registry::RegistryProtocol;
 use crate::resolve::ResolutionGraph;
 use crate::workspace::CatalogConfig;
 use crate::workspace::OverridesConfig;
@@ -26,12 +27,21 @@ pub struct OutdatedEntry {
     pub wanted: String,
 }
 
+#[derive(Debug, Clone)]
+struct ParsedSpec {
+    name: String,
+    range: String,
+    protocol: Option<String>,
+}
+
 pub async fn install(
     config: &SnpmConfig,
     project: &mut Project,
     options: InstallOptions,
 ) -> Result<()> {
-    let additions = parse_requested(&options.requested);
+    let (requested_ranges, requested_protocols) = parse_requested_with_protocol(&options.requested);
+
+    let additions = requested_ranges;
 
     let workspace = Workspace::discover(&project.root)?;
 
@@ -41,17 +51,23 @@ pub async fn install(
         None
     };
 
-    let overrides = if let Some(ref ws) = workspace {
-        match OverridesConfig::load(&ws.root)? {
-            Some(cfg) => cfg.overrides,
-            None => BTreeMap::new(),
-        }
+    let overrides_from_file = if let Some(ws) = workspace.as_ref() {
+        OverridesConfig::load(&ws.root)?
+            .map(|c| c.overrides)
+            .unwrap_or_default()
     } else {
-        match OverridesConfig::load(&project.root)? {
-            Some(cfg) => cfg.overrides,
-            None => BTreeMap::new(),
-        }
+        OverridesConfig::load(&project.root)?
+            .map(|c| c.overrides)
+            .unwrap_or_default()
     };
+
+    let mut overrides = overrides_from_file;
+
+    if let Some(pnpm) = &project.manifest.pnpm {
+        for (name, range) in pnpm.overrides.iter() {
+            overrides.entry(name.clone()).or_insert(range.clone());
+        }
+    }
 
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
@@ -77,6 +93,22 @@ pub async fn install(
 
     for (name, range) in additions.iter() {
         root_deps.insert(name.clone(), range.clone());
+    }
+
+    let mut root_protocols = BTreeMap::new();
+
+    for name in manifest_root.keys() {
+        root_protocols.insert(name.clone(), RegistryProtocol::Npm);
+    }
+
+    for name in additions.keys() {
+        if let Some(proto) = requested_protocols.get(name) {
+            root_protocols.insert(name.clone(), proto.clone());
+        } else {
+            root_protocols
+                .entry(name.clone())
+                .or_insert(RegistryProtocol::Npm);
+        }
     }
 
     let overrides_ref = if overrides.is_empty() {
@@ -138,10 +170,12 @@ pub async fn install(
                 lockfile::to_graph(&existing)
             } else {
                 let graph = resolve::resolve(
+                    config,
                     &root_deps,
-                    overrides_ref,
+                    &root_protocols,
                     config.min_package_age_days,
                     options.force,
+                    Some(&overrides),
                 )
                 .await?;
                 lockfile::write(&lockfile_path, &graph)?;
@@ -149,10 +183,12 @@ pub async fn install(
             }
         } else {
             let graph = resolve::resolve(
+                config,
                 &root_deps,
-                overrides_ref,
+                &root_protocols,
                 config.min_package_age_days,
                 options.force,
+                Some(&overrides),
             )
             .await?;
             if options.include_dev {
@@ -222,11 +258,59 @@ fn parse_requested(specs: &[String]) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
 
     for spec in specs {
-        let (name, range) = parse_spec(spec);
-        result.insert(name, range);
+        let parsed = parse_requested_spec(spec);
+        result.insert(parsed.name, parsed.range);
     }
 
     result
+}
+
+fn parse_requested_spec(spec: &str) -> ParsedSpec {
+    let mut protocol = None;
+    let mut rest = spec;
+
+    if let Some(idx) = spec.find(':') {
+        let (prefix, after) = spec.split_at(idx);
+        if prefix == "npm" || prefix == "jsr" {
+            protocol = Some(prefix.to_string());
+            rest = &after[1..];
+        }
+    }
+
+    if rest.starts_with('@') {
+        let without_at = &rest[1..];
+        if let Some(idx) = without_at.rfind('@') {
+            let (scope_and_name, range) = without_at.split_at(idx);
+            let name = format!("@{}", scope_and_name);
+            let requested = range.trim_start_matches('@').to_string();
+            return ParsedSpec {
+                name,
+                range: requested,
+                protocol,
+            };
+        } else {
+            return ParsedSpec {
+                name: rest.to_string(),
+                range: "latest".to_string(),
+                protocol,
+            };
+        }
+    }
+
+    if let Some(idx) = rest.rfind('@') {
+        let (name, range) = rest.split_at(idx);
+        ParsedSpec {
+            name: name.to_string(),
+            range: range.trim_start_matches('@').to_string(),
+            protocol,
+        }
+    } else {
+        ParsedSpec {
+            name: rest.to_string(),
+            range: "latest".to_string(),
+            protocol,
+        }
+    }
 }
 
 fn parse_spec(spec: &str) -> (String, String) {
@@ -565,23 +649,24 @@ pub async fn outdated(
         &mut local_dev_deps,
     )?;
 
-    let manifest_root = if let Some(ws) = workspace.as_ref() {
+    let root_deps = if let Some(ws) = workspace.as_ref() {
         collect_workspace_root_deps(ws, include_dev)?
     } else {
         build_project_manifest_root(&deps, &dev_deps, include_dev)
     };
 
-    let overrides_ref = if overrides.is_empty() {
-        None
-    } else {
-        Some(&overrides)
-    };
+    let mut root_protocols = BTreeMap::new();
+    for name in root_deps.keys() {
+        root_protocols.insert(name.clone(), RegistryProtocol::Npm);
+    }
 
     let graph = resolve::resolve(
-        &manifest_root,
-        overrides_ref,
+        config,
+        &root_deps,
+        &root_protocols,
         config.min_package_age_days,
         false,
+        Some(&overrides),
     )
     .await?;
 
@@ -635,4 +720,26 @@ pub async fn outdated(
     }
 
     Ok(result)
+}
+
+fn parse_requested_with_protocol(
+    specs: &[String],
+) -> (BTreeMap<String, String>, BTreeMap<String, RegistryProtocol>) {
+    let mut ranges = BTreeMap::new();
+    let mut protocols = BTreeMap::new();
+
+    for spec in specs {
+        let parsed = parse_requested_spec(spec);
+        ranges.insert(parsed.name.clone(), parsed.range.clone());
+
+        if let Some(proto) = parsed.protocol.as_deref() {
+            let protocol = match proto {
+                "jsr" => RegistryProtocol::Jsr,
+                _ => RegistryProtocol::Npm,
+            };
+            protocols.insert(parsed.name.clone(), protocol);
+        }
+    }
+
+    (ranges, protocols)
 }

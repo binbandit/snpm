@@ -104,7 +104,7 @@ pub async fn install(
     let mut root_protocols = BTreeMap::new();
 
     for name in manifest_root.keys() {
-        root_protocols.insert(name.clone(), RegistryProtocol::Npm);
+        root_protocols.insert(name.clone(), RegistryProtocol::npm());
     }
 
     for name in additions.keys() {
@@ -113,7 +113,7 @@ pub async fn install(
         } else {
             root_protocols
                 .entry(name.clone())
-                .or_insert(RegistryProtocol::Npm);
+                .or_insert_with(RegistryProtocol::npm);
         }
     }
 
@@ -260,7 +260,7 @@ fn parse_requested_spec(spec: &str) -> ParsedSpec {
 
     if let Some(idx) = spec.find(':') {
         let (prefix, after) = spec.split_at(idx);
-        if prefix == "npm" || prefix == "jsr" {
+        if !prefix.is_empty() {
             protocol = Some(prefix.to_string());
             rest = &after[1..];
         }
@@ -646,7 +646,7 @@ pub async fn outdated(
 
     let mut root_protocols = BTreeMap::new();
     for name in root_deps.keys() {
-        root_protocols.insert(name.clone(), RegistryProtocol::Npm);
+        root_protocols.insert(name.clone(), RegistryProtocol::npm());
     }
 
     let graph = resolve::resolve(
@@ -723,8 +723,9 @@ fn parse_requested_with_protocol(
 
         if let Some(proto) = parsed.protocol.as_deref() {
             let protocol = match proto {
-                "jsr" => RegistryProtocol::Jsr,
-                _ => RegistryProtocol::Npm,
+                "npm" => RegistryProtocol::npm(),
+                "jsr" => RegistryProtocol::jsr(),
+                other => RegistryProtocol::custom(other),
             };
             protocols.insert(parsed.name.clone(), protocol);
         }

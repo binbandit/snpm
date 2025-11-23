@@ -48,12 +48,10 @@ pub async fn resolve(
     let mut packages = BTreeMap::new();
     let mut root_dependencies = BTreeMap::new();
     let mut package_cache = BTreeMap::new();
+    let default_protocol = RegistryProtocol::npm();
 
     for (name, range) in root_deps {
-        let protocol = root_protocols
-            .get(name)
-            .cloned()
-            .unwrap_or(RegistryProtocol::Npm);
+        let protocol = root_protocols.get(name).unwrap_or(&default_protocol);
 
         let id = resolve_package(
             config,
@@ -87,7 +85,7 @@ async fn resolve_package(
     config: &SnpmConfig,
     name: &str,
     range: &str,
-    protocol: RegistryProtocol,
+    protocol: &RegistryProtocol,
     packages: &mut BTreeMap<PackageId, ResolvedPackage>,
     package_cache: &mut BTreeMap<String, RegistryPackage>,
     min_age_days: Option<u32>,
@@ -99,7 +97,7 @@ async fn resolve_package(
     let package = if let Some(cached) = package_cache.get(&cache_key) {
         cached.clone()
     } else {
-        let fetched = fetch_package(config, name, protocol.clone()).await?;
+        let fetched = fetch_package(config, name, protocol).await?;
         package_cache.insert(cache_key.clone(), fetched.clone());
         fetched
     };
@@ -137,7 +135,7 @@ async fn resolve_package(
             config,
             dep_name,
             dep_range,
-            protocol.clone(),
+            protocol,
             packages,
             package_cache,
             min_age_days,
@@ -154,7 +152,7 @@ async fn resolve_package(
             config,
             dep_name,
             dep_range,
-            protocol.clone(),
+            protocol,
             packages,
             package_cache,
             min_age_days,

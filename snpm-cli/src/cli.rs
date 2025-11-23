@@ -36,4 +36,15 @@ pub enum Command {
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
+    Init,
+    Upgrade {
+        #[arg(long)]
+        production: bool,
+        #[arg(short = 'f', long = "force")]
+        force: bool,
+    },
+    Outdated {
+        #[arg(long)]
+        production: bool,
+    },
 }

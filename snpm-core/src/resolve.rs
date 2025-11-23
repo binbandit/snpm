@@ -39,6 +39,7 @@ pub struct ResolutionGraph {
 
 pub async fn resolve(
     root_deps: &BTreeMap<String, String>,
+    overrides: Option<&BTreeMap<String, String>>,
     min_age_days: Option<u32>,
     force: bool,
 ) -> Result<ResolutionGraph> {
@@ -52,6 +53,7 @@ pub async fn resolve(
             range,
             &mut packages,
             &mut package_cache,
+            overrides,
             min_age_days,
             force,
         )
@@ -77,6 +79,7 @@ async fn resolve_package(
     range: &str,
     packages: &mut BTreeMap<PackageId, ResolvedPackage>,
     package_cache: &mut BTreeMap<String, RegistryPackage>,
+    overrides: Option<&BTreeMap<String, String>>,
     min_age_days: Option<u32>,
     force: bool,
 ) -> Result<PackageId> {
@@ -88,7 +91,12 @@ async fn resolve_package(
         fetched
     };
 
-    let version_meta = select_version(name, range, &package, min_age_days, force)?;
+    let effective_range = overrides
+        .and_then(|map| map.get(name))
+        .map(|s| s.as_str())
+        .unwrap_or(range);
+
+    let version_meta = select_version(name, effective_range, &package, min_age_days, force)?;
 
     if !is_compatible(&version_meta.os, &version_meta.cpu) {
         return Err(SnpmError::ResolutionFailed {
@@ -116,6 +124,7 @@ async fn resolve_package(
             dep_range,
             packages,
             package_cache,
+            overrides,
             min_age_days,
             force,
         )
@@ -130,6 +139,7 @@ async fn resolve_package(
             dep_range,
             packages,
             package_cache,
+            overrides,
             min_age_days,
             force,
         )

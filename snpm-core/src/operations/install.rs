@@ -1,6 +1,7 @@
 use crate::lifecycle;
 use crate::lockfile;
 use crate::resolve::ResolutionGraph;
+use crate::workspace::CatalogConfig;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, store};
 use futures::future::join_all;
 use reqwest::Client;
@@ -14,6 +15,7 @@ pub struct InstallOptions {
     pub dev: bool,
     pub include_dev: bool,
     pub frozen_lockfile: bool,
+    pub force: bool,
 }
 
 pub async fn install(
@@ -24,6 +26,12 @@ pub async fn install(
     let additions = parse_requested(&options.requested);
 
     let workspace = Workspace::discover(&project.root)?;
+
+    let catalog = if workspace.is_none() {
+        CatalogConfig::load(&project.root)?
+    } else {
+        None
+    };
 
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
@@ -103,12 +111,15 @@ pub async fn install(
             if lock_requested == manifest_root {
                 lockfile::to_graph(&existing)
             } else {
-                let graph = resolve::resolve(&root_deps).await?;
+                let graph =
+                    resolve::resolve(&root_deps, config.min_package_age_days, options.force)
+                        .await?;
                 lockfile::write(&lockfile_path, &graph)?;
                 graph
             }
         } else {
-            let graph = resolve::resolve(&root_deps).await?;
+            let graph =
+                resolve::resolve(&root_deps, config.min_package_age_days, options.force).await?;
             if options.include_dev {
                 lockfile::write(&lockfile_path, &graph)?;
             }
@@ -117,7 +128,14 @@ pub async fn install(
     };
 
     let store_paths = materialize_store(config, &graph).await?;
-    write_manifest(project, &graph, &additions, options.dev)?;
+    write_manifest(
+        project,
+        &graph,
+        &additions,
+        options.dev,
+        workspace.as_ref(),
+        catalog.as_ref(),
+    )?;
     linker::link(project, &graph, &store_paths, options.include_dev)?;
     link_local_workspace_deps(
         project,
@@ -152,6 +170,7 @@ pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<Strin
         dev: false,
         include_dev: true,
         frozen_lockfile: false,
+        force: false,
     };
 
     install(config, project, options).await
@@ -226,6 +245,8 @@ fn write_manifest(
     graph: &ResolutionGraph,
     additions: &BTreeMap<String, String>,
     dev: bool,
+    workspace: Option<&Workspace>,
+    catalog: Option<&CatalogConfig>,
 ) -> Result<()> {
     if additions.is_empty() {
         return Ok(());
@@ -235,13 +256,36 @@ fn write_manifest(
     let mut new_dev_dependencies = project.manifest.dev_dependencies.clone();
 
     for (name, dep) in graph.root.dependencies.iter() {
-        if additions.contains_key(name) {
-            let range = format!("^{}", dep.resolved.version);
-            if dev {
-                new_dev_dependencies.insert(name.clone(), range);
-            } else {
-                new_dependencies.insert(name.clone(), range);
+        if !additions.contains_key(name) {
+            continue;
+        }
+
+        let mut use_catalog = false;
+
+        if let Some(ws) = workspace {
+            if ws.config.catalog.contains_key(name) {
+                use_catalog = true;
             }
+        }
+
+        if !use_catalog {
+            if let Some(cat) = catalog {
+                if cat.catalog.contains_key(name) {
+                    use_catalog = true;
+                }
+            }
+        }
+
+        let spec = if use_catalog {
+            "catalog:".to_string()
+        } else {
+            format!("^{}", dep.resolved.version)
+        };
+
+        if dev {
+            new_dev_dependencies.insert(name.clone(), spec);
+        } else {
+            new_dependencies.insert(name.clone(), spec);
         }
     }
 

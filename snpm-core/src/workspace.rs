@@ -18,11 +18,33 @@ pub struct WorkspaceConfig {
 }
 
 #[derive(Debug, Deserialize)]
-struct SnpmCatalogFile {
+pub struct CatalogConfig {
     #[serde(default)]
     pub catalog: BTreeMap<String, String>,
     #[serde(default)]
     pub catalogs: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+impl CatalogConfig {
+    pub fn load(root: &Path) -> Result<Option<Self>> {
+        let path = root.join("snpm-catalog.yaml");
+        if !path.is_file() {
+            return Ok(None);
+        }
+
+        let data = fs::read_to_string(&path).map_err(|source| SnpmError::ReadFile {
+            path: path.clone(),
+            source,
+        })?;
+
+        let config: Self =
+            serde_yaml::from_str(&data).map_err(|err| SnpmError::WorkspaceConfig {
+                path: path.clone(),
+                reason: err.to_string(),
+            })?;
+
+        Ok(Some(config))
+    }
 }
 
 #[derive(Debug)]
@@ -94,34 +116,20 @@ fn read_config(path: &Path) -> Result<WorkspaceConfig> {
 }
 
 fn merge_snpm_catalog(root: &Path, cfg: &mut WorkspaceConfig) -> Result<()> {
-    let path = root.join("snpm-catalog.yaml");
-    if !path.is_file() {
-        return Ok(());
-    }
+    if let Some(file) = CatalogConfig::load(root)? {
+        for (name, range) in file.catalog.iter() {
+            cfg.catalog.entry(name.clone()).or_insert(range.clone());
+        }
 
-    let data = fs::read_to_string(&path).map_err(|source| SnpmError::ReadFile {
-        path: path.clone(),
-        source,
-    })?;
+        for (catalog_name, entries) in file.catalogs.iter() {
+            let catalog = cfg
+                .catalogs
+                .entry(catalog_name.clone())
+                .or_insert_with(BTreeMap::new);
 
-    let file: SnpmCatalogFile =
-        serde_yaml::from_str(&data).map_err(|err| SnpmError::WorkspaceConfig {
-            path: path.clone(),
-            reason: err.to_string(),
-        })?;
-
-    for (name, range) in file.catalog.iter() {
-        cfg.catalog.entry(name.clone()).or_insert(range.clone());
-    }
-
-    for (catalog_name, entries) in file.catalogs.iter() {
-        let catalog = cfg
-            .catalogs
-            .entry(catalog_name.clone())
-            .or_insert_with(BTreeMap::new);
-
-        for (name, range) in entries.iter() {
-            catalog.entry(name.clone()).or_insert(range.clone());
+            for (name, range) in entries.iter() {
+                catalog.entry(name.clone()).or_insert(range.clone());
+            }
         }
     }
 

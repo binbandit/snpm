@@ -14,11 +14,15 @@ pub enum Command {
         production: bool,
         #[arg(long = "frozen-lockfile", alias = "immutable")]
         frozen_lockfile: bool,
+        #[arg(short = 'f', long = "force")]
+        force: bool,
         packages: Vec<String>,
     },
     Add {
         #[arg(short = 'D', long = "dev")]
         dev: bool,
+        #[arg(short = 'f', long = "force")]
+        force: bool,
         packages: Vec<String>,
         /// Target a specific workspace broject by its package name
         #[arg(short = 'w', long = "workspace")]

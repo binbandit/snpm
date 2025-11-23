@@ -3,6 +3,8 @@ use crate::{Result, SnpmError};
 use async_recursion::async_recursion;
 use semver::{Version, VersionReq};
 use std::collections::BTreeMap;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct PackageId {
@@ -35,13 +37,25 @@ pub struct ResolutionGraph {
     pub packages: BTreeMap<PackageId, ResolvedPackage>,
 }
 
-pub async fn resolve(root_deps: &BTreeMap<String, String>) -> Result<ResolutionGraph> {
+pub async fn resolve(
+    root_deps: &BTreeMap<String, String>,
+    min_age_days: Option<u32>,
+    force: bool,
+) -> Result<ResolutionGraph> {
     let mut packages = BTreeMap::new();
     let mut root_dependencies = BTreeMap::new();
     let mut package_cache = BTreeMap::new();
 
     for (name, range) in root_deps {
-        let id = resolve_package(name, range, &mut packages, &mut package_cache).await?;
+        let id = resolve_package(
+            name,
+            range,
+            &mut packages,
+            &mut package_cache,
+            min_age_days,
+            force,
+        )
+        .await?;
         let entry = RootDependency {
             requested: range.clone(),
             resolved: id,
@@ -63,6 +77,8 @@ async fn resolve_package(
     range: &str,
     packages: &mut BTreeMap<PackageId, ResolvedPackage>,
     package_cache: &mut BTreeMap<String, RegistryPackage>,
+    min_age_days: Option<u32>,
+    force: bool,
 ) -> Result<PackageId> {
     let package = if let Some(cached) = package_cache.get(name) {
         cached.clone()
@@ -72,7 +88,7 @@ async fn resolve_package(
         fetched
     };
 
-    let version_meta = select_version(name, range, &package)?;
+    let version_meta = select_version(name, range, &package, min_age_days, force)?;
 
     if !is_compatible(&version_meta.os, &version_meta.cpu) {
         return Err(SnpmError::ResolutionFailed {
@@ -95,13 +111,30 @@ async fn resolve_package(
 
     // Regular dependencies
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
-        let dep_id = resolve_package(dep_name, dep_range, packages, package_cache).await?;
+        let dep_id = resolve_package(
+            dep_name,
+            dep_range,
+            packages,
+            package_cache,
+            min_age_days,
+            force,
+        )
+        .await?;
         dependencies.insert(dep_name.clone(), dep_id);
     }
 
     // Optional dependencies
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
-        if let Ok(dep_id) = resolve_package(dep_name, dep_range, packages, package_cache).await {
+        if let Ok(dep_id) = resolve_package(
+            dep_name,
+            dep_range,
+            packages,
+            package_cache,
+            min_age_days,
+            force,
+        )
+        .await
+        {
             dependencies.insert(dep_name.clone(), dep_id);
         }
     }
@@ -118,7 +151,20 @@ async fn resolve_package(
     Ok(id)
 }
 
-fn select_version(name: &str, range: &str, package: &RegistryPackage) -> Result<RegistryVersion> {
+fn version_age_days(package: &RegistryPackage, version: &str, now: OffsetDateTime) -> Option<i64> {
+    let time_str = package.time.get(version)?;
+    let published = OffsetDateTime::parse(time_str, &Rfc3339).ok()?;
+    let age = now - published;
+    Some(age.whole_days())
+}
+
+fn select_version(
+    name: &str,
+    range: &str,
+    package: &RegistryPackage,
+    min_age_days: Option<u32>,
+    force: bool,
+) -> Result<RegistryVersion> {
     let normalized = if range == "latest" || range.is_empty() {
         "*"
     } else {
@@ -126,17 +172,33 @@ fn select_version(name: &str, range: &str, package: &RegistryPackage) -> Result<
     };
 
     let ranges = parse_range_set(name, range, normalized)?;
-
     let mut selected: Option<(Version, RegistryVersion)> = None;
+    let now = OffsetDateTime::now_utc();
+    let mut youngest_rejected: Option<(String, i64)> = None;
 
     for (version_str, meta) in package.versions.iter() {
         let parsed = Version::parse(version_str);
         if let Ok(ver) = parsed {
-            if matches_any_range(&ranges, &ver) {
-                match &selected {
-                    Some((best, _)) if ver <= *best => {}
-                    _ => selected = Some((ver, meta.clone())),
+            if !matches_any_range(&ranges, &ver) {
+                continue;
+            }
+
+            if let Some(min_days) = min_age_days {
+                if !force {
+                    if let Some(age_days) = version_age_days(package, version_str, now) {
+                        if age_days < min_days as i64 {
+                            if youngest_rejected.is_none() {
+                                youngest_rejected = Some((version_str.clone(), age_days));
+                            }
+                            continue;
+                        }
+                    }
                 }
+            }
+
+            match &selected {
+                Some((best, _)) if ver <= *best => {}
+                _ => selected = Some((ver, meta.clone())),
             }
         }
     }
@@ -144,6 +206,20 @@ fn select_version(name: &str, range: &str, package: &RegistryPackage) -> Result<
     if let Some((_, meta)) = selected {
         Ok(meta)
     } else {
+        if let Some(min_days) = min_age_days {
+            if !force {
+                if let Some((ver_str, age_days)) = youngest_rejected {
+                    return Err(SnpmError::ResolutionFailed {
+                        name: name.to_string(),
+                        range: range.to_string(),
+                        reason: format!(
+                            "latest matching version {ver_str} is only {age_days} days old, which is less than the configured minimum of {min_days} days"
+                        ),
+                    });
+                }
+            }
+        }
+
         Err(SnpmError::ResolutionFailed {
             name: name.to_string(),
             range: range.to_string(),

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/logo.png" alt="snpm logo" width="180" />
+  <img src="docs/logo.png" alt="snpm logo" width="300" />
   <h1>snpm</h1>
   <p><strong>Speedy Node Package Manager</strong></p>
 </div>

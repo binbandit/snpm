@@ -1,6 +1,7 @@
 use crate::{Result, SnpmConfig, SnpmError};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::env;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegistryPackage {
@@ -17,18 +18,35 @@ pub struct RegistryVersion {
     #[serde(default, rename = "optionalDependencies")]
     pub optional_dependencies: BTreeMap<String, String>,
     pub dist: RegistryDist,
-
     #[serde(default)]
     pub os: Vec<String>,
-
     #[serde(default)]
     pub cpu: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
-pub enum RegistryProtocol {
-    Npm,
-    Jsr,
+pub struct RegistryProtocol {
+    pub name: String,
+}
+
+impl RegistryProtocol {
+    pub fn npm() -> Self {
+        RegistryProtocol {
+            name: "npm".to_string(),
+        }
+    }
+
+    pub fn jsr() -> Self {
+        RegistryProtocol {
+            name: "jsr".to_string(),
+        }
+    }
+
+    pub fn custom(name: &str) -> Self {
+        RegistryProtocol {
+            name: name.to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,11 +86,12 @@ pub struct RegistryDist {
 pub async fn fetch_package(
     config: &SnpmConfig,
     name: &str,
-    protocol: RegistryProtocol,
+    protocol: &RegistryProtocol,
 ) -> Result<RegistryPackage> {
-    match protocol {
-        RegistryProtocol::Npm => fetch_npm_package(config, name).await,
-        RegistryProtocol::Jsr => fetch_jsr_package(name).await,
+    if protocol.name == "jsr" {
+        fetch_jsr_package(name).await
+    } else {
+        fetch_npm_like_package(config, name, &protocol.name).await
     }
 }
 
@@ -86,6 +105,7 @@ fn encode_package_name(name: &str) -> String {
 
 fn jsr_to_registry(pkg: JsrPackage) -> RegistryPackage {
     let mut versions = BTreeMap::new();
+
     for (ver, jsr_ver) in pkg.versions.into_iter() {
         let v = RegistryVersion {
             version: jsr_ver.version,
@@ -107,9 +127,13 @@ fn jsr_to_registry(pkg: JsrPackage) -> RegistryPackage {
     }
 }
 
-async fn fetch_npm_package(config: &SnpmConfig, name: &str) -> Result<RegistryPackage> {
+async fn fetch_npm_like_package(
+    config: &SnpmConfig,
+    name: &str,
+    protocol_name: &str,
+) -> Result<RegistryPackage> {
     let encoded = encode_package_name(name);
-    let base = npm_registry_for_package(config, name);
+    let base = npm_like_registry_for_package(config, protocol_name, name);
     let url = format!("{}/{}", base.trim_end_matches('/'), encoded);
 
     let response = reqwest::get(&url).await.map_err(|source| SnpmError::Http {
@@ -133,6 +157,22 @@ async fn fetch_npm_package(config: &SnpmConfig, name: &str) -> Result<RegistryPa
     Ok(package)
 }
 
+fn npm_like_registry_for_package(config: &SnpmConfig, protocol_name: &str, name: &str) -> String {
+    if protocol_name == "npm" {
+        return npm_registry_for_package(config, name);
+    }
+
+    let key = format!("SNPM_REGISTRY_{}", protocol_name.to_uppercase());
+    if let Ok(value) = env::var(&key) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.trim_end_matches('/').to_string();
+        }
+    }
+
+    config.default_registry.clone()
+}
+
 fn npm_registry_for_package(config: &SnpmConfig, name: &str) -> String {
     if let Some((scope, _)) = name.split_once('/') {
         if scope.starts_with('@') {
@@ -146,9 +186,9 @@ fn npm_registry_for_package(config: &SnpmConfig, name: &str) -> String {
 }
 
 async fn fetch_jsr_package(name: &str) -> Result<RegistryPackage> {
-    // jsr uses a different API; we assume a simple metadata endpoint here
     let encoded = encode_package_name(name);
-    let url = format!("https://npm.jsr.io/{}", encoded);
+    let base = jsr_registry_base();
+    let url = format!("{}/{}", base.trim_end_matches('/'), encoded);
 
     let response = reqwest::get(&url).await.map_err(|source| SnpmError::Http {
         url: url.clone(),
@@ -169,4 +209,15 @@ async fn fetch_jsr_package(name: &str) -> Result<RegistryPackage> {
         })?;
 
     Ok(jsr_to_registry(pkg))
+}
+
+fn jsr_registry_base() -> String {
+    if let Ok(value) = env::var("SNPM_REGISTRY_JSR") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.trim_end_matches('/').to_string();
+        }
+    }
+
+    "https://npm.jsr.io".to_string()
 }

@@ -24,6 +24,7 @@ pub fn init(root: &Path) -> Result<()> {
         dev_dependencies: BTreeMap::new(),
         scripts: BTreeMap::new(),
         pnpm: None,
+        snpm: None,
     };
 
     let data = serde_json::to_string_pretty(&manifest).map_err(|err| SnpmError::SerializeJson {

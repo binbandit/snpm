@@ -20,10 +20,16 @@ We want a tool that:
 
 Here is what works today:
 
+## Features
+
+Here is what works today:
+
 - **Core Commands**: `install`, `add`, `remove`, and `run` are fully functional.
 - **Global Store**: We download packages once to a global cache and reuse them across projects.
 - **Parallelism**: Network and disk operations happen in parallel where safe.
-- **Workspaces**: Initial support for monorepos (detecting workspace roots and installing all packages).
+- **Workspaces**: First-class monorepo support. We detect `snpm-workspace.yaml` (or `pnpm-workspace.yaml`) and install dependencies for all projects in the workspace efficiently.
+- **Catalog Protocol**: Define versions in one place (`snpm-catalog.yaml`) and reference them across your workspace. No more version drift between packages.
+- **Minimum Version Age**: A unique safety feature. You can configure `snpm` to ignore versions published within the last $N$ days. This protects you from "zero-day" malicious packages or broken releases.
 - **Lockfile**: We read and write a clean YAML lockfile to keep your dependency tree stable.
 
 ## Usage

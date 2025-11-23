@@ -65,7 +65,13 @@ pub async fn install(
 
     if let Some(pnpm) = &project.manifest.pnpm {
         for (name, range) in pnpm.overrides.iter() {
-            overrides.entry(name.clone()).or_insert(range.clone());
+            overrides.insert(name.clone(), range.clone());
+        }
+    }
+
+    if let Some(snpm) = &project.manifest.snpm {
+        for (name, range) in snpm.overrides.iter() {
+            overrides.insert(name.clone(), range.clone());
         }
     }
 

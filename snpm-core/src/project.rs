@@ -17,11 +17,20 @@ pub struct Manifest {
     pub scripts: BTreeMap<String, String>,
     #[serde(default)]
     pub pnpm: Option<ManifestPnpm>,
+    #[serde(default)]
+    pub snpm: Option<ManifestSnpm>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestPnpm {
+    #[serde(default)]
+    pub overrides: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestSnpm {
     #[serde(default)]
     pub overrides: BTreeMap<String, String>,
 }

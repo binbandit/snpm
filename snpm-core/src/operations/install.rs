@@ -20,7 +20,7 @@ pub struct InstallOptions {
 
 pub async fn install(
     config: &SnpmConfig,
-    project: &Project,
+    project: &mut Project,
     options: InstallOptions,
 ) -> Result<()> {
     let additions = parse_requested(&options.requested);
@@ -136,7 +136,14 @@ pub async fn install(
         workspace.as_ref(),
         catalog.as_ref(),
     )?;
-    linker::link(project, &graph, &store_paths, options.include_dev)?;
+    linker::link(
+        config,
+        workspace.as_ref(),
+        project,
+        &graph,
+        &store_paths,
+        options.include_dev,
+    )?;
     link_local_workspace_deps(
         project,
         workspace.as_ref(),
@@ -241,7 +248,7 @@ async fn materialize_store(
 }
 
 fn write_manifest(
-    project: &Project,
+    project: &mut Project,
     graph: &ResolutionGraph,
     additions: &BTreeMap<String, String>,
     dev: bool,
@@ -289,11 +296,12 @@ fn write_manifest(
         }
     }
 
-    let mut manifest = project.manifest.clone();
-    manifest.dependencies = new_dependencies;
-    manifest.dev_dependencies = new_dev_dependencies;
+    project.manifest.dependencies = new_dependencies;
+    project.manifest.dev_dependencies = new_dev_dependencies;
 
-    project.write_manifest(&manifest)
+    project.write_manifest(&project.manifest);
+
+    Ok(())
 }
 
 fn build_project_manifest_root(

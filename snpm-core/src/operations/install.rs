@@ -2,6 +2,7 @@ use crate::lifecycle;
 use crate::lockfile;
 use crate::resolve::ResolutionGraph;
 use crate::workspace::CatalogConfig;
+use crate::workspace::OverridesConfig;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, store};
 use futures::future::join_all;
 use reqwest::Client;
@@ -18,6 +19,13 @@ pub struct InstallOptions {
     pub force: bool,
 }
 
+#[derive(Debug)]
+pub struct OutdatedEntry {
+    pub name: String,
+    pub current: Option<String>,
+    pub wanted: String,
+}
+
 pub async fn install(
     config: &SnpmConfig,
     project: &mut Project,
@@ -31,6 +39,18 @@ pub async fn install(
         CatalogConfig::load(&project.root)?
     } else {
         None
+    };
+
+    let overrides = if let Some(ref ws) = workspace {
+        match OverridesConfig::load(&ws.root)? {
+            Some(cfg) => cfg.overrides,
+            None => BTreeMap::new(),
+        }
+    } else {
+        match OverridesConfig::load(&project.root)? {
+            Some(cfg) => cfg.overrides,
+            None => BTreeMap::new(),
+        }
     };
 
     let mut local_deps = BTreeSet::new();
@@ -58,6 +78,12 @@ pub async fn install(
     for (name, range) in additions.iter() {
         root_deps.insert(name.clone(), range.clone());
     }
+
+    let overrides_ref = if overrides.is_empty() {
+        None
+    } else {
+        Some(&overrides)
+    };
 
     let lockfile_path = workspace
         .as_ref()
@@ -111,15 +137,24 @@ pub async fn install(
             if lock_requested == manifest_root {
                 lockfile::to_graph(&existing)
             } else {
-                let graph =
-                    resolve::resolve(&root_deps, config.min_package_age_days, options.force)
-                        .await?;
+                let graph = resolve::resolve(
+                    &root_deps,
+                    overrides_ref,
+                    config.min_package_age_days,
+                    options.force,
+                )
+                .await?;
                 lockfile::write(&lockfile_path, &graph)?;
                 graph
             }
         } else {
-            let graph =
-                resolve::resolve(&root_deps, config.min_package_age_days, options.force).await?;
+            let graph = resolve::resolve(
+                &root_deps,
+                overrides_ref,
+                config.min_package_age_days,
+                options.force,
+            )
+            .await?;
             if options.include_dev {
                 lockfile::write(&lockfile_path, &graph)?;
             }
@@ -299,7 +334,7 @@ fn write_manifest(
     project.manifest.dependencies = new_dependencies;
     project.manifest.dev_dependencies = new_dev_dependencies;
 
-    project.write_manifest(&project.manifest);
+    project.write_manifest(&project.manifest)?;
 
     Ok(())
 }
@@ -495,4 +530,109 @@ fn link_local_workspace_deps(
     }
 
     Ok(())
+}
+
+pub async fn outdated(
+    config: &SnpmConfig,
+    project: &Project,
+    include_dev: bool,
+) -> Result<Vec<OutdatedEntry>> {
+    let workspace = Workspace::discover(&project.root)?;
+
+    let overrides = if let Some(ref ws) = workspace {
+        match OverridesConfig::load(&ws.root)? {
+            Some(cfg) => cfg.overrides,
+            None => BTreeMap::new(),
+        }
+    } else {
+        match OverridesConfig::load(&project.root)? {
+            Some(cfg) => cfg.overrides,
+            None => BTreeMap::new(),
+        }
+    };
+
+    let mut local_deps = BTreeSet::new();
+    let mut local_dev_deps = BTreeSet::new();
+
+    let deps = apply_specs(
+        &project.manifest.dependencies,
+        workspace.as_ref(),
+        &mut local_deps,
+    )?;
+    let dev_deps = apply_specs(
+        &project.manifest.dev_dependencies,
+        workspace.as_ref(),
+        &mut local_dev_deps,
+    )?;
+
+    let manifest_root = if let Some(ws) = workspace.as_ref() {
+        collect_workspace_root_deps(ws, include_dev)?
+    } else {
+        build_project_manifest_root(&deps, &dev_deps, include_dev)
+    };
+
+    let overrides_ref = if overrides.is_empty() {
+        None
+    } else {
+        Some(&overrides)
+    };
+
+    let graph = resolve::resolve(
+        &manifest_root,
+        overrides_ref,
+        config.min_package_age_days,
+        false,
+    )
+    .await?;
+
+    let lockfile_path = workspace
+        .as_ref()
+        .map(|w| w.root.join("snpm-lock.yaml"))
+        .unwrap_or_else(|| project.root.join("snpm-lock.yaml"));
+
+    let mut current_versions = BTreeMap::new();
+
+    if lockfile_path.is_file() {
+        let existing = lockfile::read(&lockfile_path)?;
+
+        for (name, dep) in existing.root.dependencies.iter() {
+            current_versions.insert(name.clone(), dep.version.clone());
+        }
+    }
+
+    let mut names = BTreeSet::new();
+    for name in deps.keys() {
+        names.insert(name.clone());
+    }
+    if include_dev {
+        for name in dev_deps.keys() {
+            names.insert(name.clone());
+        }
+    }
+
+    let mut result = Vec::new();
+
+    for name in names {
+        let root_dep = match graph.root.dependencies.get(&name) {
+            Some(dep) => dep,
+            None => continue,
+        };
+
+        let wanted = root_dep.resolved.version.clone();
+        let current = current_versions.get(&name).cloned();
+
+        if let Some(ref cur) = current {
+            if cur == &wanted {
+                continue;
+            }
+        }
+
+        result.push(OutdatedEntry {
+            name,
+            current,
+            wanted,
+        });
+    }
+
+    Ok(result)
 }

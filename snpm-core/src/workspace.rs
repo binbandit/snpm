@@ -47,6 +47,34 @@ impl CatalogConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OverridesConfig {
+    #[serde(default)]
+    pub overrides: BTreeMap<String, String>,
+}
+
+impl OverridesConfig {
+    pub fn load(root: &Path) -> Result<Option<Self>> {
+        let path = root.join("snpm-overrides.yaml");
+        if !path.is_file() {
+            return Ok(None);
+        }
+
+        let data = fs::read_to_string(&path).map_err(|source| SnpmError::ReadFile {
+            path: path.clone(),
+            source,
+        })?;
+
+        let config: Self =
+            serde_yaml::from_str(&data).map_err(|err| SnpmError::WorkspaceConfig {
+                path: path.clone(),
+                reason: err.to_string(),
+            })?;
+
+        Ok(Some(config))
+    }
+}
+
 #[derive(Debug)]
 pub struct Workspace {
     pub root: PathBuf,

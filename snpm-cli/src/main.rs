@@ -27,9 +27,9 @@ async fn main() -> Result<()> {
         } => {
             let cwd = env::current_dir()?;
             if packages.is_empty() {
-                if let Some(workspace) = Workspace::discover(&cwd)? {
+                if let Some(mut workspace) = Workspace::discover(&cwd)? {
                     if workspace.root == cwd {
-                        for project in workspace.projects.iter() {
+                        for project in workspace.projects.iter_mut() {
                             let options = operations::InstallOptions {
                                 requested: Vec::new(),
                                 dev: false,
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
                 }
             }
 
-            let project = Project::discover(&cwd)?;
+            let mut project = Project::discover(&cwd)?;
             let options = operations::InstallOptions {
                 requested: packages,
                 dev: false,
@@ -53,8 +53,9 @@ async fn main() -> Result<()> {
                 frozen_lockfile,
                 force,
             };
-            operations::install(&config, &project, options).await?;
+            operations::install(&config, &mut project, options).await?;
         }
+
         Command::Add {
             dev,
             workspace: target,
@@ -64,12 +65,12 @@ async fn main() -> Result<()> {
             let cwd = env::current_dir()?;
 
             if let Some(workspace_name) = target {
-                let workspace = Workspace::discover(&cwd)?
+                let mut workspace = Workspace::discover(&cwd)?
                     .ok_or_else(|| anyhow::anyhow!("snpm add -w used outside a workspace"))?;
 
                 let project = workspace
                     .projects
-                    .iter()
+                    .iter_mut()
                     .find(|p| p.manifest.name.as_deref() == Some(workspace_name.as_str()))
                     .ok_or_else(|| {
                         anyhow::anyhow!(format!("workspace project {workspace_name} not found"))
@@ -84,7 +85,7 @@ async fn main() -> Result<()> {
                 };
                 operations::install(&config, project, options).await?;
             } else {
-                let project = Project::discover(&cwd)?;
+                let mut project = Project::discover(&cwd)?;
                 let options = InstallOptions {
                     requested: packages,
                     dev,
@@ -92,9 +93,10 @@ async fn main() -> Result<()> {
                     frozen_lockfile: false,
                     force,
                 };
-                operations::install(&config, &project, options).await?;
+                operations::install(&config, &mut project, options).await?;
             }
         }
+
         Command::Remove { packages } => {
             let cwd = env::current_dir()?;
             let mut project = Project::discover(&cwd)?;

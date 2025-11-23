@@ -1,12 +1,14 @@
-use serde_json::Value;
-
+use crate::lifecycle;
 use crate::resolve::{PackageId, ResolutionGraph};
-use crate::{Project, Result, SnpmError};
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn link(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
     project: &Project,
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
@@ -30,6 +32,10 @@ pub fn link(
     let dev_deps = &project.manifest.dev_dependencies;
 
     for (name, dep) in graph.root.dependencies.iter() {
+        if !deps.contains_key(name) && !dev_deps.contains_key(name) {
+            continue;
+        }
+
         let only_dev = dev_deps.contains_key(name) && !deps.contains_key(name);
         if !include_dev && only_dev {
             continue;
@@ -37,13 +43,23 @@ pub fn link(
 
         let id = &dep.resolved;
         let dest = root_node_modules.join(name);
-        link_package(id, &dest, &root_node_modules, graph, store_paths)?;
+        link_package(
+            config,
+            workspace,
+            id,
+            &dest,
+            &root_node_modules,
+            graph,
+            store_paths,
+        )?;
     }
 
     Ok(())
 }
 
 fn link_package(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
     id: &PackageId,
     dest: &Path,
     bin_root: &Path,
@@ -62,7 +78,14 @@ fn link_package(
         version: id.version.clone(),
     })?;
 
-    copy_dir(store_root, dest)?;
+    let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
+
+    if scripts_allowed {
+        copy_dir(store_root, dest)?;
+    } else {
+        link_dir(store_root, dest)?;
+    }
+
     link_bins(dest, bin_root, &id.name)?;
 
     let package = graph
@@ -81,7 +104,15 @@ fn link_package(
         })?;
 
         let child_dest = node_modules.join(dep_name);
-        link_package(dep_id, &child_dest, &node_modules, graph, store_paths)?;
+        link_package(
+            config,
+            workspace,
+            dep_id,
+            &child_dest,
+            &node_modules,
+            graph,
+            store_paths,
+        )?;
     }
 
     Ok(())
@@ -189,6 +220,47 @@ fn sanitize_bin_name(name: &str) -> String {
     name.rsplit('/').next().unwrap_or(name).to_string()
 }
 
+fn link_dir(source: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest).map_err(|source_err| SnpmError::WriteFile {
+        path: dest.to_path_buf(),
+        source: source_err,
+    })?;
+
+    for entry in fs::read_dir(source).map_err(|source_err| SnpmError::ReadFile {
+        path: source.to_path_buf(),
+        source: source_err,
+    })? {
+        let entry = entry.map_err(|source_err| SnpmError::ReadFile {
+            path: source.to_path_buf(),
+            source: source_err,
+        })?;
+        let file_type = entry
+            .file_type()
+            .map_err(|source_err| SnpmError::ReadFile {
+                path: entry.path(),
+                source: source_err,
+            })?;
+
+        let from = entry.path();
+        let to = dest.join(entry.file_name());
+
+        if file_type.is_dir() {
+            if let Err(_err) = symlink_dir_entry(&from, &to) {
+                copy_dir(&from, &to)?;
+            }
+        } else {
+            if let Err(_err) = symlink_file_entry(&from, &to) {
+                fs::copy(&from, &to).map_err(|source_err| SnpmError::WriteFile {
+                    path: to,
+                    source: source_err,
+                })?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
     fs::create_dir_all(dest).map_err(|source_err| SnpmError::WriteFile {
         path: dest.to_path_buf(),
@@ -224,4 +296,28 @@ fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn symlink_dir_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::symlink;
+    symlink(from, to)
+}
+
+#[cfg(windows)]
+fn symlink_dir_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::symlink_dir;
+    symlink_dir(from, to)
+}
+
+#[cfg(unix)]
+fn symlink_file_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::symlink;
+    symlink(from, to)
+}
+
+#[cfg(windows)]
+fn symlink_file_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::symlink_file;
+    symlink_file(from, to)
 }

@@ -103,7 +103,11 @@ fn run_package_scripts(
     Ok(())
 }
 
-fn is_dep_script_allowed(config: &SnpmConfig, workspace: Option<&Workspace>, name: &str) -> bool {
+pub(crate) fn is_dep_script_allowed(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
+    name: &str,
+) -> bool {
     if let Some(ws) = workspace {
         if !ws.config.only_built_dependencies.is_empty() {
             return ws.config.only_built_dependencies.iter().any(|n| n == name);

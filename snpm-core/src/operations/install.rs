@@ -117,12 +117,6 @@ pub async fn install(
         }
     }
 
-    let overrides_ref = if overrides.is_empty() {
-        None
-    } else {
-        Some(&overrides)
-    };
-
     let lockfile_path = workspace
         .as_ref()
         .map(|w| w.root.join("snpm-lock.yaml"))
@@ -258,17 +252,6 @@ pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<Strin
     };
 
     install(config, project, options).await
-}
-
-fn parse_requested(specs: &[String]) -> BTreeMap<String, String> {
-    let mut result = BTreeMap::new();
-
-    for spec in specs {
-        let parsed = parse_requested_spec(spec);
-        result.insert(parsed.name, parsed.range);
-    }
-
-    result
 }
 
 fn parse_requested_spec(spec: &str) -> ParsedSpec {

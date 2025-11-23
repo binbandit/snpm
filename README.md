@@ -1,6 +1,8 @@
-# snpm
-
-**Speedy Node Package Manager**
+<div align="center">
+  <img src="docs/logo.png" alt="snpm logo" width="180" />
+  <h1>snpm</h1>
+  <p><strong>Speedy Node Package Manager</strong></p>
+</div>
 
 > **Status:** functional WIP. It installs, it runs, it's fast. But it's still young.
 
@@ -15,10 +17,6 @@ We want a tool that:
 - **Is Fast by Default**: Global caching, parallel downloads, and smart reuse.
 - **Is Deterministic**: A simple, readable lockfile (`snpm-lock.yaml`) that guarantees the same install everywhere.
 - **Is Readable**: The codebase is designed to be understood by mid-level Rust devs. No premature abstractions or complex type magic.
-
-## Features
-
-Here is what works today:
 
 ## Features
 

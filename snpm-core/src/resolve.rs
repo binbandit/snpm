@@ -1,5 +1,5 @@
-use crate::registry::{RegistryPackage, RegistryVersion, fetch_package};
-use crate::{Result, SnpmError};
+use crate::registry::{RegistryPackage, RegistryProtocol, RegistryVersion, fetch_package};
+use crate::{Result, SnpmConfig, SnpmError};
 use async_recursion::async_recursion;
 use semver::{Version, VersionReq};
 use std::collections::BTreeMap;
@@ -38,24 +38,33 @@ pub struct ResolutionGraph {
 }
 
 pub async fn resolve(
+    config: &SnpmConfig,
     root_deps: &BTreeMap<String, String>,
-    overrides: Option<&BTreeMap<String, String>>,
+    root_protocols: &BTreeMap<String, RegistryProtocol>,
     min_age_days: Option<u32>,
     force: bool,
+    overrides: Option<&BTreeMap<String, String>>,
 ) -> Result<ResolutionGraph> {
     let mut packages = BTreeMap::new();
     let mut root_dependencies = BTreeMap::new();
     let mut package_cache = BTreeMap::new();
 
     for (name, range) in root_deps {
+        let protocol = root_protocols
+            .get(name)
+            .cloned()
+            .unwrap_or(RegistryProtocol::Npm);
+
         let id = resolve_package(
+            config,
             name,
             range,
+            protocol,
             &mut packages,
             &mut package_cache,
-            overrides,
             min_age_days,
             force,
+            overrides,
         )
         .await?;
         let entry = RootDependency {
@@ -75,26 +84,31 @@ pub async fn resolve(
 
 #[async_recursion]
 async fn resolve_package(
+    config: &SnpmConfig,
     name: &str,
     range: &str,
+    protocol: RegistryProtocol,
     packages: &mut BTreeMap<PackageId, ResolvedPackage>,
     package_cache: &mut BTreeMap<String, RegistryPackage>,
-    overrides: Option<&BTreeMap<String, String>>,
     min_age_days: Option<u32>,
     force: bool,
+    overrides: Option<&BTreeMap<String, String>>,
 ) -> Result<PackageId> {
-    let package = if let Some(cached) = package_cache.get(name) {
+    let cache_key = format!("{:?}:{}", protocol, name);
+
+    let package = if let Some(cached) = package_cache.get(&cache_key) {
         cached.clone()
     } else {
-        let fetched = fetch_package(name).await?;
-        package_cache.insert(name.to_string(), fetched.clone());
+        let fetched = fetch_package(config, name, protocol.clone()).await?;
+        package_cache.insert(cache_key.clone(), fetched.clone());
         fetched
     };
 
-    let effective_range = overrides
-        .and_then(|map| map.get(name))
-        .map(|s| s.as_str())
-        .unwrap_or(range);
+    let effective_range = if let Some(map) = overrides {
+        map.get(name).map(|s| s.as_str()).unwrap_or(range)
+    } else {
+        range
+    };
 
     let version_meta = select_version(name, effective_range, &package, min_age_days, force)?;
 
@@ -120,13 +134,15 @@ async fn resolve_package(
     // Regular dependencies
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
         let dep_id = resolve_package(
+            config,
             dep_name,
             dep_range,
+            protocol.clone(),
             packages,
             package_cache,
-            overrides,
             min_age_days,
             force,
+            overrides,
         )
         .await?;
         dependencies.insert(dep_name.clone(), dep_id);
@@ -135,13 +151,15 @@ async fn resolve_package(
     // Optional dependencies
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
         if let Ok(dep_id) = resolve_package(
+            config,
             dep_name,
             dep_range,
+            protocol.clone(),
             packages,
             package_cache,
-            overrides,
             min_age_days,
             force,
+            overrides,
         )
         .await
         {

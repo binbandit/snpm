@@ -6,6 +6,7 @@ pub struct SnpmConfig {
     pub cache_dir: PathBuf,
     pub data_dir: PathBuf,
     pub allow_scripts: BTreeSet<String>,
+    pub min_package_age_days: Option<u32>,
 }
 
 impl SnpmConfig {
@@ -24,11 +25,13 @@ impl SnpmConfig {
         };
 
         let allow_scripts = read_allow_scripts_from_env();
+        let min_package_age_days = read_min_package_age_from_env();
 
         SnpmConfig {
             cache_dir,
             data_dir,
             allow_scripts,
+            min_package_age_days,
         }
     }
 
@@ -50,4 +53,21 @@ fn read_allow_scripts_from_env() -> BTreeSet<String> {
     }
 
     set
+}
+
+fn read_min_package_age_from_env() -> Option<u32> {
+    if let Ok(value) = env::var("SNPM_MIN_PACKAGE_AGE_DAYS") {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if let Ok(parsed) = trimmed.parse::<u32>() {
+            if parsed > 0 {
+                return Some(parsed);
+            }
+        }
+    }
+
+    None
 }

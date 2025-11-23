@@ -23,6 +23,7 @@ async fn main() -> Result<()> {
             packages,
             production,
             frozen_lockfile,
+            force,
         } => {
             let cwd = env::current_dir()?;
             if packages.is_empty() {
@@ -34,6 +35,7 @@ async fn main() -> Result<()> {
                                 dev: false,
                                 include_dev: !production,
                                 frozen_lockfile,
+                                force,
                             };
                             operations::install(&config, project, options).await?;
                         }
@@ -49,6 +51,7 @@ async fn main() -> Result<()> {
                 dev: false,
                 include_dev: !production,
                 frozen_lockfile,
+                force,
             };
             operations::install(&config, &project, options).await?;
         }
@@ -56,6 +59,7 @@ async fn main() -> Result<()> {
             dev,
             workspace: target,
             packages,
+            force,
         } => {
             let cwd = env::current_dir()?;
 
@@ -76,6 +80,7 @@ async fn main() -> Result<()> {
                     dev,
                     include_dev: true,
                     frozen_lockfile: false,
+                    force,
                 };
                 operations::install(&config, project, options).await?;
             } else {
@@ -85,6 +90,7 @@ async fn main() -> Result<()> {
                     dev,
                     include_dev: true,
                     frozen_lockfile: false,
+                    force,
                 };
                 operations::install(&config, &project, options).await?;
             }

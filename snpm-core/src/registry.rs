@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegistryPackage {
     pub versions: BTreeMap<String, RegistryVersion>,
+    #[serde(default)]
+    pub time: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

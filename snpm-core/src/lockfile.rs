@@ -114,6 +114,7 @@ pub fn to_graph(lockfile: &Lockfile) -> ResolutionGraph {
             tarball: lock_pkg.tarball.clone(),
             integrity: lock_pkg.integrity.clone(),
             dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
         };
 
         packages.insert(id, resolved);

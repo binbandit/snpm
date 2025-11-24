@@ -25,7 +25,7 @@ pub async fn ensure_package(
         source,
     })?;
 
-    let bytes = download_tarball(&package.tarball, client).await?;
+    let bytes = download_tarball(config, &package.tarball, client).await?;
     unpack_tarball(&pkg_dir, bytes)?;
 
     fs::write(&marker, []).map_err(|source| SnpmError::WriteFile {
@@ -49,15 +49,22 @@ fn package_root_dir(pkg_dir: &PathBuf) -> PathBuf {
     }
 }
 
-async fn download_tarball(url: &str, client: &reqwest::Client) -> Result<Vec<u8>> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|source| SnpmError::Http {
-            url: url.to_string(),
-            source,
-        })?;
+async fn download_tarball(
+    config: &SnpmConfig,
+    url: &str,
+    client: &reqwest::Client,
+) -> Result<Vec<u8>> {
+    let mut request = client.get(url);
+
+    if let Some(token) = config.auth_token_for_url(url) {
+        let header_value = format!("Bearer {}", token);
+        request = request.header("authorization", header_value);
+    }
+
+    let response = request.send().await.map_err(|source| SnpmError::Http {
+        url: url.to_string(),
+        source,
+    })?;
 
     let bytes = response
         .error_for_status()

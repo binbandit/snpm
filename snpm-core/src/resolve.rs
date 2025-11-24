@@ -38,6 +38,14 @@ pub struct ResolutionGraph {
     pub packages: BTreeMap<PackageId, ResolvedPackage>,
 }
 
+#[derive(Clone, Debug)]
+struct DepRequest {
+    name: String,
+    source: String,
+    range: String,
+    protocol: RegistryProtocol,
+}
+
 pub async fn resolve(
     config: &SnpmConfig,
     root_deps: &BTreeMap<String, String>,
@@ -96,23 +104,25 @@ async fn resolve_package(
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
 ) -> Result<PackageId> {
-    let cache_key = format!("{:?}:{}", protocol, name);
+    let request = build_dep_request(name, range, protocol, overrides);
+
+    let cache_key = format!("{:?}:{}", request.protocol, request.source);
 
     let package = if let Some(cached) = package_cache.get(&cache_key) {
         cached.clone()
     } else {
-        let fetched = fetch_package(config, name, protocol).await?;
+        let fetched = fetch_package(config, &request.source, &request.protocol).await?;
         package_cache.insert(cache_key.clone(), fetched.clone());
         fetched
     };
 
-    let effective_range = if let Some(map) = overrides {
-        map.get(name).map(|s| s.as_str()).unwrap_or(range)
-    } else {
-        range
-    };
-
-    let version_meta = select_version(name, effective_range, &package, min_age_days, force)?;
+    let version_meta = select_version(
+        &request.source,
+        &request.range,
+        &package,
+        min_age_days,
+        force,
+    )?;
 
     if !is_compatible(&version_meta.os, &version_meta.cpu) {
         return Err(SnpmError::ResolutionFailed {
@@ -162,7 +172,7 @@ async fn resolve_package(
             config,
             dep_name,
             dep_range,
-            protocol,
+            &request.protocol,
             packages,
             package_cache,
             min_age_days,
@@ -178,7 +188,7 @@ async fn resolve_package(
             config,
             dep_name,
             dep_range,
-            protocol,
+            &request.protocol,
             packages,
             package_cache,
             min_age_days,
@@ -223,13 +233,8 @@ fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
         }
 
         for (peer_name, peer_range) in package.peer_dependencies.iter() {
-            let normalized = if peer_range == "latest" || peer_range.is_empty() {
-                "*"
-            } else {
-                peer_range.as_str()
-            };
-
-            let ranges = parse_range_set(peer_name, peer_range, normalized)?;
+            let normalized = normalize_peer_range(peer_name);
+            let ranges = parse_range_set(peer_name, peer_range, &normalized)?;
 
             let candidates = match versions_by_name.get(peer_name) {
                 Some(list) => list,
@@ -449,5 +454,85 @@ fn current_cpu() -> &'static str {
         "aarch64" => "arm64",
         "arm" => "arm",
         other => other,
+    }
+}
+
+fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, String)> {
+    let colon = spec.find(':')?;
+    let (prefix, rest) = spec.split_at(colon);
+    let rest = &rest[1..];
+
+    let protocol = match prefix {
+        "npm" => RegistryProtocol::npm(),
+        "jsr" => RegistryProtocol::jsr(),
+        other => RegistryProtocol::custom(other),
+    };
+
+    if rest.is_empty() {
+        return None;
+    }
+
+    let mut source = rest.to_string();
+    let mut range = "latest".to_string();
+
+    if let Some(at) = rest.rfind('@') {
+        let (name, ver_part) = rest.split_at(at);
+        if !name.is_empty() {
+            source = name.to_string();
+        }
+        let ver = ver_part.trim_start_matches('@');
+        if !ver.is_empty() {
+            range = ver.to_string()
+        }
+    }
+
+    Some((protocol, source, range))
+}
+
+fn build_dep_request(
+    name: &str,
+    range: &str,
+    protocol: &RegistryProtocol,
+    overrides: Option<&BTreeMap<String, String>>,
+) -> DepRequest {
+    let overridden = overrides
+        .and_then(|map| map.get(name))
+        .map(|s| s.as_str())
+        .unwrap_or(range);
+
+    if let Some((proto, source, semver_range)) = split_protocol_spec(overridden) {
+        DepRequest {
+            name: name.to_string(),
+            source,
+            range: semver_range,
+            protocol: proto,
+        }
+    } else {
+        DepRequest {
+            name: name.to_string(),
+            source: name.to_string(),
+            range: overridden.to_string(),
+            protocol: protocol.clone(),
+        }
+    }
+}
+
+fn normalize_peer_range(range: &str) -> String {
+    if range == "latest" || range.is_empty() {
+        return "*".to_string();
+    }
+
+    if range.starts_with("npm:") || range.starts_with("jsr:") {
+        if let Some((_, _, semver_range)) = split_protocol_spec(range) {
+            if semver_range == "latest" || semver_range.is_empty() {
+                "*".to_string()
+            } else {
+                semver_range
+            }
+        } else {
+            "*".to_string()
+        }
+    } else {
+        range.to_string()
     }
 }

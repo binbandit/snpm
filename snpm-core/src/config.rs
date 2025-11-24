@@ -21,14 +21,19 @@ impl SnpmConfig {
     pub fn from_env() -> Self {
         let dirs = ProjectDirs::from("io", "snpm", "snpm");
 
-        let (cache_dir, data_dir) = match dirs {
-            Some(dirs) => (
-                dirs.cache_dir().to_path_buf(),
-                dirs.data_local_dir().to_path_buf(),
-            ),
-            None => {
-                let fallback = PathBuf::from(".snpm");
-                (fallback.join("cache"), fallback.join("data"))
+        let (cache_dir, data_dir) = if let Ok(home) = env::var("SNPM_HOME") {
+            let base = PathBuf::from(home);
+            (base.join("cache"), base.join("data"))
+        } else {
+            match dirs {
+                Some(dirs) => (
+                    dirs.cache_dir().to_path_buf(),
+                    dirs.data_local_dir().to_path_buf(),
+                ),
+                None => {
+                    let fallback = PathBuf::from(".snpm");
+                    (fallback.join("cache"), fallback.join("data"))
+                }
             }
         };
 

@@ -48,7 +48,7 @@ async fn run() -> Result<()> {
             if packages.is_empty() {
                 if let Some(mut workspace) = Workspace::discover(&cwd)? {
                     if workspace.root == cwd {
-                        for project in workspace.projects.iter() {
+                        for (index, project) in workspace.projects.iter_mut().enumerate() {
                             if index > 0 {
                                 println!();
                             }
@@ -206,7 +206,7 @@ async fn run() -> Result<()> {
             }
 
             let mut project = Project::discover(&cwd)?;
-            let lockfile_path = project.root.join("snpm-lockfile.yaml");
+            let lockfile_path = project.root.join("snpm-lock.yaml");
             if lockfile_path.is_file() {
                 fs::remove_file(&lockfile_path)?;
             }

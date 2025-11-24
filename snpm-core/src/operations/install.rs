@@ -77,16 +77,19 @@ pub async fn install(
 
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
+    let mut manifest_protocols = BTreeMap::new();
 
     let deps = apply_specs(
         &project.manifest.dependencies,
         workspace.as_ref(),
         &mut local_deps,
+        Some(&mut manifest_protocols),
     )?;
     let dev_deps = apply_specs(
         &project.manifest.dev_dependencies,
         workspace.as_ref(),
         &mut local_dev_deps,
+        Some(&mut manifest_protocols),
     )?;
 
     let manifest_root = if let Some(ws) = workspace.as_ref() {
@@ -104,7 +107,11 @@ pub async fn install(
     let mut root_protocols = BTreeMap::new();
 
     for name in manifest_root.keys() {
-        root_protocols.insert(name.clone(), RegistryProtocol::npm());
+        if let Some(proto) = manifest_protocols.get(name) {
+            root_protocols.insert(name.clone(), proto.clone());
+        } else {
+            root_protocols.insert(name.clone(), RegistryProtocol::npm());
+        }
     }
 
     for name in additions.keys() {
@@ -436,7 +443,12 @@ fn collect_workspace_root_deps(
 
     for member in workspace.projects.iter() {
         let mut local = BTreeSet::new();
-        let deps = apply_specs(&member.manifest.dependencies, Some(workspace), &mut local)?;
+        let deps = apply_specs(
+            &member.manifest.dependencies,
+            Some(workspace),
+            &mut local,
+            None,
+        )?;
 
         for (name, range) in deps.iter() {
             insert_workspace_root_dep(&mut combined, &workspace.root, name, range)?;
@@ -448,6 +460,7 @@ fn collect_workspace_root_deps(
                 &member.manifest.dev_dependencies,
                 Some(workspace),
                 &mut local_dev,
+                None,
             )?;
 
             for (name, range) in dev_deps.iter() {
@@ -485,6 +498,7 @@ fn apply_specs(
     specs: &BTreeMap<String, String>,
     workspace: Option<&Workspace>,
     local_set: &mut BTreeSet<String>,
+    mut protocol_map: Option<&mut BTreeMap<String, RegistryProtocol>>,
 ) -> Result<BTreeMap<String, String>> {
     let mut result = BTreeMap::new();
 
@@ -504,7 +518,18 @@ fn apply_specs(
             value.clone()
         };
 
-        result.insert(name.clone(), resolved);
+        let final_value = if let Some(map) = &mut protocol_map {
+            if let Some((range, proto)) = parse_manifest_protocol(&resolved) {
+                map.insert(name.clone(), proto);
+                range
+            } else {
+                resolved
+            }
+        } else {
+            resolved
+        };
+
+        result.insert(name.clone(), final_value);
     }
 
     Ok(result)
@@ -626,16 +651,19 @@ pub async fn outdated(
 
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
+    let mut manifest_protocols = BTreeMap::new();
 
     let deps = apply_specs(
         &project.manifest.dependencies,
         workspace.as_ref(),
         &mut local_deps,
+        Some(&mut manifest_protocols),
     )?;
     let dev_deps = apply_specs(
         &project.manifest.dev_dependencies,
         workspace.as_ref(),
         &mut local_dev_deps,
+        Some(&mut manifest_protocols),
     )?;
 
     let root_deps = if let Some(ws) = workspace.as_ref() {
@@ -646,7 +674,11 @@ pub async fn outdated(
 
     let mut root_protocols = BTreeMap::new();
     for name in root_deps.keys() {
-        root_protocols.insert(name.clone(), RegistryProtocol::npm());
+        if let Some(proto) = manifest_protocols.get(name) {
+            root_protocols.insert(name.clone(), proto.clone());
+        } else {
+            root_protocols.insert(name.clone(), RegistryProtocol::npm());
+        }
     }
 
     let graph = resolve::resolve(
@@ -732,4 +764,21 @@ fn parse_requested_with_protocol(
     }
 
     (ranges, protocols)
+}
+
+fn parse_manifest_protocol(spec: &str) -> Option<(String, RegistryProtocol)> {
+    if !(spec.starts_with("npm:") || spec.starts_with("jsr:")) {
+        return None;
+    }
+
+    let parsed = parse_requested_spec(spec);
+
+    let proto_name = parsed.protocol.as_deref()?;
+    let protocol = match proto_name {
+        "npm" => RegistryProtocol::npm(),
+        "jsr" => RegistryProtocol::jsr(),
+        _ => return None,
+    };
+
+    Some((parsed.range, protocol))
 }

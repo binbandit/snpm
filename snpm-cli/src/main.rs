@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
 use snpm_core::{
-    Project, SnpmConfig, Workspace,
+    Project, SnpmConfig, Workspace, console,
     operations::{self, InstallOptions},
 };
-use std::{env, fs};
+use std::{env, fs, process};
 use tracing_subscriber::EnvFilter;
 
 mod cli;
@@ -12,7 +12,14 @@ mod cli;
 use cli::{Cli, Command};
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(error) = run().await {
+        console::error(&format!("{error}"));
+        process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
     init_tracing()?;
 
     let args = Cli::parse();
@@ -25,11 +32,27 @@ async fn main() -> Result<()> {
             frozen_lockfile,
             force,
         } => {
+            let mut heading = String::from("install");
+            if production {
+                heading.push_str(" --production");
+            }
+            if frozen_lockfile {
+                heading.push_str(" --frozen-lockfile");
+            }
+            if force {
+                heading.push_str(" --force");
+            }
+            console::heading(&heading);
+
             let cwd = env::current_dir()?;
             if packages.is_empty() {
                 if let Some(mut workspace) = Workspace::discover(&cwd)? {
                     if workspace.root == cwd {
-                        for project in workspace.projects.iter_mut() {
+                        for (index, project) in workspace.projects.iter_mut().enumerate() {
+                            if index > 0 {
+                                println!();
+                            }
+
                             let options = operations::InstallOptions {
                                 requested: Vec::new(),
                                 dev: false,
@@ -62,6 +85,19 @@ async fn main() -> Result<()> {
             packages,
             force,
         } => {
+            let mut heading = String::from("add");
+            if dev {
+                heading.push_str(" -D");
+            }
+            if force {
+                heading.push_str(" --force");
+            }
+            if let Some(name) = target.as_deref() {
+                heading.push_str(" -w ");
+                heading.push_str(name);
+            }
+            console::heading(&heading);
+
             let cwd = env::current_dir()?;
 
             if let Some(workspace_name) = target {
@@ -98,20 +134,49 @@ async fn main() -> Result<()> {
         }
 
         Command::Remove { packages } => {
+            let mut heading = String::from("remove");
+            if !packages.is_empty() {
+                heading.push(' ');
+                for (index, name) in packages.iter().enumerate() {
+                    if index > 0 {
+                        heading.push(' ');
+                    }
+                    heading.push_str(name);
+                }
+            }
+            console::heading(&heading);
+
             let cwd = env::current_dir()?;
             let mut project = Project::discover(&cwd)?;
             operations::remove(&config, &mut project, packages).await?;
         }
+
         Command::Run { script, args } => {
+            console::heading(&format!("run {script}"));
+
             let cwd = env::current_dir()?;
             let project = Project::discover(&cwd)?;
             operations::run_script(&project, &script, &args)?;
         }
+
         Command::Init => {
             let cwd = env::current_dir()?;
+            let name = cwd.file_name().and_then(|os| os.to_str()).unwrap_or(".");
+            console::heading(&format!("init {name}"));
+
             operations::init(&cwd)?;
         }
+
         Command::Upgrade { production, force } => {
+            let mut heading = String::from("upgrade");
+            if production {
+                heading.push_str(" --production");
+            }
+            if force {
+                heading.push_str(" --force");
+            }
+            console::heading(&heading);
+
             let cwd = env::current_dir()?;
 
             if let Some(mut workspace) = Workspace::discover(&cwd)? {
@@ -121,7 +186,11 @@ async fn main() -> Result<()> {
                         fs::remove_file(&lockfile_path)?;
                     }
 
-                    for project in workspace.projects.iter_mut() {
+                    for (index, project) in workspace.projects.iter_mut().enumerate() {
+                        if index > 0 {
+                            println!();
+                        }
+
                         let options = InstallOptions {
                             requested: Vec::new(),
                             dev: false,
@@ -151,35 +220,39 @@ async fn main() -> Result<()> {
             };
             operations::install(&config, &mut project, options).await?;
         }
+
         Command::Outdated { production } => {
+            let mut heading = String::from("outdated");
+            if production {
+                heading.push_str(" --production");
+            }
+            console::heading(&heading);
+
             let cwd = env::current_dir()?;
 
             if let Some(workspace) = Workspace::discover(&cwd)? {
                 if workspace.root == cwd {
                     let mut any = false;
 
-                    for project in workspace.projects.iter() {
+                    for (index, project) in workspace.projects.iter().enumerate() {
                         let entries = operations::outdated(&config, project, !production).await?;
 
                         if entries.is_empty() {
                             continue;
                         }
 
+                        if any {
+                            println!();
+                        }
                         any = true;
 
-                        let name = project
-                            .manifest
-                            .name
-                            .as_deref()
-                            .map(std::borrow::Cow::Borrowed)
-                            .unwrap_or_else(|| project.root.to_string_lossy());
-                        println!("{name}:");
+                        let name = project_label(project);
+                        console::project(&name);
                         print_outdated(&entries);
-                        println!();
                     }
 
                     if !any {
-                        println!("All dependencies are up to date.");
+                        console::info("All dependencies are up to date.");
                     }
 
                     return Ok(());
@@ -190,8 +263,10 @@ async fn main() -> Result<()> {
             let entries = operations::outdated(&config, &project, !production).await?;
 
             if entries.is_empty() {
-                println!("All dependencies are up to date");
+                console::info("All dependencies are up to date.");
             } else {
+                let name = project_label(&project);
+                console::project(&name);
                 print_outdated(&entries);
             }
         }
@@ -240,5 +315,18 @@ fn print_outdated(entries: &[operations::OutdatedEntry]) {
             entry.wanted,
             name_width = name_width
         );
+    }
+}
+
+fn project_label(project: &Project) -> String {
+    if let Some(name) = project.manifest.name.as_deref() {
+        name.to_string()
+    } else {
+        project
+            .root
+            .file_name()
+            .and_then(|os| os.to_str())
+            .unwrap_or(".")
+            .to_string()
     }
 }

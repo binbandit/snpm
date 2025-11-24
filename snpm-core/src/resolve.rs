@@ -131,9 +131,32 @@ async fn resolve_package(
         return Ok(id);
     }
 
+    let mut peer_dependencies = BTreeMap::new();
+
+    for (peer_name, peer_range) in version_meta.peer_dependencies.iter() {
+        let is_optional = version_meta
+            .peer_dependencies_meta
+            .get(peer_name)
+            .map(|m| m.optional)
+            .unwrap_or(false);
+
+        if !is_optional {
+            peer_dependencies.insert(peer_name.clone(), peer_range.clone());
+        }
+    }
+
+    let placeholder = ResolvedPackage {
+        id: id.clone(),
+        tarball: version_meta.dist.tarball.clone(),
+        integrity: version_meta.dist.integrity.clone(),
+        dependencies: BTreeMap::new(),
+        peer_dependencies,
+    };
+
+    packages.insert(id.clone(), placeholder);
+
     let mut dependencies = BTreeMap::new();
 
-    // Regular dependencies
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
         let dep_id = resolve_package(
             config,
@@ -150,7 +173,6 @@ async fn resolve_package(
         dependencies.insert(dep_name.clone(), dep_id);
     }
 
-    // Optional dependencies
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
         if let Ok(dep_id) = resolve_package(
             config,
@@ -169,29 +191,9 @@ async fn resolve_package(
         }
     }
 
-    let mut peer_dependencies = BTreeMap::new();
-
-    for (peer_name, peer_range) in version_meta.peer_dependencies.iter() {
-        let is_optional = version_meta
-            .peer_dependencies_meta
-            .get(peer_name)
-            .map(|m| m.optional)
-            .unwrap_or(false);
-
-        if !is_optional {
-            peer_dependencies.insert(peer_name.clone(), peer_range.clone());
-        }
+    if let Some(existing) = packages.get_mut(&id) {
+        existing.dependencies = dependencies;
     }
-
-    let resolved = ResolvedPackage {
-        id: id.clone(),
-        tarball: version_meta.dist.tarball.clone(),
-        integrity: version_meta.dist.integrity.clone(),
-        dependencies,
-        peer_dependencies,
-    };
-
-    packages.insert(id.clone(), resolved);
 
     Ok(id)
 }

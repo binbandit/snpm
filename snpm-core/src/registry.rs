@@ -136,7 +136,15 @@ async fn fetch_npm_like_package(
     let base = npm_like_registry_for_package(config, protocol_name, name);
     let url = format!("{}/{}", base.trim_end_matches('/'), encoded);
 
-    let response = reqwest::get(&url).await.map_err(|source| SnpmError::Http {
+    let client = reqwest::Client::new();
+    let mut request = client.get(&url);
+
+    if let Some(token) = config.auth_token_for_url(&url) {
+        let header_value = format!("Bearer {}", token);
+        request = request.header("authorization", header_value);
+    }
+
+    let response = request.send().await.map_err(|source| SnpmError::Http {
         url: url.clone(),
         source,
     })?;

@@ -1,5 +1,5 @@
 use crate::project::Manifest;
-use crate::{Result, SnpmError};
+use crate::{Result, SnpmError, console};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -36,6 +36,8 @@ pub fn init(root: &Path) -> Result<()> {
         path: manifest_path,
         source,
     })?;
+
+    console::step("created", "package.json");
 
     Ok(())
 }

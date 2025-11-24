@@ -1,4 +1,4 @@
-use crate::{Project, Result, SnpmError};
+use crate::{Project, Result, SnpmError, console};
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -20,6 +20,8 @@ pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()
         }
         command_text.push_str(&extra);
     }
+
+    console::info(&command_text);
 
     let mut command = make_command(&command_text);
 

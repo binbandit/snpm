@@ -1,3 +1,4 @@
+use crate::console;
 use crate::lifecycle;
 use crate::lockfile;
 use crate::registry::RegistryProtocol;
@@ -10,6 +11,7 @@ use reqwest::Client;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
@@ -39,11 +41,14 @@ pub async fn install(
     project: &mut Project,
     options: InstallOptions,
 ) -> Result<()> {
+    let started = Instant::now();
     let (requested_ranges, requested_protocols) = parse_requested_with_protocol(&options.requested);
 
     let additions = requested_ranges;
 
     let workspace = Workspace::discover(&project.root)?;
+
+    console::project(&project_label(project));
 
     let catalog = if workspace.is_none() {
         CatalogConfig::load(&project.root)?
@@ -205,7 +210,11 @@ pub async fn install(
         }
     };
 
+    console::step("resolved", &format!("{} packages", graph.packages.len()));
+
     let store_paths = materialize_store(config, &graph).await?;
+    console::step("fetched", &format!("{} packages", store_paths.len()));
+
     write_manifest(
         project,
         &graph,
@@ -229,7 +238,24 @@ pub async fn install(
         &local_dev_deps,
         options.include_dev,
     )?;
+    console::step("linked", "node_modules");
     lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?;
+    console::step("scripts", "install scripts completed");
+    if !additions.is_empty() {
+        for name in additions.keys() {
+            if let Some(dep) = graph.root.dependencies.get(name) {
+                let mut summary = format!("{}@{}", name, dep.resolved.version);
+                if options.dev {
+                    summary.push_str(" (dev)");
+                }
+                console::added(&summary);
+            }
+        }
+    }
+
+    let elapsed = started.elapsed();
+    let seconds = elapsed.as_secs_f32();
+    console::step("done", &format!("in {seconds:.2}s"));
 
     Ok(())
 }
@@ -243,8 +269,20 @@ pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<Strin
 
     for spec in specs {
         let (name, _) = parse_spec(&spec);
-        manifest.dependencies.remove(&name);
-        manifest.dev_dependencies.remove(&name);
+
+        let mut removed_any = false;
+
+        if manifest.dependencies.remove(&name).is_some() {
+            removed_any = true;
+        }
+
+        if manifest.dev_dependencies.remove(&name).is_some() {
+            removed_any = true;
+        }
+
+        if removed_any {
+            crate::console::removed(&name);
+        }
     }
 
     project.write_manifest(&manifest)?;
@@ -781,4 +819,17 @@ fn parse_manifest_protocol(spec: &str) -> Option<(String, RegistryProtocol)> {
     };
 
     Some((parsed.range, protocol))
+}
+
+fn project_label(project: &Project) -> String {
+    if let Some(name) = project.manifest.name.as_deref() {
+        name.to_string()
+    } else {
+        project
+            .root
+            .file_name()
+            .and_then(|os| os.to_str())
+            .unwrap_or(".")
+            .to_string()
+    }
 }

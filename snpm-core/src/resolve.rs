@@ -18,6 +18,7 @@ pub struct ResolvedPackage {
     pub tarball: String,
     pub integrity: Option<String>,
     pub dependencies: BTreeMap<String, PackageId>,
+    pub peer_dependencies: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug)]
@@ -77,7 +78,10 @@ pub async fn resolve(
         dependencies: root_dependencies,
     };
 
-    Ok(ResolutionGraph { root, packages })
+    let graph = ResolutionGraph { root, packages };
+    validate_peers(&graph)?;
+
+    Ok(graph)
 }
 
 #[async_recursion]
@@ -165,11 +169,26 @@ async fn resolve_package(
         }
     }
 
+    let mut peer_dependencies = BTreeMap::new();
+
+    for (peer_name, peer_range) in version_meta.peer_dependencies.iter() {
+        let is_optional = version_meta
+            .peer_dependencies_meta
+            .get(peer_name)
+            .map(|m| m.optional)
+            .unwrap_or(false);
+
+        if !is_optional {
+            peer_dependencies.insert(peer_name.clone(), peer_range.clone());
+        }
+    }
+
     let resolved = ResolvedPackage {
         id: id.clone(),
         tarball: version_meta.dist.tarball.clone(),
         integrity: version_meta.dist.integrity.clone(),
         dependencies,
+        peer_dependencies,
     };
 
     packages.insert(id.clone(), resolved);
@@ -182,6 +201,73 @@ fn version_age_days(package: &RegistryPackage, version: &str, now: OffsetDateTim
     let published = OffsetDateTime::parse(time_str, &Rfc3339).ok()?;
     let age = now - published;
     Some(age.whole_days())
+}
+
+fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
+    let mut versions_by_name = BTreeMap::new();
+
+    for package in graph.packages.values() {
+        if let Ok(ver) = Version::parse(&package.id.version) {
+            versions_by_name
+                .entry(package.id.name.clone())
+                .or_insert_with(Vec::new)
+                .push(ver);
+        }
+    }
+
+    for package in graph.packages.values() {
+        if package.peer_dependencies.is_empty() {
+            continue;
+        }
+
+        for (peer_name, peer_range) in package.peer_dependencies.iter() {
+            let normalized = if peer_range == "latest" || peer_range.is_empty() {
+                "*"
+            } else {
+                peer_range.as_str()
+            };
+
+            let ranges = parse_range_set(peer_name, peer_range, normalized)?;
+
+            let candidates = match versions_by_name.get(peer_name) {
+                Some(list) => list,
+                None => {
+                    return Err(SnpmError::ResolutionFailed {
+                        name: package.id.name.clone(),
+                        range: peer_range.clone(),
+                        reason: format!("missing peer dependency {peer_name}"),
+                    });
+                }
+            };
+
+            let mut satisfied = false;
+
+            for ver in candidates {
+                if matches_any_range(&ranges, ver) {
+                    satisfied = true;
+                    break;
+                }
+            }
+
+            if !satisfied {
+                let installed = candidates
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                return Err(SnpmError::ResolutionFailed {
+                    name: package.id.name.clone(),
+                    range: peer_range.clone(),
+                    reason: format!(
+                        "peer dependency {peer_name}@{peer_range} is not satisfied; installed versions: {installed}"
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn select_version(

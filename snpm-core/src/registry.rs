@@ -11,12 +11,22 @@ pub struct RegistryPackage {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct PeerDependencyMeta {
+    #[serde(default)]
+    pub optional: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct RegistryVersion {
     pub version: String,
     #[serde(default)]
     pub dependencies: BTreeMap<String, String>,
     #[serde(default, rename = "optionalDependencies")]
     pub optional_dependencies: BTreeMap<String, String>,
+    #[serde(default, rename = "peerDependencies")]
+    pub peer_dependencies: BTreeMap<String, String>,
+    #[serde(default, rename = "peerDependenciesMeta")]
+    pub peer_dependencies_meta: BTreeMap<String, PeerDependencyMeta>,
     pub dist: RegistryDist,
     #[serde(default)]
     pub os: Vec<String>,
@@ -111,6 +121,8 @@ fn jsr_to_registry(pkg: JsrPackage) -> RegistryPackage {
             version: jsr_ver.version,
             dependencies: jsr_ver.dependencies,
             optional_dependencies: jsr_ver.optional_dependencies,
+            peer_dependencies: BTreeMap::new(),
+            peer_dependencies_meta: BTreeMap::new(),
             dist: RegistryDist {
                 tarball: jsr_ver.dist.tarball,
                 integrity: jsr_ver.dist.integrity,

@@ -42,9 +42,26 @@ pub async fn install(
     options: InstallOptions,
 ) -> Result<()> {
     let started = Instant::now();
-    let (requested_ranges, requested_protocols) = parse_requested_with_protocol(&options.requested);
+    let (requested_ranges_raw, requested_protocols_raw) =
+        parse_requested_with_protocol(&options.requested);
 
-    let additions = requested_ranges;
+    // Only treat truely new packages as "additions"
+    let mut additions = BTreeMap::new();
+    let mut requested_protocols = BTreeMap::new();
+
+    for (name, range) in requested_ranges_raw {
+        if project.manifest.dependencies.contains_key(&name)
+            || project.manifest.dev_dependencies.contains_key(&name)
+        {
+            // package already in manifest; snpm add is idempotent for existing packages
+            continue;
+        }
+
+        additions.insert(name.clone(), range);
+        if let Some(proto) = requested_protocols_raw.get(&name) {
+            requested_protocols.insert(name.clone(), proto.clone());
+        }
+    }
 
     let workspace = Workspace::discover(&project.root)?;
 

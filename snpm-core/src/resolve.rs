@@ -233,8 +233,7 @@ fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
         }
 
         for (peer_name, peer_range) in package.peer_dependencies.iter() {
-            let normalized = normalize_peer_range(peer_name);
-            let ranges = parse_range_set(peer_name, peer_range, &normalized)?;
+            let ranges = parse_range_set(peer_name, peer_range)?;
 
             let candidates = match versions_by_name.get(peer_name) {
                 Some(list) => list,
@@ -284,13 +283,7 @@ fn select_version(
     min_age_days: Option<u32>,
     force: bool,
 ) -> Result<RegistryVersion> {
-    let normalized = if range == "latest" || range.is_empty() {
-        "*"
-    } else {
-        range
-    };
-
-    let ranges = parse_range_set(name, range, normalized)?;
+    let ranges = parse_range_set(name, range)?;
     let mut selected: Option<(Version, RegistryVersion)> = None;
     let now = OffsetDateTime::now_utc();
     let mut youngest_rejected: Option<(String, i64)> = None;
@@ -347,7 +340,9 @@ fn select_version(
     }
 }
 
-fn parse_range_set(name: &str, original: &str, normalized: &str) -> Result<Vec<VersionReq>> {
+fn parse_range_set(name: &str, original: &str) -> Result<Vec<VersionReq>> {
+    let normalized = normalize_range(original);
+
     let parts: Vec<&str> = normalized
         .split("||")
         .map(|part| part.trim())
@@ -373,6 +368,41 @@ fn parse_range_set(name: &str, original: &str, normalized: &str) -> Result<Vec<V
     }
 
     Ok(ranges)
+}
+
+fn normalize_range(range: &str) -> String {
+    let mut trimmed = range.trim();
+
+    if trimmed.is_empty() || trimmed == "latest" {
+        return "*".to_string();
+    }
+
+    // Some tools emit things like "@^7.0.0" for scoped packages, strip the leading '@'
+    if trimmed.starts_with('@')
+        && trimmed.len() > 1
+        && trimmed
+            .chars()
+            .nth(1)
+            .map(|c| c.is_ascii_digit() || c == '^' || c == '~' || c == '>')
+            .unwrap_or(false)
+    {
+        trimmed = &trimmed[1..];
+    }
+
+    // Handle alias forms like "npm:rolldown-vite@7.2.5" or "jsr:@scope/pkg@^1.0.0"
+    if trimmed.starts_with("npm:") || trimmed.starts_with("jsr:") {
+        if let Some(colon_index) = trimmed.find(':') {
+            let after_colon = &trimmed[colon_index + 1..];
+            if let Some(at_index) = after_colon.rfind('@') {
+                let version_part = after_colon[at_index + 1..].trim();
+                if !version_part.is_empty() {
+                    return version_part.to_string();
+                }
+            }
+        }
+    }
+
+    trimmed.to_string()
 }
 
 fn matches_any_range(ranges: &[VersionReq], version: &Version) -> bool {

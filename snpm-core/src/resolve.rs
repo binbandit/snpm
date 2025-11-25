@@ -341,21 +341,57 @@ fn select_version(
 }
 
 fn parse_range_set(name: &str, original: &str) -> Result<Vec<VersionReq>> {
-    let normalized = normalize_range(original);
+    let mut s = original.trim();
 
-    let parts: Vec<&str> = normalized
-        .split("||")
-        .map(|part| part.trim())
-        .filter(|part| !part.is_empty())
-        .collect();
+    if s.is_empty() || s == "latest" {
+        s = "*";
+    }
+
+    // Handle alias forms like "npm:pkg@1.2.3" or "jsr:@scope/pkg@>=4.8.4 <6.0.0"
+    if s.starts_with("npm:") || s.starts_with("jsr:") {
+        if let Some(colon) = s.find(':') {
+            let after = &s[colon + 1..];
+            if let Some(at) = after.rfind('@') {
+                let version = after[at + 1..].trim();
+                if version.is_empty() {
+                    s = "*";
+                } else {
+                    s = version;
+                }
+            } else {
+                // No explicit version in alias → treat as "latest"
+                s = "*";
+            }
+        }
+    }
 
     let mut ranges = Vec::new();
 
-    for part in parts {
-        let req = VersionReq::parse(part).map_err(|source| SnpmError::Semver {
+    for part in s.split("||") {
+        let mut part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        // Some tools emit things like "@^7.0.0" for scoped packages
+        if part.starts_with('@') && part.len() > 1 {
+            let second = part.as_bytes()[1] as char;
+            if second.is_ascii_digit() || matches!(second, '^' | '~' | '>' | '<' | '=') {
+                part = &part[1..];
+            }
+        }
+
+        if part.is_empty() || part == "latest" {
+            part = "*";
+        }
+
+        let normalized = normalize_and_part(part);
+
+        let req = VersionReq::parse(&normalized).map_err(|source| SnpmError::Semver {
             value: format!("{}@{}", name, original),
             source,
         })?;
+
         ranges.push(req);
     }
 
@@ -370,39 +406,32 @@ fn parse_range_set(name: &str, original: &str) -> Result<Vec<VersionReq>> {
     Ok(ranges)
 }
 
-fn normalize_range(range: &str) -> String {
-    let mut trimmed = range.trim();
+fn normalize_and_part(part: &str) -> String {
+    let tokens: Vec<&str> = part.split_whitespace().collect();
 
-    if trimmed.is_empty() || trimmed == "latest" {
-        return "*".to_string();
+    if tokens.len() <= 1 {
+        return part.to_string();
     }
 
-    // Some tools emit things like "@^7.0.0" for scoped packages, strip the leading '@'
-    if trimmed.starts_with('@')
-        && trimmed.len() > 1
-        && trimmed
-            .chars()
-            .nth(1)
-            .map(|c| c.is_ascii_digit() || c == '^' || c == '~' || c == '>')
-            .unwrap_or(false)
-    {
-        trimmed = &trimmed[1..];
+    // Preserve hyphen ranges like "1.0.0 - 2.0.0"
+    if tokens.len() == 3 && tokens[1] == "-" {
+        return part.to_string();
     }
 
-    // Handle alias forms like "npm:rolldown-vite@7.2.5" or "jsr:@scope/pkg@^1.0.0"
-    if trimmed.starts_with("npm:") || trimmed.starts_with("jsr:") {
-        if let Some(colon_index) = trimmed.find(':') {
-            let after_colon = &trimmed[colon_index + 1..];
-            if let Some(at_index) = after_colon.rfind('@') {
-                let version_part = after_colon[at_index + 1..].trim();
-                if !version_part.is_empty() {
-                    return version_part.to_string();
-                }
+    let mut result = String::new();
+    for (i, token) in tokens.iter().enumerate() {
+        if i > 0 {
+            let prev = tokens[i - 1];
+            // If the previous token was an operator, don't add a comma
+            if matches!(prev, "=" | ">" | ">=" | "<" | "<=" | "~" | "^") {
+                result.push(' ');
+            } else {
+                result.push_str(", ");
             }
         }
+        result.push_str(token);
     }
-
-    trimmed.to_string()
+    result
 }
 
 fn matches_any_range(ranges: &[VersionReq], version: &Version) -> bool {
@@ -544,5 +573,23 @@ fn build_dep_request(
             range: overridden.to_string(),
             protocol: protocol.clone(),
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_and_part_issue() {
+        let input = ">= 4.21.0";
+        let normalized = normalize_and_part(input);
+        println!("Normalized '{}' -> '{}'", input, normalized);
+        let req = VersionReq::parse(&normalized);
+        assert!(
+            req.is_ok(),
+            "Failed to parse normalized string: '{}', error: {:?}",
+            normalized,
+            req.err()
+        );
     }
 }

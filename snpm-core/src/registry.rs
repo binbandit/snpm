@@ -1,7 +1,10 @@
 use crate::{Result, SnpmConfig, SnpmError};
+use reqwest::Client;
+use reqwest::header::{ACCEPT, HeaderValue};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::env;
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegistryPackage {
@@ -93,6 +96,11 @@ pub struct RegistryDist {
     pub integrity: Option<String>,
 }
 
+fn http_client() -> &'static Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT.get_or_init(Client::new)
+}
+
 pub async fn fetch_package(
     config: &SnpmConfig,
     name: &str,
@@ -148,8 +156,17 @@ async fn fetch_npm_like_package(
     let base = npm_like_registry_for_package(config, protocol_name, name);
     let url = format!("{}/{}", base.trim_end_matches('/'), encoded);
 
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut request = client.get(&url);
+
+    if protocol_name == "npm" {
+        request = request.header(
+            ACCEPT,
+            HeaderValue::from_static(
+                "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
+            ),
+        );
+    }
 
     if let Some(token) = config.auth_token_for_url(&url) {
         let header_value = format!("Bearer {}", token);

@@ -573,18 +573,13 @@ fn apply_specs(
             value.clone()
         };
 
-        let final_value = if let Some(map) = &mut protocol_map {
-            if let Some((range, proto)) = parse_manifest_protocol(&resolved) {
+        if let Some(map) = &mut protocol_map {
+            if let Some(proto) = detect_manifest_protocol(&resolved) {
                 map.insert(name.clone(), proto);
-                range
-            } else {
-                resolved
             }
-        } else {
-            resolved
-        };
+        }
 
-        result.insert(name.clone(), final_value);
+        result.insert(name.clone(), resolved);
     }
 
     Ok(result)
@@ -821,21 +816,14 @@ fn parse_requested_with_protocol(
     (ranges, protocols)
 }
 
-fn parse_manifest_protocol(spec: &str) -> Option<(String, RegistryProtocol)> {
-    if !(spec.starts_with("npm:") || spec.starts_with("jsr:")) {
-        return None;
+fn detect_manifest_protocol(spec: &str) -> Option<RegistryProtocol> {
+    if spec.starts_with("npm:") {
+        Some(RegistryProtocol::npm())
+    } else if spec.starts_with("jsr:") {
+        Some(RegistryProtocol::jsr())
+    } else {
+        None
     }
-
-    let parsed = parse_requested_spec(spec);
-
-    let proto_name = parsed.protocol.as_deref()?;
-    let protocol = match proto_name {
-        "npm" => RegistryProtocol::npm(),
-        "jsr" => RegistryProtocol::jsr(),
-        _ => return None,
-    };
-
-    Some((parsed.range, protocol))
 }
 
 fn project_label(project: &Project) -> String {

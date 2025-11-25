@@ -546,23 +546,3 @@ fn build_dep_request(
         }
     }
 }
-
-fn normalize_peer_range(range: &str) -> String {
-    if range == "latest" || range.is_empty() {
-        return "*".to_string();
-    }
-
-    if range.starts_with("npm:") || range.starts_with("jsr:") {
-        if let Some((_, _, semver_range)) = split_protocol_spec(range) {
-            if semver_range == "latest" || semver_range.is_empty() {
-                "*".to_string()
-            } else {
-                semver_range
-            }
-        } else {
-            "*".to_string()
-        }
-    } else {
-        range.to_string()
-    }
-}

@@ -234,7 +234,7 @@ async fn run() -> Result<()> {
                 if workspace.root == cwd {
                     let mut any = false;
 
-                    for (index, project) in workspace.projects.iter().enumerate() {
+                    for project in workspace.projects.iter() {
                         let entries = operations::outdated(&config, project, !production).await?;
 
                         if entries.is_empty() {

@@ -48,7 +48,7 @@ async fn run() -> Result<()> {
             if packages.is_empty() {
                 if let Some(mut workspace) = Workspace::discover(&cwd)? {
                     if workspace.root == cwd {
-                        for (index, project) in workspace.projects.iter_mut().enumerate() {
+                        for project in workspace.projects.iter() {
                             if index > 0 {
                                 println!();
                             }

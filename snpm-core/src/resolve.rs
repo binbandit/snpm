@@ -1,6 +1,7 @@
 use crate::registry::{RegistryPackage, RegistryProtocol, RegistryVersion, fetch_package};
 use crate::{Result, SnpmConfig, SnpmError};
 use async_recursion::async_recursion;
+use reqwest::Client;
 use semver::{Version, VersionReq};
 use std::collections::BTreeMap;
 use time::OffsetDateTime;
@@ -48,6 +49,7 @@ struct DepRequest {
 
 pub async fn resolve(
     config: &SnpmConfig,
+    client: &Client,
     root_deps: &BTreeMap<String, String>,
     root_protocols: &BTreeMap<String, RegistryProtocol>,
     min_age_days: Option<u32>,
@@ -64,6 +66,7 @@ pub async fn resolve(
 
         let id = resolve_package(
             config,
+            client,
             name,
             range,
             protocol,
@@ -95,6 +98,7 @@ pub async fn resolve(
 #[async_recursion]
 async fn resolve_package(
     config: &SnpmConfig,
+    client: &Client,
     name: &str,
     range: &str,
     protocol: &RegistryProtocol,
@@ -111,7 +115,7 @@ async fn resolve_package(
     let package = if let Some(cached) = package_cache.get(&cache_key) {
         cached.clone()
     } else {
-        let fetched = fetch_package(config, &request.source, &request.protocol).await?;
+        let fetched = fetch_package(config, client, &request.source, &request.protocol).await?;
         package_cache.insert(cache_key.clone(), fetched.clone());
         fetched
     };
@@ -170,6 +174,7 @@ async fn resolve_package(
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
         let dep_id = resolve_package(
             config,
+            client,
             dep_name,
             dep_range,
             &request.protocol,
@@ -186,6 +191,7 @@ async fn resolve_package(
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
         if let Ok(dep_id) = resolve_package(
             config,
+            client,
             dep_name,
             dep_range,
             &request.protocol,

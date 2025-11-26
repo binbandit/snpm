@@ -4,6 +4,7 @@
 /debug
 
 e2e/
+package-manager-benchmarks/
 
 # Coverage and profiling
 coverage/

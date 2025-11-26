@@ -42,6 +42,9 @@ pub async fn install(
     options: InstallOptions,
 ) -> Result<()> {
     let started = Instant::now();
+
+    let registry_client = Client::new();
+
     let (requested_ranges_raw, requested_protocols_raw) =
         parse_requested_with_protocol(&options.requested);
 
@@ -200,6 +203,7 @@ pub async fn install(
             } else {
                 let graph = resolve::resolve(
                     config,
+                    &registry_client,
                     &root_deps,
                     &root_protocols,
                     config.min_package_age_days,
@@ -213,6 +217,7 @@ pub async fn install(
         } else {
             let graph = resolve::resolve(
                 config,
+                &registry_client,
                 &root_deps,
                 &root_protocols,
                 config.min_package_age_days,
@@ -687,6 +692,8 @@ pub async fn outdated(
 ) -> Result<Vec<OutdatedEntry>> {
     let workspace = Workspace::discover(&project.root)?;
 
+    let registry_client = Client::new();
+
     let overrides = if let Some(ref ws) = workspace {
         match OverridesConfig::load(&ws.root)? {
             Some(cfg) => cfg.overrides,
@@ -733,6 +740,7 @@ pub async fn outdated(
 
     let graph = resolve::resolve(
         config,
+        &registry_client,
         &root_deps,
         &root_protocols,
         config.min_package_age_days,

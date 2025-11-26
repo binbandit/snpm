@@ -103,13 +103,14 @@ fn http_client() -> &'static Client {
 
 pub async fn fetch_package(
     config: &SnpmConfig,
+    client: &Client,
     name: &str,
     protocol: &RegistryProtocol,
 ) -> Result<RegistryPackage> {
     if protocol.name == "jsr" {
-        fetch_jsr_package(name).await
+        fetch_jsr_package(client, name).await
     } else {
-        fetch_npm_like_package(config, name, &protocol.name).await
+        fetch_npm_like_package(config, client, name, &protocol.name).await
     }
 }
 
@@ -149,6 +150,7 @@ fn jsr_to_registry(pkg: JsrPackage) -> RegistryPackage {
 
 async fn fetch_npm_like_package(
     config: &SnpmConfig,
+    client: &Client,
     name: &str,
     protocol_name: &str,
 ) -> Result<RegistryPackage> {
@@ -156,17 +158,14 @@ async fn fetch_npm_like_package(
     let base = npm_like_registry_for_package(config, protocol_name, name);
     let url = format!("{}/{}", base.trim_end_matches('/'), encoded);
 
-    let client = http_client();
     let mut request = client.get(&url);
 
-    if protocol_name == "npm" {
-        request = request.header(
-            ACCEPT,
-            HeaderValue::from_static(
-                "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
-            ),
-        );
-    }
+    request = request.header(
+        ACCEPT,
+        HeaderValue::from_static(
+            "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
+        ),
+    );
 
     if let Some(token) = config.auth_token_for_url(&url) {
         let header_value = format!("Bearer {}", token);
@@ -222,15 +221,19 @@ fn npm_registry_for_package(config: &SnpmConfig, name: &str) -> String {
     config.default_registry.clone()
 }
 
-async fn fetch_jsr_package(name: &str) -> Result<RegistryPackage> {
+async fn fetch_jsr_package(client: &Client, name: &str) -> Result<RegistryPackage> {
     let encoded = encode_package_name(name);
     let base = jsr_registry_base();
     let url = format!("{}/{}", base.trim_end_matches('/'), encoded);
 
-    let response = reqwest::get(&url).await.map_err(|source| SnpmError::Http {
-        url: url.clone(),
-        source,
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|source| SnpmError::Http {
+            url: url.clone(),
+            source,
+        })?;
 
     let pkg = response
         .error_for_status()

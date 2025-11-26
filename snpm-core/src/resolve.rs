@@ -1,9 +1,12 @@
 use crate::registry::{RegistryPackage, RegistryProtocol, RegistryVersion, fetch_package};
 use crate::{Result, SnpmConfig, SnpmError};
 use async_recursion::async_recursion;
+use futures::future::join_all;
+use futures::lock::Mutex;
 use reqwest::Client;
-use semver::{Version, VersionReq};
+use snpm_semver::{RangeSet, Version};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -47,6 +50,9 @@ struct DepRequest {
     protocol: RegistryProtocol,
 }
 
+type PackageMap = BTreeMap<PackageId, ResolvedPackage>;
+type PackageCache = BTreeMap<String, RegistryPackage>;
+
 pub async fn resolve(
     config: &SnpmConfig,
     client: &Client,
@@ -56,34 +62,59 @@ pub async fn resolve(
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
 ) -> Result<ResolutionGraph> {
-    let mut packages = BTreeMap::new();
-    let mut root_dependencies = BTreeMap::new();
-    let mut package_cache = BTreeMap::new();
+    let packages = Arc::new(Mutex::new(PackageMap::new()));
+    let package_cache = Arc::new(Mutex::new(PackageCache::new()));
     let default_protocol = RegistryProtocol::npm();
 
-    for (name, range) in root_deps {
-        let protocol = root_protocols.get(name).unwrap_or(&default_protocol);
+    let mut tasks = Vec::new();
 
-        let id = resolve_package(
-            config,
-            client,
-            name,
-            range,
-            protocol,
-            &mut packages,
-            &mut package_cache,
-            min_age_days,
-            force,
-            overrides,
-        )
-        .await?;
-        let entry = RootDependency {
-            requested: range.clone(),
-            resolved: id,
+    for (name, range) in root_deps {
+        let protocol = root_protocols
+            .get(name)
+            .unwrap_or(&default_protocol)
+            .clone();
+        let name = name.clone();
+        let range = range.clone();
+        let packages = packages.clone();
+        let package_cache = package_cache.clone();
+
+        let task = async move {
+            let id = resolve_package(
+                config,
+                client,
+                &name,
+                &range,
+                &protocol,
+                packages,
+                package_cache,
+                min_age_days,
+                force,
+                overrides,
+            )
+            .await?;
+
+            let root_dep = RootDependency {
+                requested: range,
+                resolved: id,
+            };
+
+            Ok::<(String, RootDependency), SnpmError>((name, root_dep))
         };
 
-        root_dependencies.insert(name.clone(), entry);
+        tasks.push(task);
     }
+
+    let results = join_all(tasks).await;
+
+    let mut root_dependencies = BTreeMap::new();
+
+    for result in results {
+        let (name, dep) = result?;
+        root_dependencies.insert(name, dep);
+    }
+
+    let packages_guard = packages.lock().await;
+    let packages = packages_guard.clone();
 
     let root = ResolutionRoot {
         dependencies: root_dependencies,
@@ -102,22 +133,29 @@ async fn resolve_package(
     name: &str,
     range: &str,
     protocol: &RegistryProtocol,
-    packages: &mut BTreeMap<PackageId, ResolvedPackage>,
-    package_cache: &mut BTreeMap<String, RegistryPackage>,
+    packages: Arc<Mutex<PackageMap>>,
+    package_cache: Arc<Mutex<PackageCache>>,
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
 ) -> Result<PackageId> {
     let request = build_dep_request(name, range, protocol, overrides);
-
     let cache_key = format!("{:?}:{}", request.protocol, request.source);
 
-    let package = if let Some(cached) = package_cache.get(&cache_key) {
-        cached.clone()
-    } else {
-        let fetched = fetch_package(config, client, &request.source, &request.protocol).await?;
-        package_cache.insert(cache_key.clone(), fetched.clone());
-        fetched
+    let package = {
+        let cached = {
+            let cache = package_cache.lock().await;
+            cache.get(&cache_key).cloned()
+        };
+
+        if let Some(pkg) = cached {
+            pkg
+        } else {
+            let fetched = fetch_package(config, client, &request.source, &request.protocol).await?;
+            let mut cache = package_cache.lock().await;
+            cache.insert(cache_key, fetched.clone());
+            fetched
+        }
     };
 
     let version_meta = select_version(
@@ -141,8 +179,11 @@ async fn resolve_package(
         version: version_meta.version.clone(),
     };
 
-    if packages.contains_key(&id) {
-        return Ok(id);
+    {
+        let packages_guard = packages.lock().await;
+        if packages_guard.contains_key(&id) {
+            return Ok(id);
+        }
     }
 
     let mut peer_dependencies = BTreeMap::new();
@@ -167,48 +208,95 @@ async fn resolve_package(
         peer_dependencies,
     };
 
-    packages.insert(id.clone(), placeholder);
+    {
+        let mut packages_guard = packages.lock().await;
+        packages_guard.insert(id.clone(), placeholder);
+    }
 
     let mut dependencies = BTreeMap::new();
 
+    let mut dep_futures = Vec::new();
+
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
-        let dep_id = resolve_package(
-            config,
-            client,
-            dep_name,
-            dep_range,
-            &request.protocol,
-            packages,
-            package_cache,
-            min_age_days,
-            force,
-            overrides,
-        )
-        .await?;
-        dependencies.insert(dep_name.clone(), dep_id);
+        let name = dep_name.clone();
+        let range = dep_range.clone();
+        let packages_clone = packages.clone();
+        let cache_clone = package_cache.clone();
+        let protocol = request.protocol.clone();
+
+        let fut = async move {
+            let id = resolve_package(
+                config,
+                client,
+                &name,
+                &range,
+                &protocol,
+                packages_clone,
+                cache_clone,
+                min_age_days,
+                force,
+                overrides,
+            )
+            .await?;
+            Ok::<(String, PackageId), SnpmError>((name, id))
+        };
+
+        dep_futures.push(fut);
     }
 
+    let dep_results = join_all(dep_futures).await;
+
+    for result in dep_results {
+        let (name, id) = result?;
+        dependencies.insert(name, id);
+    }
+
+    let mut opt_futures = Vec::new();
+
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
-        if let Ok(dep_id) = resolve_package(
-            config,
-            client,
-            dep_name,
-            dep_range,
-            &request.protocol,
-            packages,
-            package_cache,
-            min_age_days,
-            force,
-            overrides,
-        )
-        .await
-        {
-            dependencies.insert(dep_name.clone(), dep_id);
+        let name = dep_name.clone();
+        let range = dep_range.clone();
+        let packages_clone = packages.clone();
+        let cache_clone = package_cache.clone();
+        let protocol = request.protocol.clone();
+
+        let fut = async move {
+            let result = resolve_package(
+                config,
+                client,
+                &name,
+                &range,
+                &protocol,
+                packages_clone,
+                cache_clone,
+                min_age_days,
+                force,
+                overrides,
+            )
+            .await;
+
+            match result {
+                Ok(id) => Some((name, id)),
+                Err(_) => None,
+            }
+        };
+
+        opt_futures.push(fut);
+    }
+
+    let opt_results = join_all(opt_futures).await;
+
+    for item in opt_results {
+        if let Some((name, id)) = item {
+            dependencies.insert(name, id);
         }
     }
 
-    if let Some(existing) = packages.get_mut(&id) {
-        existing.dependencies = dependencies;
+    {
+        let mut packages_guard = packages.lock().await;
+        if let Some(existing) = packages_guard.get_mut(&id) {
+            existing.dependencies = dependencies;
+        }
     }
 
     Ok(id)
@@ -255,7 +343,7 @@ fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
             let mut satisfied = false;
 
             for ver in candidates {
-                if matches_any_range(&ranges, ver) {
+                if ranges.matches(ver) {
                     satisfied = true;
                     break;
                 }
@@ -297,7 +385,7 @@ fn select_version(
     for (version_str, meta) in package.versions.iter() {
         let parsed = Version::parse(version_str);
         if let Ok(ver) = parsed {
-            if !matches_any_range(&ranges, &ver) {
+            if !ranges.matches(&ver) {
                 continue;
             }
 
@@ -346,108 +434,11 @@ fn select_version(
     }
 }
 
-fn parse_range_set(name: &str, original: &str) -> Result<Vec<VersionReq>> {
-    let mut s = original.trim();
-
-    if s.is_empty() || s == "latest" {
-        s = "*";
-    }
-
-    // Handle alias forms like "npm:pkg@1.2.3" or "jsr:@scope/pkg@>=4.8.4 <6.0.0"
-    if s.starts_with("npm:") || s.starts_with("jsr:") {
-        if let Some(colon) = s.find(':') {
-            let after = &s[colon + 1..];
-            if let Some(at) = after.rfind('@') {
-                let version = after[at + 1..].trim();
-                if version.is_empty() {
-                    s = "*";
-                } else {
-                    s = version;
-                }
-            } else {
-                // No explicit version in alias → treat as "latest"
-                s = "*";
-            }
-        }
-    }
-
-    let mut ranges = Vec::new();
-
-    for part in s.split("||") {
-        let mut part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-
-        // Some tools emit things like "@^7.0.0" for scoped packages
-        if part.starts_with('@') && part.len() > 1 {
-            let second = part.as_bytes()[1] as char;
-            if second.is_ascii_digit() || matches!(second, '^' | '~' | '>' | '<' | '=') {
-                part = &part[1..];
-            }
-        }
-
-        if part.is_empty() || part == "latest" {
-            part = "*";
-        }
-
-        let normalized = normalize_and_part(part);
-
-        let req = VersionReq::parse(&normalized).map_err(|source| SnpmError::Semver {
-            value: format!("{}@{}", name, original),
-            source,
-        })?;
-
-        ranges.push(req);
-    }
-
-    if ranges.is_empty() {
-        let req = VersionReq::parse("*").map_err(|source| SnpmError::Semver {
-            value: format!("{}@{}", name, original),
-            source,
-        })?;
-        ranges.push(req);
-    }
-
-    Ok(ranges)
-}
-
-fn normalize_and_part(part: &str) -> String {
-    let tokens: Vec<&str> = part.split_whitespace().collect();
-
-    if tokens.len() <= 1 {
-        return part.to_string();
-    }
-
-    // Preserve hyphen ranges like "1.0.0 - 2.0.0"
-    if tokens.len() == 3 && tokens[1] == "-" {
-        return part.to_string();
-    }
-
-    let mut result = String::new();
-    for (i, token) in tokens.iter().enumerate() {
-        if i > 0 {
-            let prev = tokens[i - 1];
-            // If the previous token was an operator, don't add a comma
-            if matches!(prev, "=" | ">" | ">=" | "<" | "<=" | "~" | "^") {
-                result.push(' ');
-            } else {
-                result.push_str(", ");
-            }
-        }
-        result.push_str(token);
-    }
-    result
-}
-
-fn matches_any_range(ranges: &[VersionReq], version: &Version) -> bool {
-    for range in ranges {
-        if range.matches(version) {
-            return true;
-        }
-    }
-
-    false
+fn parse_range_set(name: &str, original: &str) -> Result<RangeSet> {
+    RangeSet::parse(original).map_err(|err| SnpmError::Semver {
+        value: format!("{}@{}", name, original),
+        reason: err.to_string(),
+    })
 }
 
 fn is_compatible(os: &[String], cpu: &[String]) -> bool {
@@ -581,21 +572,15 @@ fn build_dep_request(
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_and_part_issue() {
-        let input = ">= 4.21.0";
-        let normalized = normalize_and_part(input);
-        println!("Normalized '{}' -> '{}'", input, normalized);
-        let req = VersionReq::parse(&normalized);
-        assert!(
-            req.is_ok(),
-            "Failed to parse normalized string: '{}', error: {:?}",
-            normalized,
-            req.err()
-        );
+    fn parses_and_matches_simple_range() {
+        let ranges = parse_range_set("pkg", ">= 4.21.0").unwrap();
+        let v = Version::parse("4.21.0").unwrap();
+        assert!(ranges.matches(&v));
     }
 }

@@ -70,11 +70,8 @@ pub enum SnpmError {
         source: serde_yaml::Error,
     },
 
-    #[error("Invalid semver {value}: {source}")]
-    Semver {
-        value: String,
-        source: semver::Error,
-    },
+    #[error("Invalid semver {value}: {reason}")]
+    Semver { value: String, reason: String },
 
     #[error("Package {name}@{version} missing from store")]
     StoreMissing { name: String, version: String },

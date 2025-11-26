@@ -1539,13 +1539,20 @@ dependencies = [
  "futures",
  "glob",
  "reqwest",
- "semver",
  "serde",
  "serde_json",
  "serde_yaml",
+ "snpm-semver",
  "tar",
  "thiserror",
  "time",
+]
+
+[[package]]
+name = "snpm-semver"
+version = "0.1.0"
+dependencies = [
+ "semver",
 ]
 
 [[package]]

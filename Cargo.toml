@@ -1,5 +1,5 @@
 [workspace]
-members = ["snpm-core", "snpm-cli"]
+members = ["snpm-core", "snpm-cli", "snpm-semver"]
 resolver = "3"
 
 [workspace.dependencies]

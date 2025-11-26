@@ -15,7 +15,6 @@ reqwest = { version = "0.12", features = [
     "deflate",
     "rustls-tls",
 ] }
-semver = "1.0"
 tar = "0.4"
 flate2 = { version = "1.0" }
 serde_yaml = "0.9.34"
@@ -23,3 +22,4 @@ async-recursion = "1.1"
 futures = "0.3"
 glob = "0.3"
 time = { version = "0.3", features = ["parsing"] }
+snpm-semver = { path = "../snpm-semver" }

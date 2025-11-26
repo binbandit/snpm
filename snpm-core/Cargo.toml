@@ -23,3 +23,4 @@ futures = "0.3"
 glob = "0.3"
 time = { version = "0.3", features = ["parsing"] }
 snpm-semver = { path = "../snpm-semver" }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }

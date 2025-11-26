@@ -42,6 +42,10 @@ pub struct ResolutionGraph {
     pub packages: BTreeMap<PackageId, ResolvedPackage>,
 }
 
+pub trait Prefetcher: Send + Sync {
+    fn prefetch(&self, package: &ResolvedPackage);
+}
+
 #[derive(Clone, Debug)]
 struct DepRequest {
     name: String,
@@ -61,6 +65,7 @@ pub async fn resolve(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    prefetch: Option<&dyn Prefetcher>,
 ) -> Result<ResolutionGraph> {
     let packages = Arc::new(Mutex::new(PackageMap::new()));
     let package_cache = Arc::new(Mutex::new(PackageCache::new()));
@@ -77,6 +82,7 @@ pub async fn resolve(
         let range = range.clone();
         let packages = packages.clone();
         let package_cache = package_cache.clone();
+        let prefetch = prefetch;
 
         let task = async move {
             let id = resolve_package(
@@ -90,6 +96,7 @@ pub async fn resolve(
                 min_age_days,
                 force,
                 overrides,
+                prefetch,
             )
             .await?;
 
@@ -138,6 +145,7 @@ async fn resolve_package(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    prefetch: Option<&dyn Prefetcher>,
 ) -> Result<PackageId> {
     let request = build_dep_request(name, range, protocol, overrides);
     let cache_key = format!("{:?}:{}", request.protocol, request.source);
@@ -210,7 +218,11 @@ async fn resolve_package(
 
     {
         let mut packages_guard = packages.lock().await;
-        packages_guard.insert(id.clone(), placeholder);
+        packages_guard.insert(id.clone(), placeholder.clone());
+    }
+
+    if let Some(p) = prefetch {
+        p.prefetch(&placeholder);
     }
 
     let mut dependencies = BTreeMap::new();
@@ -223,6 +235,7 @@ async fn resolve_package(
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
         let protocol = request.protocol.clone();
+        let prefetch = prefetch;
 
         let fut = async move {
             let id = resolve_package(
@@ -236,6 +249,7 @@ async fn resolve_package(
                 min_age_days,
                 force,
                 overrides,
+                prefetch,
             )
             .await?;
             Ok::<(String, PackageId), SnpmError>((name, id))
@@ -259,6 +273,7 @@ async fn resolve_package(
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
         let protocol = request.protocol.clone();
+        let prefetch = prefetch;
 
         let fut = async move {
             let result = resolve_package(
@@ -272,6 +287,7 @@ async fn resolve_package(
                 min_age_days,
                 force,
                 overrides,
+                prefetch,
             )
             .await;
 

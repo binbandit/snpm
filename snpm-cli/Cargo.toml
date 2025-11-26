@@ -7,6 +7,6 @@ edition = "2024"
 snpm-core = { path = "../snpm-core" }
 clap = { version = "4", features = ["derive"] }
 anyhow.workspace = true
-tokio = { version = "1.39.0", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

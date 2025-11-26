@@ -4,7 +4,6 @@ use reqwest::header::{ACCEPT, HeaderValue};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::env;
-use std::sync::OnceLock;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegistryPackage {

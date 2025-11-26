@@ -84,4 +84,7 @@ pub enum SnpmError {
 
     #[error("Failed to run script {name}: {reason}")]
     ScriptRun { name: String, reason: String },
+
+    #[error("Internal task failed: {reason}")]
+    TaskJoin { reason: String },
 }

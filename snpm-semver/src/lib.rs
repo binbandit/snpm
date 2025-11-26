@@ -142,9 +142,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn normalizes_ge_space() {
+        let input = ">= 4.21.0";
+        let normalized = normalize_and_part(input);
+        let req = VersionReq::parse(&normalized);
+        assert!(
+            req.is_ok(),
+            "Failed to parse normalized '{}' -> '{}': {:?}",
+            input,
+            normalized,
+            req.err()
+        );
+    }
+
+    #[test]
     fn parses_simple_range() {
         let set = RangeSet::parse(">= 4.21.0").unwrap();
         let v = Version::parse("4.21.0").unwrap();
         assert!(set.matches(&v));
+    }
+
+    #[test]
+    fn treats_latest_as_wildcard() {
+        let set = RangeSet::parse("latest").unwrap();
+        let v = Version::parse("999.0.0").unwrap();
+        assert!(set.matches(&v));
+    }
+
+    #[test]
+    fn handles_or_ranges() {
+        let set = RangeSet::parse("^1.0.0 || ^2.0.0").unwrap();
+        let v1 = Version::parse("1.5.0").unwrap();
+        let v2 = Version::parse("2.3.0").unwrap();
+        let v3 = Version::parse("3.0.0").unwrap();
+        assert!(set.matches(&v1));
+        assert!(set.matches(&v2));
+        assert!(!set.matches(&v3));
     }
 }

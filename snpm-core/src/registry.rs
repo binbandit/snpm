@@ -11,6 +11,8 @@ pub struct RegistryPackage {
     pub versions: BTreeMap<String, RegistryVersion>,
     #[serde(default)]
     pub time: BTreeMap<String, String>,
+    #[serde(default, rename = "dist-tags")]
+    pub dist_tags: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -96,11 +98,6 @@ pub struct RegistryDist {
     pub integrity: Option<String>,
 }
 
-fn http_client() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(Client::new)
-}
-
 pub async fn fetch_package(
     config: &SnpmConfig,
     client: &Client,
@@ -145,6 +142,7 @@ fn jsr_to_registry(pkg: JsrPackage) -> RegistryPackage {
     RegistryPackage {
         versions,
         time: BTreeMap::new(),
+        dist_tags: BTreeMap::new(),
     }
 }
 

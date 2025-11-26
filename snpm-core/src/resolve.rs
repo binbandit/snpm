@@ -327,7 +327,7 @@ fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
         }
 
         for (peer_name, peer_range) in package.peer_dependencies.iter() {
-            let ranges = parse_range_set(peer_name, peer_range)?;
+            let range_set = parse_range_set(peer_name, peer_range)?;
 
             let candidates = match versions_by_name.get(peer_name) {
                 Some(list) => list,
@@ -343,7 +343,7 @@ fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
             let mut satisfied = false;
 
             for ver in candidates {
-                if ranges.matches(ver) {
+                if range_set.matches(ver) {
                     satisfied = true;
                     break;
                 }
@@ -377,6 +377,35 @@ fn select_version(
     min_age_days: Option<u32>,
     force: bool,
 ) -> Result<RegistryVersion> {
+    let trimmed = range.trim();
+
+    if trimmed == "latest" {
+        if let Some(tag_version) = package.dist_tags.get("latest") {
+            if let Some(meta) = package.versions.get(tag_version) {
+                let now = OffsetDateTime::now_utc();
+
+                if let Some(min_days) = min_age_days {
+                    if !force {
+                        if let Some(age_days) = version_age_days(package, &meta.version, now) {
+                            if age_days < min_days as i64 {
+                                return Err(SnpmError::ResolutionFailed {
+                                    name: name.to_string(),
+                                    range: range.to_string(),
+                                    reason: format!(
+                                        "latest dist-tag points to version {} which is only {} days old, less than the configured minimum of {} days",
+                                        meta.version, age_days, min_days
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                return Ok(meta.clone());
+            }
+        }
+    }
+
     let ranges = parse_range_set(name, range)?;
     let mut selected: Option<(Version, RegistryVersion)> = None;
     let now = OffsetDateTime::now_utc();

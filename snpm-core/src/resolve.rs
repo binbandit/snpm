@@ -1,14 +1,16 @@
 use crate::registry::{RegistryPackage, RegistryProtocol, RegistryVersion, fetch_package};
 use crate::{Result, SnpmConfig, SnpmError};
 use async_recursion::async_recursion;
-use futures::future::join_all;
+use futures::future::{join, join_all};
 use futures::lock::Mutex;
 use reqwest::Client;
 use snpm_semver::{RangeSet, Version};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use tokio::task::yield_now;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct PackageId {
@@ -57,7 +59,7 @@ struct DepRequest {
 type PackageMap = BTreeMap<PackageId, ResolvedPackage>;
 type PackageCache = BTreeMap<String, RegistryPackage>;
 
-pub async fn resolve(
+pub async fn resolve<F, Fut>(
     config: &SnpmConfig,
     client: &Client,
     root_deps: &BTreeMap<String, String>,
@@ -65,70 +67,142 @@ pub async fn resolve(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
-    prefetch: Option<&dyn Prefetcher>,
-) -> Result<ResolutionGraph> {
+    on_package: F,
+) -> Result<ResolutionGraph>
+where
+    F: FnMut(ResolvedPackage) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<()>> + Send,
+{
     let packages = Arc::new(Mutex::new(PackageMap::new()));
     let package_cache = Arc::new(Mutex::new(PackageCache::new()));
     let default_protocol = RegistryProtocol::npm();
+    let done = Arc::new(AtomicBool::new(false));
 
-    let mut tasks = Vec::new();
+    let packages_for_resolver = packages.clone();
+    let package_cache_for_resolver = package_cache.clone();
+    let done_for_resolver = done.clone();
 
-    for (name, range) in root_deps {
-        let protocol = root_protocols
-            .get(name)
-            .unwrap_or(&default_protocol)
-            .clone();
-        let name = name.clone();
-        let range = range.clone();
-        let packages = packages.clone();
-        let package_cache = package_cache.clone();
-        let prefetch = prefetch;
+    let resolver = async move {
+        let result: Result<ResolutionRoot> = async {
+            let mut tasks = Vec::new();
 
-        let task = async move {
-            let id = resolve_package(
-                config,
-                client,
-                &name,
-                &range,
-                &protocol,
-                packages,
-                package_cache,
-                min_age_days,
-                force,
-                overrides,
-                prefetch,
-            )
-            .await?;
+            for (name, range) in root_deps {
+                let protocol = root_protocols
+                    .get(name)
+                    .unwrap_or(&default_protocol)
+                    .clone();
+                let name = name.clone();
+                let range = range.clone();
+                let packages = packages_for_resolver.clone();
+                let package_cache = package_cache_for_resolver.clone();
 
-            let root_dep = RootDependency {
-                requested: range,
-                resolved: id,
+                let task = async move {
+                    let id = resolve_package(
+                        config,
+                        client,
+                        &name,
+                        &range,
+                        &protocol,
+                        packages,
+                        package_cache,
+                        min_age_days,
+                        force,
+                        overrides,
+                        None,
+                    )
+                    .await?;
+
+                    let root_dep = RootDependency {
+                        requested: range,
+                        resolved: id,
+                    };
+
+                    Ok::<(String, RootDependency), SnpmError>((name, root_dep))
+                };
+
+                tasks.push(task);
+            }
+
+            let results = join_all(tasks).await;
+
+            let mut root_dependencies = BTreeMap::new();
+
+            for result in results {
+                let (name, dep) = result?;
+                root_dependencies.insert(name, dep);
+            }
+
+            let root = ResolutionRoot {
+                dependencies: root_dependencies,
             };
 
-            Ok::<(String, RootDependency), SnpmError>((name, root_dep))
-        };
+            Ok(root)
+        }
+        .await;
 
-        tasks.push(task);
-    }
+        done_for_resolver.store(true, Ordering::SeqCst);
 
-    let results = join_all(tasks).await;
-
-    let mut root_dependencies = BTreeMap::new();
-
-    for result in results {
-        let (name, dep) = result?;
-        root_dependencies.insert(name, dep);
-    }
-
-    let packages_guard = packages.lock().await;
-    let packages = packages_guard.clone();
-
-    let root = ResolutionRoot {
-        dependencies: root_dependencies,
+        result
     };
+
+    let packages_for_prefetch = packages.clone();
+    let done_for_prefetch = done.clone();
+    let callback = on_package;
+
+    let prefetcher = async move {
+        let mut seen = BTreeSet::new();
+        let mut on_package = callback;
+
+        loop {
+            let snapshot: Vec<PackageId> = {
+                let guard = packages_for_prefetch.lock().await;
+                guard.keys().cloned().collect()
+            };
+
+            let mut new_ids = Vec::new();
+
+            for id in snapshot {
+                if !seen.contains(&id) {
+                    seen.insert(id.clone());
+                    new_ids.push(id);
+                }
+            }
+
+            if new_ids.is_empty() {
+                if done_for_prefetch.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                yield_now().await;
+                continue;
+            }
+
+            for id in new_ids {
+                let pkg = {
+                    let guard = packages_for_prefetch.lock().await;
+                    guard.get(&id).cloned()
+                };
+
+                if let Some(pkg) = pkg {
+                    on_package(pkg).await?;
+                }
+            }
+        }
+
+        Ok::<(), SnpmError>(())
+    };
+
+    let (root_result, prefetch_result) = join(resolver, prefetcher).await;
+
+    let root = root_result?;
+
+    let mut packages_guard = packages.lock().await;
+    let packages = std::mem::take(&mut *packages_guard);
 
     let graph = ResolutionGraph { root, packages };
     validate_peers(&graph)?;
+
+    prefetch_result?;
 
     Ok(graph)
 }

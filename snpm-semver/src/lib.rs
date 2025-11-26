@@ -34,38 +34,7 @@ impl StdError for Error {}
 
 impl RangeSet {
     pub fn parse(original: &str) -> Result<Self, Error> {
-        let mut s = original.trim();
-
-        if s.is_empty() {
-            s = "*";
-        }
-
-        let mut ranges = Vec::new();
-
-        for part in s.split("||") {
-            let part = part.trim();
-            if part.is_empty() {
-                continue;
-            }
-
-            let normalized = normalize_and_part(part);
-
-            let req = VersionReq::parse(&normalized)
-                .map_err(|err| Error::new(original.to_string(), err.to_string()))?;
-
-            ranges.push(req);
-        }
-
-        if ranges.is_empty() {
-            let req = VersionReq::parse("*")
-                .map_err(|err| Error::new(original.to_string(), err.to_string()))?;
-            ranges.push(req);
-        }
-
-        Ok(RangeSet {
-            original: original.to_string(),
-            ranges,
-        })
+        parse_internal(original)
     }
 
     pub fn matches(&self, version: &Version) -> bool {
@@ -75,6 +44,69 @@ impl RangeSet {
     pub fn original(&self) -> &str {
         &self.original
     }
+}
+
+fn parse_internal(original: &str) -> Result<RangeSet, Error> {
+    let mut s = original.trim();
+
+    if s.is_empty() || s == "latest" {
+        s = "*";
+    }
+
+    if s.starts_with("npm:") || s.starts_with("jsr:") {
+        if let Some(colon) = s.find(':') {
+            let after = &s[colon + 1..];
+            if let Some(at) = after.rfind('@') {
+                let version = after[at + 1..].trim();
+                if version.is_empty() {
+                    s = "*";
+                } else {
+                    s = version;
+                }
+            } else {
+                s = "*";
+            }
+        }
+    }
+
+    let mut ranges = Vec::new();
+
+    for part in s.split("||") {
+        let mut part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        if part.starts_with('@') && part.len() > 1 {
+            let second = part.as_bytes()[1] as char;
+            if second.is_ascii_digit() || matches!(second, '^' | '~' | '>' | '<' | '=') {
+                part = &part[1..];
+            }
+        }
+
+        if part.is_empty() || part == "latest" {
+            part = "*";
+        }
+
+        let normalized = normalize_and_part(part);
+        let adjusted = adjust_node_default(&normalized);
+
+        let req = VersionReq::parse(&adjusted)
+            .map_err(|err| Error::new(original.to_string(), err.to_string()))?;
+
+        ranges.push(req);
+    }
+
+    if ranges.is_empty() {
+        let req = VersionReq::parse("*")
+            .map_err(|err| Error::new(original.to_string(), err.to_string()))?;
+        ranges.push(req);
+    }
+
+    Ok(RangeSet {
+        original: original.to_string(),
+        ranges,
+    })
 }
 
 fn normalize_and_part(part: &str) -> String {
@@ -89,7 +121,6 @@ fn normalize_and_part(part: &str) -> String {
     }
 
     let mut result = String::new();
-
     for (i, token) in tokens.iter().enumerate() {
         if i > 0 {
             let prev = tokens[i - 1];
@@ -105,12 +136,41 @@ fn normalize_and_part(part: &str) -> String {
     result
 }
 
+fn adjust_node_default(input: &str) -> String {
+    if is_plain_exact_version(input) {
+        let mut s = String::with_capacity(input.len() + 1);
+        s.push('=');
+        s.push_str(input);
+        s
+    } else {
+        input.to_string()
+    }
+}
+
+fn is_plain_exact_version(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+
+    if s.chars()
+        .any(|c| matches!(c, '<' | '>' | '=' | '^' | '~' | ' ' | ','))
+    {
+        return false;
+    }
+
+    if s.contains('*') || s.contains('x') || s.contains('X') {
+        return false;
+    }
+
+    let dot_count = s.chars().filter(|&c| c == '.').count();
+    dot_count >= 2
+}
+
 pub use semver::Version;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use semver::VersionReq;
 
     #[test]
     fn normalizes_ge_space() {
@@ -134,8 +194,8 @@ mod tests {
     }
 
     #[test]
-    fn treats_empty_as_wildcard() {
-        let set = RangeSet::parse("").unwrap();
+    fn treats_latest_as_wildcard() {
+        let set = RangeSet::parse("latest").unwrap();
         let v = Version::parse("999.0.0").unwrap();
         assert!(set.matches(&v));
     }
@@ -149,5 +209,23 @@ mod tests {
         assert!(set.matches(&v1));
         assert!(set.matches(&v2));
         assert!(!set.matches(&v3));
+    }
+
+    #[test]
+    fn bare_version_is_exact_like_node_semver() {
+        let set = RangeSet::parse("7.2.5").unwrap();
+        let exact = Version::parse("7.2.5").unwrap();
+        let higher = Version::parse("7.2.7").unwrap();
+        assert!(set.matches(&exact));
+        assert!(!set.matches(&higher));
+    }
+
+    #[test]
+    fn alias_latest_still_parses() {
+        let set = RangeSet::parse("npm:rolldown-vite@7.2.5").unwrap();
+        let exact = Version::parse("7.2.5").unwrap();
+        let higher = Version::parse("7.2.7").unwrap();
+        assert!(set.matches(&exact));
+        assert!(!set.matches(&higher));
     }
 }

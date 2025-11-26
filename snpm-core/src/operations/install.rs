@@ -2,7 +2,10 @@ use crate::console;
 use crate::lifecycle;
 use crate::lockfile;
 use crate::registry::RegistryProtocol;
+use crate::resolve::PackageId;
+use crate::resolve::Prefetcher;
 use crate::resolve::ResolutionGraph;
+use crate::resolve::ResolvedPackage;
 use crate::workspace::CatalogConfig;
 use crate::workspace::OverridesConfig;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, store};
@@ -11,7 +14,10 @@ use reqwest::Client;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Instant;
+use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
@@ -36,6 +42,58 @@ struct ParsedSpec {
     protocol: Option<String>,
 }
 
+struct StorePrefetcher {
+    config: Arc<SnpmConfig>,
+    client: Client,
+    tasks: Mutex<Vec<JoinHandle<Result<(PackageId, PathBuf)>>>>,
+}
+
+impl StorePrefetcher {
+    fn new(config: &SnpmConfig, client: &Client) -> Self {
+        Self {
+            config: Arc::new(config.clone()),
+            client: client.clone(),
+            tasks: Mutex::new(Vec::new()),
+        }
+    }
+
+    async fn wait(self) -> Result<BTreeMap<PackageId, PathBuf>> {
+        let tasks = {
+            let mut guard = self.tasks.lock().unwrap();
+            std::mem::take(&mut *guard)
+        };
+
+        let mut paths = BTreeMap::new();
+
+        for handle in tasks {
+            let result = handle.await.map_err(|error| SnpmError::TaskJoin {
+                reason: error.to_string(),
+            })?;
+
+            let (id, path) = result?;
+            paths.insert(id, path);
+        }
+
+        Ok(paths)
+    }
+}
+
+impl Prefetcher for StorePrefetcher {
+    fn prefetch(&self, package: &ResolvedPackage) {
+        let config = self.config.clone();
+        let client = self.client.clone();
+        let pkg = package.clone();
+
+        let handle = tokio::spawn(async move {
+            let path = store::ensure_package(config.as_ref(), &pkg, &client).await?;
+            Ok::<(PackageId, PathBuf), SnpmError>((pkg.id.clone(), path))
+        });
+
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.push(handle);
+    }
+}
+
 pub async fn install(
     config: &SnpmConfig,
     project: &mut Project,
@@ -44,6 +102,7 @@ pub async fn install(
     let started = Instant::now();
 
     let registry_client = Client::new();
+    let mut store_prefetcher: Option<StorePrefetcher> = None;
 
     let (requested_ranges_raw, requested_protocols_raw) =
         parse_requested_with_protocol(&options.requested);
@@ -165,7 +224,7 @@ pub async fn install(
         if !additions.is_empty() {
             return Err(SnpmError::Lockfile {
                 path: lockfile_path.clone(),
-                reason: "cannot add packages when using frozen-lockfile".into(),
+                reason: "cannot add package when using frozen-lockfile".into(),
             });
         }
 
@@ -201,6 +260,7 @@ pub async fn install(
             if lock_requested == manifest_root {
                 lockfile::to_graph(&existing)
             } else {
+                let prefetcher = StorePrefetcher::new(config, &registry_client);
                 let graph = resolve::resolve(
                     config,
                     &registry_client,
@@ -209,12 +269,15 @@ pub async fn install(
                     config.min_package_age_days,
                     options.force,
                     Some(&overrides),
+                    Some(&prefetcher),
                 )
                 .await?;
                 lockfile::write(&lockfile_path, &graph)?;
+                store_prefetcher = Some(prefetcher);
                 graph
             }
         } else {
+            let prefetcher = StorePrefetcher::new(config, &registry_client);
             let graph = resolve::resolve(
                 config,
                 &registry_client,
@@ -223,18 +286,25 @@ pub async fn install(
                 config.min_package_age_days,
                 options.force,
                 Some(&overrides),
+                Some(&prefetcher),
             )
             .await?;
             if options.include_dev {
                 lockfile::write(&lockfile_path, &graph)?;
             }
+
+            store_prefetcher = Some(prefetcher);
             graph
         }
     };
 
     console::step("resolved", &format!("{} packages", graph.packages.len()));
 
-    let store_paths = materialize_store(config, &graph).await?;
+    let store_paths = if let Some(prefetcher) = store_prefetcher {
+        prefetcher.wait().await?
+    } else {
+        materialize_store(config, &graph).await?
+    };
     console::step("fetched", &format!("{} packages", store_paths.len()));
 
     write_manifest(
@@ -746,6 +816,7 @@ pub async fn outdated(
         config.min_package_age_days,
         false,
         Some(&overrides),
+        None,
     )
     .await?;
 

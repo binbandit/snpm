@@ -366,7 +366,7 @@ pub async fn install(
 
     let elapsed = started.elapsed();
     let seconds = elapsed.as_secs_f32();
-    console::step("done", &format!("in {seconds:.2}s"));
+    console::installed(graph.packages.len(), seconds);
 
     Ok(())
 }

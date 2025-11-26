@@ -86,3 +86,10 @@ pub fn removed(summary: &str) {
     let mark = red("-");
     println!("  {mark} {summary}");
 }
+
+pub fn installed(count: usize, seconds: f32) {
+    let mark = green("✓");
+    let noun = if count == 1 { "package" } else { "packages" };
+    let time = dim(&format!("[{seconds:.2}s]"));
+    println!("  {mark} {count} {noun} installed {time}");
+}

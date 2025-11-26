@@ -414,12 +414,10 @@ fn parse_range_set(name: &str, original: &str) -> Result<Vec<VersionReq>> {
 
 fn normalize_and_part(part: &str) -> String {
     let tokens: Vec<&str> = part.split_whitespace().collect();
-
     if tokens.len() <= 1 {
         return part.to_string();
     }
 
-    // Preserve hyphen ranges like "1.0.0 - 2.0.0"
     if tokens.len() == 3 && tokens[1] == "-" {
         return part.to_string();
     }
@@ -427,13 +425,8 @@ fn normalize_and_part(part: &str) -> String {
     let mut result = String::new();
     for (i, token) in tokens.iter().enumerate() {
         if i > 0 {
-            let prev = tokens[i - 1];
-            // If the previous token was an operator, don't add a comma
-            if matches!(prev, "=" | ">" | ">=" | "<" | "<=" | "~" | "^") {
-                result.push(' ');
-            } else {
-                result.push_str(", ");
-            }
+            // node-semver treats space as AND; semver crate wants comma
+            result.push_str(", ");
         }
         result.push_str(token);
     }

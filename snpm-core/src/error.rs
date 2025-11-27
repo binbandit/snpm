@@ -87,4 +87,7 @@ pub enum SnpmError {
 
     #[error("Internal task failed: {reason}")]
     TaskJoin { reason: String },
+
+    #[error("Internal store task failed: {reason}")]
+    StoreTask { reason: String },
 }

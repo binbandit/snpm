@@ -64,6 +64,16 @@ impl SnpmConfig {
             }
         }
 
+        if let Ok(token) = env::var("NODE_AUTH_TOKEN")
+            .or_else(|_| env::var("NPM_TOKEN"))
+            .or_else(|_| env::var("SNPM_AUTH_TOKEN"))
+        {
+            let trimmed = token.trim();
+            if !trimmed.is_empty() {
+                default_registry_auth_token = Some(trimmed.to_string());
+            }
+        }
+
         SnpmConfig {
             cache_dir,
             data_dir,
@@ -212,13 +222,17 @@ fn apply_rc_file(
                     if !scope.is_empty() && !value.is_empty() {
                         scoped.insert(scope.to_string(), value);
                     }
-                } else if let Some(host) = key
-                    .strip_prefix("//")
-                    .and_then(|rest| rest.strip_prefix("/:_authToken"))
-                {
-                    let host = host.trim().trim_end_matches('/');
-                    if !host.is_empty() && !value.is_empty() {
-                        registry_auth.insert(host.to_string(), value);
+                } else if let Some(rest) = key.strip_prefix("//") {
+                    if let Some(idx) = rest.find("/:_authToken") {
+                        let registry_part = &rest[..idx];
+                        let pseudo_url = format!("https://{}", registry_part);
+
+                        if let Some(host) = host_from_url(&pseudo_url) {
+                            let token = value.trim();
+                            if !host.is_empty() && !token.is_empty() {
+                                registry_auth.insert(host, token.to_string());
+                            }
+                        }
                     }
                 } else if key == "_authToken" {
                     if !value.is_empty() {

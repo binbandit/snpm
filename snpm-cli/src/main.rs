@@ -4,7 +4,11 @@ use snpm_core::{
     Project, SnpmConfig, Workspace, console,
     operations::{self, InstallOptions},
 };
-use std::{env, fs, process};
+use std::{
+    env, fs,
+    io::{self, Write},
+    process,
+};
 use tracing_subscriber::EnvFilter;
 
 mod cli;
@@ -332,6 +336,31 @@ async fn run() -> Result<()> {
                 console::project(&name);
                 print_outdated(&entries);
             }
+        }
+        Command::Login { registry, token } => {
+            let mut heading = String::from("login");
+            if let Some(ref reg) = registry {
+                heading.push_str(" --registry ");
+                heading.push_str(reg);
+            }
+            console::heading(&heading);
+
+            let token_value = match token {
+                Some(t) => t.trim().to_string(),
+                None => {
+                    print!("Auth token: ");
+                    io::stdout().flush()?;
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input)?;
+                    input.trim().to_string()
+                }
+            };
+
+            if token_value.is_empty() {
+                return Err(anyhow!("auth token cannot be empty"));
+            }
+
+            operations::login(&config, registry.as_deref(), &token_value)?;
         }
     }
 

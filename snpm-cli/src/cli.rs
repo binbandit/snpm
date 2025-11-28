@@ -59,4 +59,12 @@ pub enum Command {
         #[arg(long)]
         production: bool,
     },
+    Login {
+        /// Registr URL to store credentials for. Defaults to the current default registry.
+        #[arg(long)]
+        registry: Option<String>,
+        /// Auth token to save. If omitted, snpm will prompt for it.
+        #[arg(long)]
+        token: Option<String>,
+    },
 }

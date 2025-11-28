@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use clap::Parser;
 use snpm_core::{
     Project, SnpmConfig, Workspace, console,
@@ -179,12 +179,33 @@ async fn run() -> Result<()> {
             operations::remove(&config, &mut project, packages).await?;
         }
 
-        Command::Run { script, args } => {
-            console::heading(&format!("run {script}"));
+        Command::Run {
+            script,
+            args,
+            recursive,
+            filter,
+        } => {
+            let mut heading = format!("run {script}");
+            if recursive {
+                heading.push_str(" -r");
+            }
+            if !filter.is_empty() {
+                heading.push_str(" --filter ");
+                heading.push_str(&filter.join(","));
+            }
+            console::heading(&heading);
 
             let cwd = env::current_dir()?;
-            let project = Project::discover(&cwd)?;
-            operations::run_script(&project, &script, &args)?;
+
+            if recursive || !filter.is_empty() {
+                let workspace = Workspace::discover(&cwd)?
+                    .ok_or_else(|| anyhow!("snpm run -r/--filter used outside a workspace"))?;
+
+                operations::run_workspace_scripts(&workspace, &script, &filter, &args)?;
+            } else {
+                let project = Project::discover(&cwd)?;
+                operations::run_script(&project, &script, &args)?;
+            }
         }
 
         Command::Init => {

@@ -1,9 +1,70 @@
-use crate::{Project, Result, SnpmError, console};
+use crate::{Project, Result, SnpmError, Workspace, console};
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
 pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()> {
+    let scripts = &project.manifest.scripts;
+
+    if !scripts.contains_key(script) {
+        return Err(SnpmError::ScriptMissing {
+            name: script.to_string(),
+        });
+    }
+
+    // pre<script>
+    let pre_name = format!("pre{}", script);
+    if scripts.contains_key(&pre_name) {
+        run_single_script(project, &pre_name, &[])?;
+    }
+
+    // <script>
+    run_single_script(project, script, args)?;
+
+    // post<script>
+    let post_name = format!("post{}", script);
+    if scripts.contains_key(&post_name) {
+        run_single_script(project, &post_name, &[])?;
+    }
+
+    Ok(())
+}
+
+pub fn run_workspace_scripts(
+    workspace: &Workspace,
+    script: &str,
+    filters: &[String],
+    args: &[String],
+) -> Result<()> {
+    let mut any_ran = false;
+
+    for project in &workspace.projects {
+        let name = project_label(project);
+
+        if !matches_filters(&name, filters) {
+            continue;
+        }
+
+        // Skip projects that don't have this script at all.
+        if !project.manifest.scripts.contains_key(script) {
+            continue;
+        }
+
+        any_ran = true;
+        console::project(&name);
+        run_script(project, script, args)?;
+    }
+
+    if !any_ran {
+        return Err(SnpmError::ScriptMissing {
+            name: script.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn run_single_script(project: &Project, script: &str, args: &[String]) -> Result<()> {
     let scripts = &project.manifest.scripts;
     let base = scripts
         .get(script)
@@ -78,6 +139,44 @@ fn build_path(bin_dir: PathBuf, script: &str) -> Result<std::ffi::OsString> {
     })?;
 
     Ok(joined)
+}
+
+fn matches_filters(name: &str, filters: &[String]) -> bool {
+    if filters.is_empty() {
+        return true;
+    }
+
+    for filter in filters {
+        // Exact match
+        if filter == name {
+            return true;
+        }
+
+        // Try glob-style pattern
+        if let Ok(pattern) = glob::Pattern::new(filter) {
+            if pattern.matches(name) {
+                return true;
+            }
+        } else if name.contains(filter) {
+            // Fallback: substring match for invalid glob patterns
+            return true;
+        }
+    }
+
+    false
+}
+
+fn project_label(project: &Project) -> String {
+    if let Some(name) = project.manifest.name.as_deref() {
+        name.to_string()
+    } else {
+        project
+            .root
+            .file_name()
+            .and_then(|os| os.to_str())
+            .unwrap_or(".")
+            .to_string()
+    }
 }
 
 #[cfg(unix)]

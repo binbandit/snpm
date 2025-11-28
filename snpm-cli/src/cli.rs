@@ -17,6 +17,9 @@ pub enum Command {
         #[arg(short = 'f', long = "force")]
         force: bool,
         packages: Vec<String>,
+        /// Target a specific workspace broject by its package name
+        #[arg(short = 'w', long = "workspace")]
+        workspace: Option<String>,
     },
     Add {
         #[arg(short = 'D', long = "dev")]

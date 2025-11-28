@@ -778,6 +778,7 @@ pub async fn outdated(
     config: &SnpmConfig,
     project: &Project,
     include_dev: bool,
+    force: bool,
 ) -> Result<Vec<OutdatedEntry>> {
     let workspace = Workspace::discover(&project.root)?;
 
@@ -833,7 +834,7 @@ pub async fn outdated(
         &root_deps,
         &root_protocols,
         config.min_package_age_days,
-        false,
+        force,
         Some(&overrides),
         |_package| async { Ok::<(), SnpmError>(()) },
     )
@@ -935,4 +936,97 @@ fn project_label(project: &Project) -> String {
             .unwrap_or(".")
             .to_string()
     }
+}
+
+fn is_special_protocol_spec(spec: &str) -> bool {
+    spec.starts_with("catalog:")
+        || spec.starts_with("workspace:")
+        || spec.starts_with("npm:")
+        || spec.starts_with("jsr:")
+}
+
+pub async fn upgrade(
+    config: &SnpmConfig,
+    project: &mut Project,
+    packages: Vec<String>,
+    production: bool,
+    force: bool,
+) -> Result<()> {
+    if packages.is_empty() {
+        let options = InstallOptions {
+            requested: Vec::new(),
+            dev: false,
+            include_dev: !production,
+            frozen_lockfile: false,
+            force,
+        };
+
+        return install(config, project, options).await;
+    }
+
+    let include_dev = !production;
+    let entries = outdated(config, project, include_dev, force).await?;
+
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let mut wanted_by_name = BTreeMap::new();
+
+    for entry in entries {
+        wanted_by_name.insert(entry.name, entry.wanted);
+    }
+
+    let mut manifest = project.manifest.clone();
+    let mut changed = false;
+
+    for spec in packages {
+        let (name, _) = parse_spec(&spec);
+
+        let wanted = match wanted_by_name.get(&name) {
+            Some(v) => v,
+            None => continue,
+        };
+
+        let mut updated = false;
+
+        if let Some(current) = manifest.dependencies.get_mut(&name) {
+            if !is_special_protocol_spec(current) {
+                *current = format!("^{}", wanted);
+                console::info(&format!("updating {name} to ^{wanted}"));
+                updated = true;
+            }
+        }
+
+        if !updated && !production {
+            if let Some(current) = manifest.dev_dependencies.get_mut(&name) {
+                if !is_special_protocol_spec(current) {
+                    *current = format!("^{}", wanted);
+                    console::info(&format!("updating {name} (dev) to ^{wanted}"));
+                    updated = true;
+                }
+            }
+        }
+
+        if updated {
+            changed = true;
+        }
+    }
+
+    if !changed {
+        return Ok(());
+    }
+
+    project.write_manifest(&manifest)?;
+    project.manifest = manifest;
+
+    let options = InstallOptions {
+        requested: Vec::new(),
+        dev: false,
+        include_dev,
+        frozen_lockfile: false,
+        force,
+    };
+
+    install(config, project, options).await
 }

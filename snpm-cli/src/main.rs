@@ -167,7 +167,11 @@ async fn run() -> Result<()> {
             operations::init(&cwd)?;
         }
 
-        Command::Upgrade { production, force } => {
+        Command::Upgrade {
+            production,
+            force,
+            packages,
+        } => {
             let mut heading = String::from("upgrade");
             if production {
                 heading.push_str(" --production");
@@ -175,10 +179,22 @@ async fn run() -> Result<()> {
             if force {
                 heading.push_str(" --force");
             }
+            if !packages.is_empty() {
+                heading.push(' ');
+                heading.push_str(&packages.join(" "));
+            }
             console::heading(&heading);
 
             let cwd = env::current_dir()?;
 
+            // Targeted upgrade: operate on the single discovered project
+            if !packages.is_empty() {
+                let mut project = Project::discover(&cwd)?;
+                operations::upgrade(&config, &mut project, packages, production, force).await?;
+                return Ok(());
+            }
+
+            // No packages specified: keep existing “full upgrade” behavior
             if let Some(mut workspace) = Workspace::discover(&cwd)? {
                 if workspace.root == cwd {
                     let lockfile_path = workspace.root.join("snpm-lock.yaml");
@@ -235,7 +251,8 @@ async fn run() -> Result<()> {
                     let mut any = false;
 
                     for project in workspace.projects.iter() {
-                        let entries = operations::outdated(&config, project, !production).await?;
+                        let entries =
+                            operations::outdated(&config, project, !production, false).await?;
 
                         if entries.is_empty() {
                             continue;
@@ -260,7 +277,7 @@ async fn run() -> Result<()> {
             }
 
             let project = Project::discover(&cwd)?;
-            let entries = operations::outdated(&config, &project, !production).await?;
+            let entries = operations::outdated(&config, &project, !production, false).await?;
 
             if entries.is_empty() {
                 console::info("All dependencies are up to date.");

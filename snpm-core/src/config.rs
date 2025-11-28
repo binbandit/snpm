@@ -223,15 +223,24 @@ fn apply_rc_file(
                         scoped.insert(scope.to_string(), value);
                     }
                 } else if let Some(rest) = key.strip_prefix("//") {
-                    if let Some(idx) = rest.find("/:_authToken") {
-                        let registry_part = &rest[..idx];
-                        let pseudo_url = format!("https://{}", registry_part);
+                    let host_and_path = if let Some(prefix) = rest.strip_suffix("/:_authToken") {
+                        prefix
+                    } else if let Some(prefix) = rest.strip_suffix(":_authToken") {
+                        prefix
+                    } else {
+                        ""
+                    };
 
-                        if let Some(host) = host_from_url(&pseudo_url) {
-                            let token = value.trim();
-                            if !host.is_empty() && !token.is_empty() {
-                                registry_auth.insert(host, token.to_string());
-                            }
+                    if !host_and_path.is_empty() {
+                        let host = host_and_path
+                            .split('/')
+                            .next()
+                            .unwrap_or("")
+                            .trim()
+                            .trim_end_matches('/');
+
+                        if !host.is_empty() && !value.is_empty() {
+                            registry_auth.insert(host.to_string(), value);
                         }
                     }
                 } else if key == "_authToken" {

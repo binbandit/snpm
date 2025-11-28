@@ -35,7 +35,15 @@ pub enum Command {
         packages: Vec<String>,
     },
     Run {
+        /// Script name, e.g. "test"
         script: String,
+        /// Run the script in all workspace projects
+        #[arg(short = 'r', long = "recursive")]
+        recursive: bool,
+        /// Filter workspace projects by name (glob patterns like "app-*" are supported)
+        #[arg(long = "filter")]
+        filter: Vec<String>,
+        /// Extra arguments passed to the script (use `--` to separate)
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },

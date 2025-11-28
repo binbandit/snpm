@@ -31,6 +31,7 @@ async fn run() -> Result<()> {
             production,
             frozen_lockfile,
             force,
+            workspace: target,
         } => {
             let mut heading = String::from("install");
             if production {
@@ -42,41 +43,68 @@ async fn run() -> Result<()> {
             if force {
                 heading.push_str(" --force");
             }
+            if let Some(ref name) = target {
+                heading.push_str(" -w ");
+                heading.push_str(name);
+            }
             console::heading(&heading);
 
             let cwd = env::current_dir()?;
-            if packages.is_empty() {
-                if let Some(mut workspace) = Workspace::discover(&cwd)? {
-                    if workspace.root == cwd {
-                        for (index, project) in workspace.projects.iter_mut().enumerate() {
-                            if index > 0 {
-                                println!();
+
+            if let Some(workspace_name) = target {
+                let mut workspace = Workspace::discover(&cwd)?
+                    .ok_or_else(|| anyhow::anyhow!("snpm install -w used outside a workspace"))?;
+
+                let project = workspace
+                    .projects
+                    .iter_mut()
+                    .find(|p| p.manifest.name.as_deref() == Some(workspace_name.as_str()))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(format!("workspace project {workspace_name} not found"))
+                    })?;
+
+                let options = operations::InstallOptions {
+                    requested: packages,
+                    dev: false,
+                    include_dev: !production,
+                    frozen_lockfile,
+                    force,
+                };
+                operations::install(&config, project, options).await?;
+            } else {
+                if packages.is_empty() {
+                    if let Some(mut workspace) = Workspace::discover(&cwd)? {
+                        if workspace.root == cwd {
+                            for (index, project) in workspace.projects.iter_mut().enumerate() {
+                                if index > 0 {
+                                    println!();
+                                }
+
+                                let options = operations::InstallOptions {
+                                    requested: Vec::new(),
+                                    dev: false,
+                                    include_dev: !production,
+                                    frozen_lockfile,
+                                    force,
+                                };
+                                operations::install(&config, project, options).await?;
                             }
 
-                            let options = operations::InstallOptions {
-                                requested: Vec::new(),
-                                dev: false,
-                                include_dev: !production,
-                                frozen_lockfile,
-                                force,
-                            };
-                            operations::install(&config, project, options).await?;
+                            return Ok(());
                         }
-
-                        return Ok(());
                     }
                 }
-            }
 
-            let mut project = Project::discover(&cwd)?;
-            let options = operations::InstallOptions {
-                requested: packages,
-                dev: false,
-                include_dev: !production,
-                frozen_lockfile,
-                force,
-            };
-            operations::install(&config, &mut project, options).await?;
+                let mut project = Project::discover(&cwd)?;
+                let options = operations::InstallOptions {
+                    requested: packages,
+                    dev: false,
+                    include_dev: !production,
+                    frozen_lockfile,
+                    force,
+                };
+                operations::install(&config, &mut project, options).await?;
+            }
         }
 
         Command::Add {

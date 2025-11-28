@@ -222,35 +222,15 @@ async fn run() -> Result<()> {
                 return Ok(());
             }
 
-            // No packages specified: keep existing “full upgrade” behavior
-            if let Some(mut workspace) = Workspace::discover(&cwd)? {
-                if workspace.root == cwd {
-                    let lockfile_path = workspace.root.join("snpm-lock.yaml");
-                    if lockfile_path.is_file() {
-                        fs::remove_file(&lockfile_path)?;
-                    }
-
-                    for (index, project) in workspace.projects.iter_mut().enumerate() {
-                        if index > 0 {
-                            println!();
-                        }
-
-                        let options = InstallOptions {
-                            requested: Vec::new(),
-                            dev: false,
-                            include_dev: !production,
-                            frozen_lockfile: false,
-                            force,
-                        };
-                        operations::install(&config, project, options).await?;
-                    }
-
-                    return Ok(());
-                }
-            }
-
+            // Full upgrade (no packages): always operate on the *workspace* lockfile if present
             let mut project = Project::discover(&cwd)?;
-            let lockfile_path = project.root.join("snpm-lock.yaml");
+            let workspace = Workspace::discover(&cwd)?;
+
+            let lockfile_path = workspace
+                .as_ref()
+                .map(|w| w.root.join("snpm-lock.yaml"))
+                .unwrap_or_else(|| project.root.join("snpm-lock.yaml"));
+
             if lockfile_path.is_file() {
                 fs::remove_file(&lockfile_path)?;
             }
@@ -262,6 +242,23 @@ async fn run() -> Result<()> {
                 frozen_lockfile: false,
                 force,
             };
+
+            // If we're at the workspace root, upgrade all projects in the workspace
+            if let Some(mut workspace) = workspace {
+                if workspace.root == cwd {
+                    for (index, member) in workspace.projects.iter_mut().enumerate() {
+                        if index > 0 {
+                            println!();
+                        }
+
+                        operations::install(&config, member, options.clone()).await?;
+                    }
+
+                    return Ok(());
+                }
+            }
+
+            // Otherwise, upgrade just this project, but still using the workspace‑wide lockfile
             operations::install(&config, &mut project, options).await?;
         }
 

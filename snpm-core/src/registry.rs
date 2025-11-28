@@ -64,33 +64,6 @@ impl RegistryProtocol {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct JsrPackage {
-    #[serde(default)]
-    pub versions: BTreeMap<String, JsrVersion>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct JsrVersion {
-    pub version: String,
-    #[serde(default)]
-    pub dependencies: BTreeMap<String, String>,
-    #[serde(default)]
-    pub optional_dependencies: BTreeMap<String, String>,
-    pub dist: JsrDist,
-    #[serde(default)]
-    pub os: Vec<String>,
-    #[serde(default)]
-    pub cpu: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct JsrDist {
-    pub tarball: String,
-    #[serde(default)]
-    pub integrity: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
 pub struct RegistryDist {
     pub tarball: String,
     #[serde(default)]
@@ -104,7 +77,7 @@ pub async fn fetch_package(
     protocol: &RegistryProtocol,
 ) -> Result<RegistryPackage> {
     if protocol.name == "jsr" {
-        fetch_jsr_package(client, name).await
+        fetch_jsr_package(config, client, name).await
     } else {
         fetch_npm_like_package(config, client, name, &protocol.name).await
     }
@@ -115,33 +88,6 @@ fn encode_package_name(name: &str) -> String {
         name.replace('/', "%2F")
     } else {
         name.to_string()
-    }
-}
-
-fn jsr_to_registry(pkg: JsrPackage) -> RegistryPackage {
-    let mut versions = BTreeMap::new();
-
-    for (ver, jsr_ver) in pkg.versions.into_iter() {
-        let v = RegistryVersion {
-            version: jsr_ver.version,
-            dependencies: jsr_ver.dependencies,
-            optional_dependencies: jsr_ver.optional_dependencies,
-            peer_dependencies: BTreeMap::new(),
-            peer_dependencies_meta: BTreeMap::new(),
-            dist: RegistryDist {
-                tarball: jsr_ver.dist.tarball,
-                integrity: jsr_ver.dist.integrity,
-            },
-            os: jsr_ver.os,
-            cpu: jsr_ver.cpu,
-        };
-        versions.insert(ver, v);
-    }
-
-    RegistryPackage {
-        versions,
-        time: BTreeMap::new(),
-        dist_tags: BTreeMap::new(),
     }
 }
 
@@ -218,34 +164,49 @@ fn npm_registry_for_package(config: &SnpmConfig, name: &str) -> String {
     config.default_registry.clone()
 }
 
-async fn fetch_jsr_package(client: &Client, name: &str) -> Result<RegistryPackage> {
-    let encoded = encode_package_name(name);
+async fn fetch_jsr_package(
+    config: &SnpmConfig,
+    client: &Client,
+    name: &str,
+) -> Result<RegistryPackage> {
+    let compat = jsr_compat_name(name);
+    let encoded = encode_package_name(&compat);
     let base = jsr_registry_base();
     let url = format!("{}/{}", base.trim_end_matches('/'), encoded);
 
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|source| SnpmError::Http {
-            url: url.clone(),
-            source,
-        })?;
+    let mut request = client.get(&url);
 
-    let pkg = response
+    request = request.header(
+        ACCEPT,
+        HeaderValue::from_static(
+            "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
+        ),
+    );
+
+    if let Some(token) = config.auth_token_for_url(&url) {
+        let header_value = format!("Bearer {}", token);
+        request = request.header("authorization", header_value);
+    }
+
+    let response = request.send().await.map_err(|source| SnpmError::Http {
+        url: url.clone(),
+        source,
+    })?;
+
+    let package = response
         .error_for_status()
         .map_err(|source| SnpmError::Http {
             url: url.clone(),
             source,
         })?
-        .json::<JsrPackage>()
+        .json::<RegistryPackage>()
         .await
         .map_err(|source| SnpmError::Http {
             url: url.clone(),
             source,
         })?;
 
-    Ok(jsr_to_registry(pkg))
+    Ok(package)
 }
 
 fn jsr_registry_base() -> String {
@@ -257,4 +218,24 @@ fn jsr_registry_base() -> String {
     }
 
     "https://npm.jsr.io".to_string()
+}
+
+fn jsr_compat_name(name: &str) -> String {
+    if name.starts_with("@jsr/") {
+        return name.to_string();
+    }
+
+    if let Some(stripped) = name.strip_prefix('@') {
+        if let Some((scope, pkg)) = stripped.split_once('/') {
+            return format!("@jsr/{}__{}", scope, pkg);
+        } else {
+            return format!("@jsr/{}", stripped);
+        }
+    }
+
+    if let Some((scope, pkg)) = name.split_once('/') {
+        return format!("@jsr/{}__{}", scope, pkg);
+    }
+
+    format!("@jsr/{}", name)
 }

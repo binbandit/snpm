@@ -253,7 +253,7 @@ fn apply_rc_file(
     }
 }
 
-fn host_from_url(url: &str) -> Option<String> {
+pub(crate) fn host_from_url(url: &str) -> Option<String> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
         return None;

@@ -90,4 +90,7 @@ pub enum SnpmError {
 
     #[error("Internal store task failed: {reason}")]
     StoreTask { reason: String },
+
+    #[error("Authentication error: {reason}")]
+    Auth { reason: String },
 }

@@ -42,6 +42,7 @@ pub enum Command {
         production: bool,
         #[arg(short = 'f', long = "force")]
         force: bool,
+        packages: Vec<String>,
     },
     Outdated {
         #[arg(long)]

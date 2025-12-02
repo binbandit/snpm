@@ -60,11 +60,25 @@ pub enum Command {
         production: bool,
     },
     Login {
-        /// Registr URL to store credentials for. Defaults to the current default registry.
+        /// Registry URL to store credentials for. Defaults to the current default registry.
         #[arg(long)]
         registry: Option<String>,
         /// Auth token to save. If omitted, snpm will prompt for it.
         #[arg(long)]
         token: Option<String>,
+        /// Associate a scope with the registry (e.g., @myorg)
+        #[arg(long)]
+        scope: Option<String>,
+        /// Open browser for web-based authentication
+        #[arg(long)]
+        web: bool,
+    },
+    Logout {
+        /// Registry URL to remove credentials for. Defaults to the current default registry.
+        #[arg(long)]
+        registry: Option<String>,
+        /// Remove credentials for a specific scope (e.g., @myorg)
+        #[arg(long)]
+        scope: Option<String>,
     },
 }

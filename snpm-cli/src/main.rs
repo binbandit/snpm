@@ -337,30 +337,67 @@ async fn run() -> Result<()> {
                 print_outdated(&entries);
             }
         }
-        Command::Login { registry, token } => {
+        Command::Login {
+            registry,
+            token,
+            scope,
+            web,
+        } => {
             let mut heading = String::from("login");
             if let Some(ref reg) = registry {
                 heading.push_str(" --registry ");
                 heading.push_str(reg);
             }
+            if let Some(ref s) = scope {
+                heading.push_str(" --scope ");
+                heading.push_str(s);
+            }
+            if web {
+                heading.push_str(" --web");
+            }
             console::heading(&heading);
 
-            let token_value = match token {
-                Some(t) => t.trim().to_string(),
-                None => {
-                    print!("Auth token: ");
-                    io::stdout().flush()?;
-                    let mut input = String::new();
-                    io::stdin().read_line(&mut input)?;
-                    input.trim().to_string()
-                }
+            let registry_url = registry
+                .as_deref()
+                .unwrap_or(config.default_registry.as_str());
+
+            let token_value = if let Some(t) = token {
+                t.trim().to_string()
+            } else if web {
+                web_login(registry_url, scope.as_deref()).await?
+            } else {
+                prompt_for_token(registry_url)?
             };
 
             if token_value.is_empty() {
                 return Err(anyhow!("auth token cannot be empty"));
             }
 
-            operations::login(&config, registry.as_deref(), &token_value)?;
+            operations::login(
+                &config,
+                registry.as_deref(),
+                &token_value,
+                scope.as_deref(),
+            )?;
+
+            console::info("Credentials saved successfully");
+        }
+
+        Command::Logout { registry, scope } => {
+            let mut heading = String::from("logout");
+            if let Some(ref reg) = registry {
+                heading.push_str(" --registry ");
+                heading.push_str(reg);
+            }
+            if let Some(ref s) = scope {
+                heading.push_str(" --scope ");
+                heading.push_str(s);
+            }
+            console::heading(&heading);
+
+            operations::logout(&config, registry.as_deref(), scope.as_deref())?;
+
+            console::info("Credentials removed successfully");
         }
     }
 
@@ -421,4 +458,96 @@ fn project_label(project: &Project) -> String {
             .unwrap_or(".")
             .to_string()
     }
+}
+
+fn prompt_for_token(registry_url: &str) -> Result<String> {
+    console::info(&format!("Logging in to {registry_url}"));
+    console::info("To create a token, visit:");
+
+    let token_url = if registry_url.contains("registry.npmjs.org") {
+        "https://www.npmjs.com/settings/tokens/new"
+    } else {
+        registry_url
+    };
+
+    console::info(&format!("  {token_url}"));
+    println!();
+
+    print!("Enter your auth token: ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    Ok(input.trim().to_string())
+}
+
+async fn web_login(registry_url: &str, _scope: Option<&str>) -> Result<String> {
+    use reqwest::Client;
+    use serde::Deserialize;
+    use std::time::Duration;
+
+    #[derive(Deserialize)]
+    struct LoginResponse {
+        #[serde(rename = "loginUrl")]
+        login_url: String,
+        #[serde(rename = "doneUrl")]
+        done_url: String,
+    }
+
+    #[derive(Deserialize)]
+    struct TokenResponse {
+        token: Option<String>,
+    }
+
+    let client = Client::new();
+    let endpoint = format!("{}/-/v1/login", registry_url.trim_end_matches('/'));
+
+    console::info("Initiating web-based login...");
+
+    let response = client.post(&endpoint).json(&serde_json::json!({})).send().await?;
+
+    if !response.status().is_success() {
+        if response.status().as_u16() >= 400 && response.status().as_u16() < 500 {
+            return Err(anyhow!("Web login not supported. Use --token instead."));
+        }
+        return Err(anyhow!("Login failed: {}", response.status()));
+    }
+
+    let urls: LoginResponse = response.json().await?;
+
+    console::info("Opening browser for authentication...");
+    console::info(&format!("  {}", urls.login_url));
+
+    if let Err(e) = open::that(&urls.login_url) {
+        console::info(&format!("Failed to open browser: {e}"));
+        console::info("Please manually visit the URL above");
+    }
+
+    println!();
+    console::info("Waiting for authentication...");
+
+    for attempt in 1..=120 {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let response = client.get(&urls.done_url).send().await?;
+        let status = response.status().as_u16();
+
+        match status {
+            200 => {
+                let data: TokenResponse = response.json().await?;
+                let token = data.token.ok_or_else(|| anyhow!("No token received"))?;
+                console::info("Authentication successful!");
+                return Ok(token);
+            }
+            202 => {
+                if attempt % 5 == 0 {
+                    console::info("Still waiting...");
+                }
+            }
+            _ => return Err(anyhow!("Authentication failed: {status}")),
+        }
+    }
+
+    Err(anyhow!("Authentication timeout"))
 }

@@ -38,6 +38,7 @@ on:
         type: boolean
 
 permissions:
+  id-token: write
   contents: write
   pull-requests: write
 
@@ -447,8 +448,6 @@ jobs:
           npm install
 
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd npm-package
           

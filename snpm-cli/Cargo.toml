@@ -3,6 +3,10 @@ name = "snpm-cli"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "snpm"
+path = "src/main.rs"
+
 [dependencies]
 snpm-core = { path = "../snpm-core" }
 clap = { version = "4", features = ["derive"] }

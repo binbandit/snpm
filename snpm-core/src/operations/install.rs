@@ -10,6 +10,7 @@ use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, 
 use futures::future::join_all;
 use futures::lock::Mutex;
 use reqwest::Client;
+use snpm_semver::{RangeSet, Version};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -111,12 +112,14 @@ pub async fn install(
     let deps = apply_specs(
         &project.manifest.dependencies,
         workspace.as_ref(),
+        catalog.as_ref(),
         &mut local_deps,
         Some(&mut manifest_protocols),
     )?;
     let dev_deps = apply_specs(
         &project.manifest.dev_dependencies,
         workspace.as_ref(),
+        catalog.as_ref(),
         &mut local_dev_deps,
         Some(&mut manifest_protocols),
     )?;
@@ -531,27 +534,31 @@ fn write_manifest(
             continue;
         }
 
-        let mut use_catalog = false;
+        let mut spec = format!("^{}", dep.resolved.version);
 
         if let Some(ws) = workspace {
             if ws.config.catalog.contains_key(name) {
-                use_catalog = true;
+                spec = "catalog:".to_string();
+            } else {
+                for (catalog_name, entries) in ws.config.catalogs.iter() {
+                    if entries.contains_key(name) {
+                        spec = format!("catalog:{catalog_name}");
+                        break;
+                    }
+                }
             }
-        }
-
-        if !use_catalog {
-            if let Some(cat) = catalog {
-                if cat.catalog.contains_key(name) {
-                    use_catalog = true;
+        } else if let Some(cat) = catalog {
+            if cat.catalog.contains_key(name) {
+                spec = "catalog:".to_string();
+            } else {
+                for (catalog_name, entries) in cat.catalogs.iter() {
+                    if entries.contains_key(name) {
+                        spec = format!("catalog:{catalog_name}");
+                        break;
+                    }
                 }
             }
         }
-
-        let spec = if use_catalog {
-            "catalog:".to_string()
-        } else {
-            format!("^{}", dep.resolved.version)
-        };
 
         if dev {
             new_dev_dependencies.insert(name.clone(), spec);
@@ -595,6 +602,7 @@ fn collect_workspace_root_deps(
         let deps = apply_specs(
             &member.manifest.dependencies,
             Some(workspace),
+            None,
             &mut local,
             None,
         )?;
@@ -608,6 +616,7 @@ fn collect_workspace_root_deps(
             let dev_deps = apply_specs(
                 &member.manifest.dev_dependencies,
                 Some(workspace),
+                None,
                 &mut local_dev,
                 None,
             )?;
@@ -646,6 +655,7 @@ fn insert_workspace_root_dep(
 fn apply_specs(
     specs: &BTreeMap<String, String>,
     workspace: Option<&Workspace>,
+    catalog: Option<&CatalogConfig>,
     local_set: &mut BTreeSet<String>,
     mut protocol_map: Option<&mut BTreeMap<String, RegistryProtocol>>,
 ) -> Result<BTreeMap<String, String>> {
@@ -654,15 +664,16 @@ fn apply_specs(
     for (name, value) in specs.iter() {
         if value.starts_with("workspace:") {
             local_set.insert(name.clone());
+
+            if let Some(ws) = workspace {
+                validate_workspace_spec(ws, name, value)?;
+            }
+
             continue;
         }
 
         let resolved = if value.starts_with("catalog:") {
-            let ws = workspace.ok_or_else(|| SnpmError::WorkspaceConfig {
-                path: PathBuf::from("."),
-                reason: "catalog protocol used but no workspace configuration found".into(),
-            })?;
-            resolve_catalog_spec(name, value, ws)?
+            resolve_catalog_spec(name, value, workspace, catalog)?
         } else {
             value.clone()
         };
@@ -679,22 +690,93 @@ fn apply_specs(
     Ok(result)
 }
 
-fn resolve_catalog_spec(name: &str, value: &str, workspace: &Workspace) -> Result<String> {
+fn validate_workspace_spec(workspace: &Workspace, name: &str, spec: &str) -> Result<()> {
+    let project = workspace
+        .projects
+        .iter()
+        .find(|p| p.manifest.name.as_deref() == Some(name))
+        .ok_or_else(|| SnpmError::WorkspaceConfig {
+            path: workspace.root.clone(),
+            reason: format!("workspace dependency {name} not found in workspace projects"),
+        })?;
+
+    let version =
+        project
+            .manifest
+            .version
+            .as_deref()
+            .ok_or_else(|| SnpmError::WorkspaceConfig {
+                path: workspace.root.clone(),
+                reason: format!("workspace dependency {name} has no version in its package.json"),
+            })?;
+
+    let suffix = &spec["workspace:".len()..];
+    let trimmed = suffix.trim();
+
+    if trimmed.is_empty() || trimmed == "*" {
+        return Ok(());
+    }
+
+    let range_str = match trimmed {
+        "^" => format!("^{}", version),
+        "~" => format!("~{}", version),
+        other => other.to_string(),
+    };
+
+    let ranges = RangeSet::parse(&range_str).map_err(|err| SnpmError::Semver {
+        value: format!("{}@{}", name, range_str),
+        reason: err.to_string(),
+    })?;
+
+    let ver = Version::parse(version).map_err(|err| SnpmError::Semver {
+        value: format!("{}@{}", name, version),
+        reason: err.to_string(),
+    })?;
+
+    if ranges.matches(&ver) {
+        Ok(())
+    } else {
+        Err(SnpmError::WorkspaceConfig {
+            path: workspace.root.clone(),
+            reason: format!(
+                "workspace dependency {name} with spec {spec} is not satisfied by local version {version}"
+            ),
+        })
+    }
+}
+
+fn resolve_catalog_spec(
+    name: &str,
+    value: &str,
+    workspace: Option<&Workspace>,
+    catalog: Option<&CatalogConfig>,
+) -> Result<String> {
     let selector = &value["catalog:".len()..];
-    let cfg = &workspace.config;
+
+    let (default_catalog, named_catalogs, root_path) = if let Some(ws) = workspace {
+        (&ws.config.catalog, &ws.config.catalogs, ws.root.clone())
+    } else if let Some(cfg) = catalog {
+        (&cfg.catalog, &cfg.catalogs, PathBuf::from("."))
+    } else {
+        return Err(SnpmError::WorkspaceConfig {
+            path: PathBuf::from("."),
+            reason: "catalog protocol used but no workspace or catalog configuration found"
+                .into(),
+        });
+    };
 
     let range_opt = if selector.is_empty() || selector == "default" {
-        cfg.catalog.get(name)
+        default_catalog.get(name)
     } else {
-        cfg.catalogs
+        named_catalogs
             .get(selector)
-            .and_then(|catalog| catalog.get(name))
+            .and_then(|entries| entries.get(name))
     };
 
     match range_opt {
         Some(range) => Ok(range.clone()),
         None => Err(SnpmError::WorkspaceConfig {
-            path: workspace.root.clone(),
+            path: root_path,
             reason: format!("no catalog entry found for dependency {name} and selector {value}"),
         }),
     }
@@ -796,6 +878,12 @@ pub async fn outdated(
         }
     };
 
+    let catalog = if workspace.is_none() {
+        CatalogConfig::load(&project.root)?
+    } else {
+        None
+    };
+
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
     let mut manifest_protocols = BTreeMap::new();
@@ -803,12 +891,14 @@ pub async fn outdated(
     let deps = apply_specs(
         &project.manifest.dependencies,
         workspace.as_ref(),
+        catalog.as_ref(),
         &mut local_deps,
         Some(&mut manifest_protocols),
     )?;
     let dev_deps = apply_specs(
         &project.manifest.dev_dependencies,
         workspace.as_ref(),
+        catalog.as_ref(),
         &mut local_dev_deps,
         Some(&mut manifest_protocols),
     )?;

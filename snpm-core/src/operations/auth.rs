@@ -109,11 +109,7 @@ fn write_rc_file(path: &PathBuf, lines: &[String]) -> Result<()> {
     })
 }
 
-fn filter_existing_credentials(
-    lines: &[String],
-    host: &str,
-    scope: Option<&str>,
-) -> Vec<String> {
+fn filter_existing_credentials(lines: &[String], host: &str, scope: Option<&str>) -> Vec<String> {
     lines
         .iter()
         .filter_map(|line| {
@@ -157,7 +153,11 @@ fn is_auth_line_for_host(line: &str, host: &str) -> bool {
         .or_else(|| rest.strip_suffix(":_authToken"))
         .unwrap_or("");
 
-    let extracted_host = host_part.split('/').next().unwrap_or("").trim_end_matches('/');
+    let extracted_host = host_part
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('/');
 
     extracted_host == host
 }

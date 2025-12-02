@@ -37,21 +37,7 @@ async fn run() -> Result<()> {
             force,
             workspace: target,
         } => {
-            let mut heading = String::from("install");
-            if production {
-                heading.push_str(" --production");
-            }
-            if frozen_lockfile {
-                heading.push_str(" --frozen-lockfile");
-            }
-            if force {
-                heading.push_str(" --force");
-            }
-            if let Some(ref name) = target {
-                heading.push_str(" -w ");
-                heading.push_str(name);
-            }
-            console::heading(&heading);
+            console::header("install");
 
             let cwd = env::current_dir()?;
 
@@ -117,18 +103,7 @@ async fn run() -> Result<()> {
             packages,
             force,
         } => {
-            let mut heading = String::from("add");
-            if dev {
-                heading.push_str(" -D");
-            }
-            if force {
-                heading.push_str(" --force");
-            }
-            if let Some(name) = target.as_deref() {
-                heading.push_str(" -w ");
-                heading.push_str(name);
-            }
-            console::heading(&heading);
+            console::header("add");
 
             let cwd = env::current_dir()?;
 
@@ -166,17 +141,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Remove { packages } => {
-            let mut heading = String::from("remove");
-            if !packages.is_empty() {
-                heading.push(' ');
-                for (index, name) in packages.iter().enumerate() {
-                    if index > 0 {
-                        heading.push(' ');
-                    }
-                    heading.push_str(name);
-                }
-            }
-            console::heading(&heading);
+            console::header("remove");
 
             let cwd = env::current_dir()?;
             let mut project = Project::discover(&cwd)?;
@@ -189,15 +154,7 @@ async fn run() -> Result<()> {
             recursive,
             filter,
         } => {
-            let mut heading = format!("run {script}");
-            if recursive {
-                heading.push_str(" -r");
-            }
-            if !filter.is_empty() {
-                heading.push_str(" --filter ");
-                heading.push_str(&filter.join(","));
-            }
-            console::heading(&heading);
+            console::header(&format!("run {}", script));
 
             let cwd = env::current_dir()?;
 
@@ -213,10 +170,9 @@ async fn run() -> Result<()> {
         }
 
         Command::Init => {
-            let cwd = env::current_dir()?;
-            let name = cwd.file_name().and_then(|os| os.to_str()).unwrap_or(".");
-            console::heading(&format!("init {name}"));
+            console::header("init");
 
+            let cwd = env::current_dir()?;
             operations::init(&cwd)?;
         }
 
@@ -225,18 +181,7 @@ async fn run() -> Result<()> {
             force,
             packages,
         } => {
-            let mut heading = String::from("upgrade");
-            if production {
-                heading.push_str(" --production");
-            }
-            if force {
-                heading.push_str(" --force");
-            }
-            if !packages.is_empty() {
-                heading.push(' ');
-                heading.push_str(&packages.join(" "));
-            }
-            console::heading(&heading);
+            console::header("upgrade");
 
             let cwd = env::current_dir()?;
 
@@ -288,11 +233,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Outdated { production } => {
-            let mut heading = String::from("outdated");
-            if production {
-                heading.push_str(" --production");
-            }
-            console::heading(&heading);
+            console::header("outdated");
 
             let cwd = env::current_dir()?;
 
@@ -314,7 +255,7 @@ async fn run() -> Result<()> {
                         any = true;
 
                         let name = project_label(project);
-                        console::project(&name);
+                        println!("\n{}", name);
                         print_outdated(&entries);
                     }
 
@@ -333,7 +274,7 @@ async fn run() -> Result<()> {
                 console::info("All dependencies are up to date.");
             } else {
                 let name = project_label(&project);
-                console::project(&name);
+                println!("\n{}", name);
                 print_outdated(&entries);
             }
         }
@@ -343,19 +284,7 @@ async fn run() -> Result<()> {
             scope,
             web,
         } => {
-            let mut heading = String::from("login");
-            if let Some(ref reg) = registry {
-                heading.push_str(" --registry ");
-                heading.push_str(reg);
-            }
-            if let Some(ref s) = scope {
-                heading.push_str(" --scope ");
-                heading.push_str(s);
-            }
-            if web {
-                heading.push_str(" --web");
-            }
-            console::heading(&heading);
+            console::header("login");
 
             let registry_url = registry
                 .as_deref()
@@ -384,16 +313,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Logout { registry, scope } => {
-            let mut heading = String::from("logout");
-            if let Some(ref reg) = registry {
-                heading.push_str(" --registry ");
-                heading.push_str(reg);
-            }
-            if let Some(ref s) = scope {
-                heading.push_str(" --scope ");
-                heading.push_str(s);
-            }
-            console::heading(&heading);
+            console::header("logout");
 
             operations::logout(&config, registry.as_deref(), scope.as_deref())?;
 

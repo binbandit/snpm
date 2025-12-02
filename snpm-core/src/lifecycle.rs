@@ -9,17 +9,24 @@ pub fn run_install_scripts(
     config: &SnpmConfig,
     workspace: Option<&Workspace>,
     project_root: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let node_modules = project_root.join("node_modules");
 
     if !node_modules.is_dir() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
-    walk_node_modules(config, workspace, &node_modules)
+    let mut blocked = Vec::new();
+    walk_node_modules(config, workspace, &node_modules, &mut blocked)?;
+    Ok(blocked)
 }
 
-fn walk_node_modules(config: &SnpmConfig, workspace: Option<&Workspace>, dir: &Path) -> Result<()> {
+fn walk_node_modules(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
+    dir: &Path,
+    blocked: &mut Vec<String>,
+) -> Result<()> {
     for entry in fs::read_dir(dir).map_err(|source| SnpmError::ReadFile {
         path: dir.to_path_buf(),
         source,
@@ -45,15 +52,14 @@ fn walk_node_modules(config: &SnpmConfig, workspace: Option<&Workspace>, dir: &P
         let manifest_path = path.join("package.json");
 
         if manifest_path.is_file() {
-            run_package_scripts(config, workspace, &path, &manifest_path)?;
+            run_package_scripts(config, workspace, &path, &manifest_path, blocked)?;
 
             let nested = path.join("node_modules");
             if nested.is_dir() {
-                walk_node_modules(config, workspace, &nested)?;
+                walk_node_modules(config, workspace, &nested, blocked)?;
             }
         } else {
-            // Scoped dirs
-            walk_node_modules(config, workspace, &path)?;
+            walk_node_modules(config, workspace, &path, blocked)?;
         }
     }
 
@@ -65,6 +71,7 @@ fn run_package_scripts(
     workspace: Option<&Workspace>,
     pkg_root: &Path,
     manifest_path: &Path,
+    blocked: &mut Vec<String>,
 ) -> Result<()> {
     let data = fs::read_to_string(manifest_path).map_err(|source| SnpmError::ReadFile {
         path: manifest_path.to_path_buf(),
@@ -86,19 +93,23 @@ fn run_package_scripts(
         return Ok(());
     }
 
-    if !is_dep_script_allowed(config, workspace, &name) {
-        return Ok(());
-    }
-
     let scripts = match value.get("scripts") {
         Some(Value::Object(map)) => map,
         _ => return Ok(()),
     };
 
-    run_script_if_present(&name, pkg_root, scripts, "preinstall")?;
+    let has_install_scripts = scripts.contains_key("install");
+
+    if !has_install_scripts {
+        return Ok(());
+    }
+
+    if !is_dep_script_allowed(config, workspace, &name) {
+        blocked.push(name);
+        return Ok(());
+    }
+
     run_script_if_present(&name, pkg_root, scripts, "install")?;
-    run_script_if_present(&name, pkg_root, scripts, "postinstall")?;
-    run_script_if_present(&name, pkg_root, scripts, "prepare")?;
 
     Ok(())
 }
@@ -114,16 +125,11 @@ pub(crate) fn is_dep_script_allowed(
         }
 
         if !ws.config.ignored_built_dependencies.is_empty() {
-            if ws
+            return !ws
                 .config
                 .ignored_built_dependencies
                 .iter()
-                .any(|n| n == name)
-            {
-                return false;
-            } else {
-                return true;
-            }
+                .any(|n| n == name);
         }
     }
 

@@ -53,7 +53,9 @@ fn parse_internal(original: &str) -> Result<RangeSet, Error> {
         s = "*";
     }
 
-    if (s.starts_with("npm:") || s.starts_with("jsr:")) && let Some(colon) = s.find(':') {
+    if (s.starts_with("npm:") || s.starts_with("jsr:"))
+        && let Some(colon) = s.find(':')
+    {
         let after = &s[colon + 1..];
         if let Some(at) = after.rfind('@') {
             let version = after[at + 1..].trim();

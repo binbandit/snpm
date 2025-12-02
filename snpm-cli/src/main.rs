@@ -302,12 +302,7 @@ async fn run() -> Result<()> {
                 return Err(anyhow!("auth token cannot be empty"));
             }
 
-            operations::login(
-                &config,
-                registry.as_deref(),
-                &token_value,
-                scope.as_deref(),
-            )?;
+            operations::login(&config, registry.as_deref(), &token_value, scope.as_deref())?;
 
             console::info("Credentials saved successfully");
         }
@@ -425,7 +420,11 @@ async fn web_login(registry_url: &str, _scope: Option<&str>) -> Result<String> {
 
     console::info("Initiating web-based login...");
 
-    let response = client.post(&endpoint).json(&serde_json::json!({})).send().await?;
+    let response = client
+        .post(&endpoint)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
 
     if !response.status().is_success() {
         if response.status().as_u16() >= 400 && response.status().as_u16() < 500 {

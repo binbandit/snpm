@@ -239,7 +239,8 @@ pub async fn install(
                         let name = package.id.name.clone();
 
                         async move {
-                            let current = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                            let current =
+                                count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                             let mut total_val = total.load(std::sync::atomic::Ordering::Relaxed);
                             if current > total_val {
                                 total_val = current;
@@ -376,7 +377,7 @@ pub async fn install(
         &local_dev_deps,
         options.include_dev,
     )?;
-    
+
     if options.include_dev {
         console::step("Saved lockfile");
     }
@@ -389,13 +390,17 @@ pub async fn install(
 
     if !additions.is_empty() || is_fresh_install {
         println!();
-        
+
         let mut packages_to_show: Vec<(String, String, bool)> = Vec::new();
-        
+
         if !additions.is_empty() {
             for name in additions.keys() {
                 if let Some(dep) = graph.root.dependencies.get(name) {
-                    packages_to_show.push((name.clone(), dep.resolved.version.clone(), options.dev));
+                    packages_to_show.push((
+                        name.clone(),
+                        dep.resolved.version.clone(),
+                        options.dev,
+                    ));
                 }
             }
         } else if is_fresh_install {
@@ -404,9 +409,9 @@ pub async fn install(
                 packages_to_show.push((name.clone(), dep.resolved.version.clone(), is_dev));
             }
         }
-        
+
         packages_to_show.sort_by(|a, b| a.0.cmp(&b.0));
-        
+
         for (name, version, is_dev) in packages_to_show {
             console::added(&name, &version, is_dev);
         }
@@ -810,8 +815,7 @@ fn resolve_catalog_spec(
     } else {
         return Err(SnpmError::WorkspaceConfig {
             path: PathBuf::from("."),
-            reason: "catalog protocol used but no workspace or catalog configuration found"
-                .into(),
+            reason: "catalog protocol used but no workspace or catalog configuration found".into(),
         });
     };
 

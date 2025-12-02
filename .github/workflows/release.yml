@@ -1,0 +1,417 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 2025-01-15)'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to release from'
+        required: false
+        default: 'main'
+        type: string
+      dry_run:
+        description: 'Run without creating a release or pushing changes'
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 2025-01-15)'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to release from'
+        required: false
+        default: 'main'
+        type: string
+      dry_run:
+        description: 'Run without creating a release or pushing changes'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      branch: ${{ steps.release_branch.outputs.branch }}
+      checkout_ref: ${{ steps.release_branch.outputs.checkout_ref }}
+      dry_run: ${{ steps.release_branch.outputs.dry_run }}
+    env:
+      WORKFLOW_CALL_BRANCH: ${{ github.event_name == 'workflow_call' && inputs.branch || '' }}
+      WORKFLOW_DISPATCH_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || '' }}
+      DRY_RUN: ${{ format('{0}', (github.event_name == 'workflow_call' && inputs.dry_run) || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true') || false) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SERVICE_ACCOUNT_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          ref: ${{ env.WORKFLOW_CALL_BRANCH != '' && env.WORKFLOW_CALL_BRANCH || env.WORKFLOW_DISPATCH_BRANCH != '' && env.WORKFLOW_DISPATCH_BRANCH || github.ref }}
+
+      - name: Determine version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version || '' }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version || '' }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [ -n "$DISPATCH_VERSION" ]; then
+            VERSION="$DISPATCH_VERSION"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Update version files
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION_NO_V="${VERSION#v}"  # Remove 'v' prefix if present
+
+          # Update snpm-cli version
+          sed -i "s/^version[[:space:]]*=[[:space:]]*\".*\"/version = \"${VERSION_NO_V}\"/" snpm-cli/Cargo.toml
+
+          # Update Cargo.lock to reflect the version change
+          cargo update --workspace
+
+          git add snpm-cli/Cargo.toml Cargo.lock
+
+          echo "Version files updated to ${VERSION_NO_V}"
+
+      - name: Run pre-release checks
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --workspace
+
+      - name: Record release branch context
+        id: release_branch
+        env:
+          WORKFLOW_CALL_BRANCH: ${{ env.WORKFLOW_CALL_BRANCH }}
+          WORKFLOW_DISPATCH_BRANCH: ${{ env.WORKFLOW_DISPATCH_BRANCH }}
+        run: |
+          TARGET_BRANCH="$WORKFLOW_CALL_BRANCH"
+          if [ -z "$TARGET_BRANCH" ]; then
+            TARGET_BRANCH="$WORKFLOW_DISPATCH_BRANCH"
+          fi
+          if [ -z "$TARGET_BRANCH" ]; then
+            TARGET_BRANCH="main"
+          fi
+
+          TARGET_BRANCH="${TARGET_BRANCH#refs/heads/}"
+          TARGET_BRANCH="${TARGET_BRANCH#refs/remotes/}"
+
+          echo "Using release branch: ${TARGET_BRANCH}"
+
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "branch=${TARGET_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build Release
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux targets
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_name: snpm-linux-amd64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset_name: snpm-linux-amd64-musl
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset_name: snpm-linux-arm64
+            linker: aarch64-linux-gnu-gcc
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            asset_name: snpm-linux-arm64-musl
+          # macOS targets
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_name: snpm-macos-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_name: snpm-macos-arm64
+          # Windows targets
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: snpm-windows-amd64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            asset_name: snpm-windows-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt
+
+      - name: Install musl tools for x86_64
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install AArch64 GNU Toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install cross for musl targets
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          cargo install cross --locked
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        shell: bash
+        run: |
+          # Use cross for aarch64-musl, regular cargo for others
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+            cross build --release --target ${{ matrix.target }} --bin snpm
+          else
+            # Set compiler based on target
+            case "${{ matrix.target }}" in
+              x86_64-unknown-linux-musl)
+                export CC=musl-gcc
+                ;;
+              aarch64-unknown-linux-gnu)
+                export CC=aarch64-linux-gnu-gcc
+                ;;
+            esac
+
+            if [ -n "${{ matrix.linker }}" ]; then
+              RUSTFLAGS="--codegen target-feature=+crt-static --codegen linker=${{ matrix.linker }}" \
+                cargo build --release --target ${{ matrix.target }} --bin snpm
+            else
+              RUSTFLAGS="--codegen target-feature=+crt-static" \
+                cargo build --release --target ${{ matrix.target }} --bin snpm
+            fi
+          fi
+
+      - name: Package binary and generate checksums
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+
+          # Determine binary extension
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            BINARY_NAME="snpm.exe"
+            ARCHIVE_NAME="${{ matrix.asset_name }}.zip"
+            # Create zip for Windows using 7z (pre-installed on GitHub Actions)
+            7z a "$ARCHIVE_NAME" "$BINARY_NAME"
+          else
+            BINARY_NAME="snpm"
+            ARCHIVE_NAME="${{ matrix.asset_name }}.tar.gz"
+            # Create tar.gz for Unix-like systems
+            tar czf "$ARCHIVE_NAME" "$BINARY_NAME"
+          fi
+
+          # Generate SHA256 checksum
+          if [[ "${{ matrix.target }}" == *"windows"* ]] && command -v powershell >/dev/null 2>&1; then
+            powershell -Command "(Get-FileHash -Algorithm SHA256 '$ARCHIVE_NAME').Hash.ToLower() + '  ' + '$ARCHIVE_NAME'" > "$ARCHIVE_NAME.sha256"
+          elif command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+          else
+            echo "Warning: No SHA256 utility found"
+          fi
+
+          # Move files to root
+          mv "$ARCHIVE_NAME"* "${{ github.workspace }}/"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}.*
+
+  release:
+    name: Create Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' || inputs.version != ''
+    env:
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Determine if prerelease
+        id: prerelease
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          elif [[ "$VERSION" =~ ^v?[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Handle existing release and tag
+        if: env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if release exists and delete it
+          if gh release view "${VERSION}" &>/dev/null; then
+            echo "Release ${VERSION} already exists. Deleting it..."
+            gh release delete "${VERSION}" --yes
+          fi
+
+          # For manual dispatch, handle tag creation/update
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            # Check if tag exists
+            if git ls-remote --tags origin | grep -q "refs/tags/${VERSION}$"; then
+              echo "Tag ${VERSION} already exists. Force updating it..."
+              git tag -fa "${VERSION}" -m "Release ${VERSION}"
+              git push --force origin "${VERSION}"
+            else
+              echo "Creating new tag ${VERSION}"
+              git tag -a "${VERSION}" -m "Release ${VERSION}"
+              git push origin "${VERSION}"
+            fi
+          fi
+
+      - name: Create Release
+        if: env.DRY_RUN != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: Release ${{ needs.prepare.outputs.version }}
+          draft: false
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            ./artifacts/**/*.tar.gz
+            ./artifacts/**/*.zip
+            ./artifacts/**/*.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dry run summary
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "Dry run enabled: skipping tag management and GitHub release creation."
+          echo "Artifacts prepared:"
+          ls -R ./artifacts
+
+  finalize:
+    name: Finalize Release
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    if: needs.prepare.outputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' || inputs.version != '') && always() && needs.release.result == 'success'
+    env:
+      RELEASE_BRANCH: ${{ needs.prepare.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SERVICE_ACCOUNT_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_BRANCH }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Update and commit version changes
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VERSION_NO_V="${VERSION#v}"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          sed -i "s/^version[[:space:]]*=[[:space:]]*\".*\"/version = \"${VERSION_NO_V}\"/" snpm-cli/Cargo.toml
+
+          # Update Cargo.lock
+          cargo update --workspace
+
+          if git diff --quiet snpm-cli/Cargo.toml Cargo.lock; then
+            echo "ℹ️ Version already up to date, no changes needed"
+            exit 0
+          fi
+
+          # Stage the changes
+          git add snpm-cli/Cargo.toml Cargo.lock
+
+          # Commit with conventional commit message and skip CI
+          git commit \
+              -m "chore(release): bump version to ${VERSION_NO_V} [skip ci]" \
+              -m "Automated version bump after release ${VERSION}"
+
+          # Push the changes
+          BRANCH="${RELEASE_BRANCH}"
+          git push origin "$BRANCH"
+          echo "✅ Version ${VERSION_NO_V} committed and pushed to ${BRANCH}"

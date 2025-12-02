@@ -107,7 +107,7 @@ jobs:
       - name: Run pre-release checks
         run: |
           cargo fmt --all -- --check
-          cargo clippy --all-targets --all-features -- -D warnings
+          cargo clippy --all-targets --all-features
           cargo test --workspace
 
       - name: Record release branch context

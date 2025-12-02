@@ -37,7 +37,7 @@ pub fn init(root: &Path) -> Result<()> {
         source,
     })?;
 
-    console::step("created", "package.json");
+    console::info("Created package.json");
 
     Ok(())
 }

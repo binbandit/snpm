@@ -53,7 +53,6 @@ pub async fn install(
     let (requested_ranges_raw, requested_protocols_raw) =
         parse_requested_with_protocol(&options.requested);
 
-    // Only treat truely new packages as "additions"
     let mut additions = BTreeMap::new();
     let mut requested_protocols = BTreeMap::new();
 
@@ -61,7 +60,6 @@ pub async fn install(
         if project.manifest.dependencies.contains_key(&name)
             || project.manifest.dev_dependencies.contains_key(&name)
         {
-            // package already in manifest; snpm add is idempotent for existing packages
             continue;
         }
 
@@ -72,8 +70,6 @@ pub async fn install(
     }
 
     let workspace = Workspace::discover(&project.root)?;
-
-    console::project(&project_label(project));
 
     let catalog = if workspace.is_none() {
         CatalogConfig::load(&project.root)?
@@ -168,6 +164,8 @@ pub async fn install(
         .map(|w| w.root.join("snpm-lock.yaml"))
         .unwrap_or_else(|| project.root.join("snpm-lock.yaml"));
 
+    let is_fresh_install = !lockfile_path.exists();
+
     let graph = if options.frozen_lockfile {
         if !lockfile_path.is_file() {
             return Err(SnpmError::Lockfile {
@@ -215,10 +213,13 @@ pub async fn install(
             if lock_requested == manifest_root {
                 lockfile::to_graph(&existing)
             } else {
+                console::step("Resolving dependencies");
                 let paths = store_paths.clone();
                 let cfg = store_config.clone();
                 let client = store_client.clone();
                 let tasks = store_tasks.clone();
+                let progress_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let progress_total = Arc::new(std::sync::atomic::AtomicUsize::new(root_deps.len()));
 
                 let graph = resolve::resolve(
                     config,
@@ -233,8 +234,19 @@ pub async fn install(
                         let client = client.clone();
                         let paths = paths.clone();
                         let tasks = tasks.clone();
+                        let count = progress_count.clone();
+                        let total = progress_total.clone();
+                        let name = package.id.name.clone();
 
                         async move {
+                            let current = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                            let mut total_val = total.load(std::sync::atomic::Ordering::Relaxed);
+                            if current > total_val {
+                                total_val = current;
+                                total.store(total_val, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            console::progress("🚚", &name, current, total_val);
+
                             let package_id = package.id.clone();
 
                             let handle = tokio::spawn(async move {
@@ -257,10 +269,13 @@ pub async fn install(
                 graph
             }
         } else {
+            console::step("Resolving dependencies");
             let paths = store_paths.clone();
             let cfg = store_config.clone();
             let client = store_client.clone();
             let tasks = store_tasks.clone();
+            let progress_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let progress_total = Arc::new(std::sync::atomic::AtomicUsize::new(root_deps.len()));
 
             let graph = resolve::resolve(
                 config,
@@ -275,8 +290,19 @@ pub async fn install(
                     let client = client.clone();
                     let paths = paths.clone();
                     let tasks = tasks.clone();
+                    let count = progress_count.clone();
+                    let total = progress_total.clone();
+                    let name = package.id.name.clone();
 
                     async move {
+                        let current = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let mut total_val = total.load(std::sync::atomic::Ordering::Relaxed);
+                        if current > total_val {
+                            total_val = current;
+                            total.store(total_val, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        console::progress("🚚", &name, current, total_val);
+
                         let package_id = package.id.clone();
 
                         let handle = tokio::spawn(async move {
@@ -302,8 +328,6 @@ pub async fn install(
         }
     };
 
-    console::step("resolved", &format!("{} packages", graph.packages.len()));
-
     {
         let handles = {
             let mut guard = store_tasks.lock().await;
@@ -327,7 +351,7 @@ pub async fn install(
         store_paths_map = materialize_store(config, &graph).await?;
     }
 
-    console::step("fetched", &format!("{} packages", store_paths_map.len()));
+    console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
 
     write_manifest(
         project,
@@ -352,24 +376,50 @@ pub async fn install(
         &local_dev_deps,
         options.include_dev,
     )?;
-    console::step("linked", "node_modules");
-    lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?;
-    console::step("scripts", "install scripts completed");
-    if !additions.is_empty() {
-        for name in additions.keys() {
-            if let Some(dep) = graph.root.dependencies.get(name) {
-                let mut summary = format!("{}@{}", name, dep.resolved.version);
-                if options.dev {
-                    summary.push_str(" (dev)");
+    
+    if options.include_dev {
+        console::step("Saved lockfile");
+    }
+
+    let blocked_scripts =
+        lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?;
+
+    let step_count = if options.include_dev { 3 } else { 2 };
+    console::clear_steps(step_count);
+
+    if !additions.is_empty() || is_fresh_install {
+        println!();
+        
+        let mut packages_to_show: Vec<(String, String, bool)> = Vec::new();
+        
+        if !additions.is_empty() {
+            for name in additions.keys() {
+                if let Some(dep) = graph.root.dependencies.get(name) {
+                    packages_to_show.push((name.clone(), dep.resolved.version.clone(), options.dev));
                 }
-                console::added(&summary);
             }
+        } else if is_fresh_install {
+            for (name, dep) in graph.root.dependencies.iter() {
+                let is_dev = local_dev_deps.contains(name) && !local_deps.contains(name);
+                packages_to_show.push((name.clone(), dep.resolved.version.clone(), is_dev));
+            }
+        }
+        
+        packages_to_show.sort_by(|a, b| a.0.cmp(&b.0));
+        
+        for (name, version, is_dev) in packages_to_show {
+            console::added(&name, &version, is_dev);
         }
     }
 
     let elapsed = started.elapsed();
     let seconds = elapsed.as_secs_f32();
-    console::installed(graph.packages.len(), seconds);
+    console::summary(graph.packages.len(), seconds);
+
+    if !blocked_scripts.is_empty() {
+        println!();
+        console::blocked_scripts(&blocked_scripts);
+    }
 
     Ok(())
 }

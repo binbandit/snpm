@@ -51,7 +51,7 @@ pub fn run_workspace_scripts(
         }
 
         any_ran = true;
-        console::project(&name);
+        println!("\n{}", name);
         run_script(project, script, args)?;
     }
 

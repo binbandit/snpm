@@ -1,0 +1,79 @@
+---
+title: Comparison
+description: How snpm compares to npm, yarn, and pnpm
+---
+
+See how snpm compares to other package managers.
+
+## Feature Comparison
+
+| Feature | snpm | npm | yarn | pnpm |
+|---------|------|-----|------|------|
+| **Global Cache** | ✅ | ❌ | ✅ | ✅ |
+| **Lockfile Format** | YAML | JSON | YAML | YAML |
+| **Workspaces** | ✅ | ✅ | ✅ | ✅ |
+| **Catalog Protocol** | ✅ | ❌ | ❌ | ✅ |
+| **Minimum Version Age** | ✅ | ❌ | ❌ | ❌ |
+| **Written In** | Rust | JavaScript | JavaScript | JavaScript |
+| **Parallel Downloads** | ✅ | Limited | ✅ | ✅ |
+
+## Key Differences
+
+### Global Store
+
+Like pnpm, snpm uses a global store to cache packages. Download once, reuse everywhere.
+
+**Location:** `~/.snpm-store`
+
+### Lockfile
+
+snpm uses YAML for its lockfile (`snpm-lock.yaml`), making it easy to read and review in pull requests.
+
+### Catalog Protocol
+
+Define dependency versions once in `snpm-catalog.yaml` and reference them across your workspace. Eliminates version drift in monorepos.
+
+### Minimum Version Age
+
+Unique to snpm: configure it to ignore recently published package versions. This protects against zero-day malicious packages and broken releases.
+
+```bash
+export SNPM_MIN_VERSION_AGE_DAYS=7
+```
+
+### Written in Rust
+
+Fast, memory-efficient, and reliable. The codebase is designed to be readable and maintainable.
+
+## Command Comparison
+
+| Task | npm | snpm |
+|------|-----|------|
+| Install dependencies | `npm install` | `snpm install` |
+| Add package | `npm install <pkg>` | `snpm add <pkg>` |
+| Remove package | `npm uninstall <pkg>` | `snpm remove <pkg>` |
+| Update packages | `npm update` | `snpm upgrade` |
+| Run script | `npm run <script>` | `snpm run <script>` |
+| Check outdated | `npm outdated` | `snpm outdated` |
+
+## Why Choose snpm?
+
+**Speed** - Global caching and parallel operations make installs fast.
+
+**Security** - Minimum version age protects against supply chain attacks.
+
+**Simplicity** - Readable lockfile, familiar commands, no surprises.
+
+**Workspaces** - First-class monorepo support with catalog protocol.
+
+**Reliability** - Written in Rust for performance and stability.
+
+## Migration
+
+Switching from npm/yarn/pnpm is straightforward:
+
+1. Install snpm
+2. Delete `node_modules` and old lockfiles
+3. Run `snpm install`
+
+Your `package.json` works as-is. No changes needed.

@@ -1,0 +1,138 @@
+---
+title: Workspaces
+description: Monorepo support in snpm
+---
+
+snpm has first-class support for monorepos through workspaces.
+
+## Setup
+
+Create `snpm-workspace.yaml` in your repository root:
+
+```yaml title="snpm-workspace.yaml"
+packages:
+  - 'packages/*'
+  - 'apps/*'
+```
+
+<Callout type="info">
+  snpm also supports `pnpm-workspace.yaml` for compatibility.
+</Callout>
+
+## Example Structure
+
+```
+my-monorepo/
+├── snpm-workspace.yaml
+├── package.json
+├── snpm-lock.yaml
+├── packages/
+│   ├── ui/
+│   │   └── package.json
+│   └── utils/
+│       └── package.json
+└── apps/
+    └── web/
+        └── package.json
+```
+
+## Installing Dependencies
+
+From the workspace root:
+
+```bash
+snpm install
+```
+
+This installs dependencies for all workspace packages and creates a single `snpm-lock.yaml` at the root.
+
+## Workspace Protocol
+
+Reference local packages using the `workspace:` protocol:
+
+```json title="apps/web/package.json"
+{
+  "name": "web",
+  "dependencies": {
+    "@myorg/ui": "workspace:*",
+    "@myorg/utils": "workspace:*"
+  }
+}
+```
+
+**Supported versions:**
+- `workspace:*` - Any version
+- `workspace:^` - Caret range
+- `workspace:~` - Tilde range
+- `workspace:1.0.0` - Specific version
+
+## Working with Workspaces
+
+### Install in Specific Workspace
+
+```bash
+# From workspace root
+snpm install -w ui
+
+# Or navigate to the package
+cd packages/ui
+snpm install
+```
+
+### Add Dependencies
+
+```bash
+# Add to specific workspace
+snpm add react -w ui
+
+# Or from within the package
+cd packages/ui
+snpm add react
+```
+
+### Run Scripts
+
+```bash
+# Run in all workspaces
+snpm run build --recursive
+
+# Run in specific workspace
+snpm run test --filter ui
+
+# Run with glob patterns
+snpm run build --filter "app-*"
+```
+
+## Benefits
+
+**Shared Dependencies** - Common dependencies are hoisted to the root, saving disk space.
+
+**Fast Installs** - All workspace packages install in parallel.
+
+**Single Lockfile** - One `snpm-lock.yaml` ensures consistency across the entire monorepo.
+
+**Local Linking** - Changes to local packages are immediately available to dependent packages.
+
+## Best Practices
+
+**Use Scoped Names** - Prefix workspace packages with a scope:
+
+```json
+{
+  "name": "@myorg/ui",
+  "name": "@myorg/utils"
+}
+```
+
+**Shared Scripts** - Define common scripts in the root `package.json`:
+
+```json title="package.json"
+{
+  "scripts": {
+    "build": "snpm run build --recursive",
+    "test": "snpm run test --recursive"
+  }
+}
+```
+
+**Use Catalog** - Define shared dependency versions in `snpm-catalog.yaml` (see Catalog documentation).

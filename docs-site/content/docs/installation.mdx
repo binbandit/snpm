@@ -1,0 +1,77 @@
+---
+title: Installation
+description: How to install snpm on your system
+---
+
+Get snpm installed and ready to use.
+
+## Install with npm (Recommended)
+
+The easiest way to install snpm:
+
+```bash
+npm install -g snpm
+```
+
+This installs the `snpm` binary globally on your system.
+
+<Callout type="info">
+  This installs a pre-built binary, so you don't need Rust installed.
+</Callout>
+
+## Install from Source
+
+If you prefer to build from source:
+
+**Prerequisites:**
+- Rust toolchain (install from [rustup.rs](https://rustup.rs/))
+- Git
+
+```bash
+# Clone the repository
+git clone https://github.com/binbandit/snpm.git
+cd snpm
+
+# Build and install
+cargo install --path snpm-cli
+```
+
+This installs the `snpm` binary to your Cargo bin directory (usually `~/.cargo/bin`).
+
+## Verify Installation
+
+```bash
+snpm --version
+```
+
+## Update snpm
+
+**If installed via npm:**
+
+```bash
+npm update -g snpm
+```
+
+**If installed from source:**
+
+```bash
+cd snpm
+git pull
+cargo install --path snpm-cli
+```
+
+## Uninstall
+
+**If installed via npm:**
+
+```bash
+npm uninstall -g snpm
+```
+
+**If installed from source:**
+
+```bash
+cargo uninstall snpm-cli
+```
+
+

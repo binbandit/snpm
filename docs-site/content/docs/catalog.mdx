@@ -1,0 +1,162 @@
+---
+title: Catalog Protocol
+description: Manage dependency versions across your workspace
+---
+
+The catalog protocol lets you define dependency versions once and reference them across your entire workspace.
+
+## Setup
+
+Create `snpm-catalog.yaml` in your repository root:
+
+```yaml title="snpm-catalog.yaml"
+# Default catalog
+react: ^18.2.0
+react-dom: ^18.2.0
+typescript: ^5.0.0
+
+# Named catalogs
+build:
+  vite: ^5.0.0
+  esbuild: ^0.19.0
+
+testing:
+  vitest: ^1.0.0
+  '@testing-library/react': ^14.0.0
+```
+
+## Using Catalog Versions
+
+Reference catalog versions in `package.json` using the `catalog:` protocol:
+
+```json title="packages/ui/package.json"
+{
+  "name": "@myorg/ui",
+  "dependencies": {
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "vite": "catalog:build",
+    "vitest": "catalog:testing"
+  }
+}
+```
+
+## Syntax
+
+**Default Catalog:**
+
+```yaml
+# Simple version
+react: ^18.2.0
+
+# Exact version
+lodash: 4.17.21
+
+# Version range
+typescript: >=5.0.0 <6.0.0
+```
+
+**Named Catalogs:**
+
+```yaml
+# Group by purpose
+testing:
+  vitest: ^1.0.0
+  jest: ^29.0.0
+
+# Group by framework
+vue:
+  vue: ^3.3.0
+  '@vue/compiler-sfc': ^3.3.0
+```
+
+## Example
+
+```yaml title="snpm-catalog.yaml"
+# Shared dependencies
+react: ^18.2.0
+react-dom: ^18.2.0
+
+# Build tools
+build:
+  vite: ^5.0.0
+  typescript: ^5.0.0
+
+# Testing
+testing:
+  vitest: ^1.0.0
+  '@testing-library/react': ^14.0.0
+```
+
+```json title="apps/web/package.json"
+{
+  "dependencies": {
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "vite": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:testing"
+  }
+}
+```
+
+## Updating Versions
+
+To update a dependency across your entire workspace:
+
+1. Update the version in `snpm-catalog.yaml`
+2. Run `snpm install`
+
+All packages using that catalog entry will be updated.
+
+## Benefits
+
+**Version Consistency** - Ensure all packages use the same version of shared dependencies.
+
+**Easy Updates** - Update a dependency version in one place.
+
+**Reduced Errors** - No more accidentally using different versions across your monorepo.
+
+## Best Practices
+
+**Group Related Dependencies:**
+
+```yaml
+# Framework
+react: ^18.2.0
+vue: ^3.3.0
+
+# Build tools
+build:
+  vite: ^5.0.0
+  webpack: ^5.88.0
+
+# Testing
+testing:
+  vitest: ^1.0.0
+  jest: ^29.0.0
+```
+
+**Use Semantic Versioning:**
+
+```yaml
+# Flexible - allows patch and minor updates
+react: ^18.2.0
+
+# Strict - exact version
+lodash: 4.17.21
+```
+
+**Document Version Choices:**
+
+```yaml
+# Using React 18 for concurrent features
+react: ^18.2.0
+
+# Pinned to avoid breaking changes
+lodash: 4.17.21
+```

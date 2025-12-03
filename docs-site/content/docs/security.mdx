@@ -1,0 +1,139 @@
+---
+title: Security
+description: Security features and best practices
+---
+
+snpm includes security features to protect your projects from malicious packages and supply chain attacks.
+
+## Minimum Version Age
+
+A unique security feature that protects against zero-day malicious packages.
+
+### How It Works
+
+Configure snpm to ignore package versions published within the last N days:
+
+```bash
+export SNPM_MIN_VERSION_AGE_DAYS=7
+```
+
+With this setting, snpm will only install package versions that are at least 7 days old.
+
+### Why This Matters
+
+**Zero-Day Protection** - Malicious packages are often caught and removed within days of publication. By waiting, you avoid installing them.
+
+**Broken Release Protection** - Hastily published releases with critical bugs are usually fixed quickly. Waiting helps you skip these problematic versions.
+
+**Supply Chain Security** - Compromised maintainer accounts often publish malicious versions immediately. A waiting period gives the community time to detect and report issues.
+
+### Configuration
+
+```bash
+# Wait 7 days (recommended for production)
+export SNPM_MIN_VERSION_AGE_DAYS=7
+
+# Wait 3 days (balanced approach)
+export SNPM_MIN_VERSION_AGE_DAYS=3
+
+# No waiting (development)
+export SNPM_MIN_VERSION_AGE_DAYS=0
+```
+
+### Trade-offs
+
+**Pros:**
+- Protection against zero-day malicious packages
+- Avoid broken releases
+- Time for community review
+
+**Cons:**
+- Can't use brand new packages immediately
+- May delay security patches (though most security patches are for older versions)
+
+## Lockfile Security
+
+The `snpm-lock.yaml` file ensures you install the exact same versions every time:
+
+```bash
+# In CI, use frozen lockfile
+snpm install --frozen-lockfile
+```
+
+This prevents unexpected updates that could introduce vulnerabilities.
+
+## Registry Authentication
+
+### Secure Token Storage
+
+Use `snpm login` to securely store registry credentials:
+
+```bash
+snpm login
+```
+
+Tokens are stored in your system's credential store, not in plain text.
+
+### Private Registries
+
+For private registries, use scoped authentication:
+
+```bash
+snpm login --scope @myorg --registry https://npm.mycompany.com
+```
+
+### Environment Variables
+
+For CI/CD, use environment variables:
+
+```bash
+export NPM_TOKEN=your-token-here
+export SNPM_REGISTRY=https://npm.mycompany.com
+```
+
+## Best Practices
+
+**Use Minimum Version Age in Production** - Set `SNPM_MIN_VERSION_AGE_DAYS=7` for production projects.
+
+**Commit Lockfiles** - Always commit `snpm-lock.yaml` to ensure consistent installs.
+
+**Use Frozen Lockfile in CI** - Prevent unexpected updates:
+
+```bash
+snpm install --frozen-lockfile
+```
+
+**Review Dependency Updates** - When updating dependencies, review the changes in `snpm-lock.yaml`.
+
+**Use Private Registries** - For sensitive projects, use a private registry with authentication.
+
+**Audit Dependencies** - Regularly review your dependencies for known vulnerabilities (external tools can help with this).
+
+## CI/CD Security
+
+### Recommended CI Configuration
+
+```bash
+# Set minimum version age
+export SNPM_MIN_VERSION_AGE_DAYS=7
+
+# Use frozen lockfile
+snpm install --frozen-lockfile
+
+# Run your build/tests
+snpm run build
+snpm run test
+```
+
+### GitHub Actions Example
+
+```yaml
+- name: Install dependencies
+  env:
+    SNPM_MIN_VERSION_AGE_DAYS: 7
+  run: snpm install --frozen-lockfile
+```
+
+## Reporting Security Issues
+
+If you discover a security vulnerability in snpm itself, please report it to the maintainers via GitHub Security Advisories.

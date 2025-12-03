@@ -1,0 +1,123 @@
+---
+title: Basic Usage
+description: Learn the core snpm commands
+---
+
+snpm works just like npm. If you know npm, you already know snpm.
+
+## Installing Dependencies
+
+```bash
+snpm install
+```
+
+Reads `package.json`, resolves dependencies, downloads packages to the global store, and links them to `node_modules`.
+
+**Options:**
+- `--production` - Skip dev dependencies
+- `--frozen-lockfile` - Fail if lockfile needs updates (useful for CI)
+- `--force` - Force re-download all packages
+
+```bash
+# Production install
+snpm install --production
+
+# CI install (fail if lockfile is out of sync)
+snpm install --frozen-lockfile
+```
+
+## Adding Packages
+
+```bash
+snpm add <package>
+```
+
+Adds a package to `dependencies` and installs it.
+
+```bash
+# Add a package
+snpm add react
+
+# Add specific version
+snpm add react@18.2.0
+
+# Add as dev dependency
+snpm add -D typescript
+
+# Add multiple packages
+snpm add react react-dom
+```
+
+## Removing Packages
+
+```bash
+snpm remove <package>
+```
+
+Removes a package from `package.json` and `node_modules`.
+
+```bash
+snpm remove react
+snpm remove react react-dom
+```
+
+## Running Scripts
+
+```bash
+snpm run <script>
+```
+
+Runs a script defined in `package.json`.
+
+```bash
+# Run build script
+snpm run build
+
+# Pass arguments (use -- to separate)
+snpm run test -- --watch
+```
+
+## Upgrading Packages
+
+```bash
+snpm upgrade
+```
+
+Updates all packages to their latest versions within semver constraints.
+
+```bash
+# Upgrade all packages
+snpm upgrade
+
+# Upgrade specific packages
+snpm upgrade react react-dom
+
+# Upgrade production dependencies only
+snpm upgrade --production
+```
+
+## Checking for Updates
+
+```bash
+snpm outdated
+```
+
+Shows which packages have newer versions available.
+
+```bash
+# Check all dependencies
+snpm outdated
+
+# Check production dependencies only
+snpm outdated --production
+```
+
+## Global Store
+
+Packages are downloaded once to `~/.snpm-store` and reused across all projects. This saves disk space and makes subsequent installs much faster.
+
+## Lockfile
+
+`snpm-lock.yaml` ensures deterministic installs. Always commit it to version control.
+
+

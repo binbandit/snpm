@@ -1,0 +1,149 @@
+---
+title: Troubleshooting
+description: Common issues and how to fix them
+---
+
+Solutions to common problems with snpm.
+
+## Installation Issues
+
+### Rust Not Installed
+
+**Problem:** Can't build snpm from source.
+
+**Solution:** Install Rust from [rustup.rs](https://rustup.rs/):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Restart your terminal and try again.
+
+### Build Fails
+
+**Problem:** Compilation errors when building.
+
+**Solution:** Update Rust to the latest version:
+
+```bash
+rustup update stable
+```
+
+Then rebuild:
+
+```bash
+cargo install --path snpm-cli
+```
+
+### Binary Not in PATH
+
+**Problem:** `snpm: command not found` after installation.
+
+**Solution:** Add Cargo's bin directory to your PATH:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+Restart your terminal.
+
+## Runtime Issues
+
+### Permission Denied
+
+**Problem:** Permission errors when installing packages.
+
+**Solution:** Check that you have write access to the global store:
+
+```bash
+ls -la ~/.snpm-store
+```
+
+If needed, fix permissions:
+
+```bash
+sudo chown -R $USER ~/.snpm-store
+```
+
+### Lockfile Out of Sync
+
+**Problem:** `--frozen-lockfile` fails in CI.
+
+**Solution:** The lockfile needs updating. Locally run:
+
+```bash
+snpm install
+git add snpm-lock.yaml
+git commit -m "Update lockfile"
+```
+
+### Package Not Found
+
+**Problem:** snpm can't find a package.
+
+**Solution:** Check the package name and version:
+
+```bash
+# Verify package exists
+npm view <package-name>
+```
+
+If using a private registry, ensure you're authenticated:
+
+```bash
+snpm login --registry https://npm.mycompany.com
+```
+
+### Slow Installs
+
+**Problem:** Installs are slower than expected.
+
+**Solution:** 
+
+1. Check your network connection
+2. Increase concurrent downloads:
+
+```bash
+export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+```
+
+3. Ensure the global store isn't on a slow disk
+
+### Workspace Not Detected
+
+**Problem:** snpm doesn't recognize your workspace.
+
+**Solution:** Ensure you have `snpm-workspace.yaml` or `pnpm-workspace.yaml` in the root:
+
+```yaml title="snpm-workspace.yaml"
+packages:
+  - 'packages/*'
+  - 'apps/*'
+```
+
+### Catalog Not Working
+
+**Problem:** Catalog versions aren't being used.
+
+**Solution:** Ensure `snpm-catalog.yaml` is in the workspace root and you're using the correct syntax:
+
+```json title="package.json"
+{
+  "dependencies": {
+    "react": "catalog:"
+  }
+}
+```
+
+## Getting Help
+
+If you're still stuck:
+
+**GitHub Issues** - Report bugs at [github.com/binbandit/snpm/issues](https://github.com/binbandit/snpm/issues)
+
+When reporting issues, include:
+- snpm version (`snpm --version`)
+- Operating system
+- Steps to reproduce
+- Error messages

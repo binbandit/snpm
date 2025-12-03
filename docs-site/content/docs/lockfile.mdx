@@ -1,0 +1,113 @@
+---
+title: Lockfile
+description: Understanding snpm-lock.yaml
+---
+
+The `snpm-lock.yaml` file ensures deterministic installs across all environments.
+
+## What is a Lockfile?
+
+A lockfile records the exact versions of all dependencies installed in your project. This guarantees that everyone on your team, and your CI/CD system, installs the exact same dependency tree.
+
+## Format
+
+snpm uses YAML format for readability:
+
+```yaml title="snpm-lock.yaml"
+lockfileVersion: 1
+
+packages:
+  react@18.2.0:
+    version: 18.2.0
+    resolved: https://registry.npmjs.org/react/-/react-18.2.0.tgz
+    integrity: sha512-...
+    dependencies:
+      loose-envify: ^1.1.0
+
+  loose-envify@1.4.0:
+    version: 1.4.0
+    resolved: https://registry.npmjs.org/loose-envify/-/loose-envify-1.4.0.tgz
+    integrity: sha512-...
+```
+
+## Why YAML?
+
+- **Readable** - Easy to review in pull requests
+- **Simple** - No complex nesting or cryptic syntax
+- **Git-friendly** - Clean diffs when dependencies change
+
+## Lockfile Behavior
+
+### Automatic Updates
+
+The lockfile is automatically updated when you:
+- Add packages with `snpm add`
+- Remove packages with `snpm remove`
+- Upgrade packages with `snpm upgrade`
+- Run `snpm install` with new dependencies in `package.json`
+
+### Frozen Lockfile
+
+Use `--frozen-lockfile` to prevent lockfile updates:
+
+```bash
+snpm install --frozen-lockfile
+```
+
+This is useful in CI to ensure the lockfile is up to date. The command will fail if the lockfile needs changes.
+
+## Workspaces
+
+In a monorepo, there's a single `snpm-lock.yaml` at the workspace root that covers all packages:
+
+```
+my-monorepo/
+├── snpm-workspace.yaml
+├── snpm-lock.yaml          ← Single lockfile
+├── packages/
+│   ├── ui/
+│   │   └── package.json
+│   └── utils/
+│       └── package.json
+└── apps/
+    └── web/
+        └── package.json
+```
+
+## Version Control
+
+**Always commit `snpm-lock.yaml` to version control.**
+
+This ensures:
+- Consistent installs across all environments
+- Same versions in development and production
+- Reproducible builds in CI/CD
+
+## Merge Conflicts
+
+If you get merge conflicts in `snpm-lock.yaml`:
+
+1. Resolve conflicts in `package.json` first
+2. Delete `snpm-lock.yaml`
+3. Run `snpm install` to regenerate it
+
+```bash
+# After resolving package.json conflicts
+rm snpm-lock.yaml
+snpm install
+git add snpm-lock.yaml
+```
+
+## Best Practices
+
+**Commit the Lockfile** - Always commit `snpm-lock.yaml` to version control.
+
+**Use Frozen Lockfile in CI** - Prevent unexpected updates:
+
+```bash
+snpm install --frozen-lockfile
+```
+
+**Review Lockfile Changes** - When reviewing PRs, check lockfile changes to understand what dependencies were added or updated.
+
+**Regenerate When Needed** - If the lockfile gets corrupted or has conflicts, delete it and run `snpm install` to regenerate.

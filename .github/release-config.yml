@@ -72,7 +72,7 @@ release_notes:
 
       ### Quick Install (Recommended)
       ```bash
-      curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/snpm/main/install.sh | sh
+      curl -fsSL https://raw.githubusercontent.com/binabndit/snpm/main/install.sh | sh
       ```
 
       ### Manual Download
@@ -86,7 +86,7 @@ release_notes:
 
       ### Build from Source
       ```bash
-      cargo install --git https://github.com/YOUR_ORG/snpm --tag v{version} snpm-cli
+      cargo install --git https://github.com/binbandit/snpm --tag v{version} snpm-cli
       ```
 
 # Changelog configuration (Keep a Changelog format)

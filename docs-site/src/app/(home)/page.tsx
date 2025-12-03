@@ -24,17 +24,33 @@ export default function HomePage() {
   );
 }
 
+const acronyms = [
+  'Super Nice Package Manager',
+  'Speedy Node Package Manager',
+  'Sensibly Nimble Package Manager',
+  'Seriously Nice Performance Manager',
+  'Swift & Neat Package Manager',
+  'Smoothly Navigating Package Management',
+  'Surprisingly Non-Painful Manager',
+  'Serenely Natural Package Manager',
+  'Simply Never Procrastinating Manager',
+  'Spectacularly Nimble Package Manager',
+  'Smartly Navigating Package Modules',
+  'Sanely Normalized Package Manager',
+  'Silky Nimble Package Manager',
+  'Seriously No Problems Manager',
+  'Suddenly Not Panicking Manager'
+];
+
 function HeroSection() {
   const [copied, setCopied] = useState(false);
   const [acronym, setAcronym] = useState('Suddenly Not Panicking Manager');
   const version = '2025.12.3';
 
   useEffect(() => {
-    // Fetch random acronym on each render
-    fetch('/api/acronym')
-      .then(res => res.json())
-      .then(data => setAcronym(data.acronym))
-      .catch(() => setAcronym('Suddenly Not Panicking Manager'));
+    // Pick a random acronym on mount
+    const randomAcronym = acronyms[Math.floor(Math.random() * acronyms.length)];
+    setAcronym(randomAcronym);
   }, []);
 
   const handleCopy = () => {

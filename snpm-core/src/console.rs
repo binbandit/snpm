@@ -89,11 +89,6 @@ pub fn clear_steps(count: usize) {
 
 pub fn progress(emoji: &str, message: &str, current: usize, total: usize) {
     if is_tty() {
-        let percent = if total > 0 {
-            ((current as f64 / total as f64 * 100.0) as usize).min(100)
-        } else {
-            0
-        };
         eprint!(
             "\r\u{1b}[K{} {} {}",
             emoji,

@@ -27,7 +27,7 @@ export default function HomePage() {
 function HeroSection() {
   const [copied, setCopied] = useState(false);
   const [acronym, setAcronym] = useState('Suddenly Not Panicking Manager');
-  const [version, setVersion] = useState('2025.12.3');
+  const version = '2025.12.3';
 
   useEffect(() => {
     // Fetch random acronym on each render
@@ -35,12 +35,6 @@ function HeroSection() {
       .then(res => res.json())
       .then(data => setAcronym(data.acronym))
       .catch(() => setAcronym('Suddenly Not Panicking Manager'));
-
-    // Fetch latest version from GitHub
-    fetch('/api/version')
-      .then(res => res.json())
-      .then(data => setVersion(data.version))
-      .catch(() => setVersion('2025.12.3'));
   }, []);
 
   const handleCopy = () => {
@@ -446,14 +440,7 @@ function CTA() {
 }
 
 function Footer() {
-  const [version, setVersion] = useState('2025.12.3');
-
-  useEffect(() => {
-    fetch('/api/version')
-      .then(res => res.json())
-      .then(data => setVersion(data.version))
-      .catch(() => setVersion('2025.12.3'));
-  }, []);
+  const version = '2025.12.3';
 
   return (
     <footer className="bg-[#f5f1e8] dark:bg-[#1a1512] border-t border-[#d4c5b0]/50 dark:border-[#4a3828]/50">

@@ -1,0 +1,9 @@
+node_modules/
+.git/
+.github/
+*.log
+.DS_Store
+bin/snpm
+bin/snpm.exe
+bin/*.tar.gz
+bin/*.zip

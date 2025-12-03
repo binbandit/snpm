@@ -415,3 +415,50 @@ jobs:
           BRANCH="${RELEASE_BRANCH}"
           git push origin "$BRANCH"
           echo "✅ Version ${VERSION_NO_V} committed and pushed to ${BRANCH}"
+
+  publish-npm:
+    name: Publish to npm
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    if: needs.prepare.outputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' || inputs.version != '') && needs.release.result == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Update npm package version
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VERSION_NO_V="${VERSION#v}"
+          
+          cd npm-package
+          npm version "${VERSION_NO_V}" --no-git-tag-version
+
+      - name: Install dependencies
+        run: |
+          cd npm-package
+          npm install
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd npm-package
+          
+          VERSION="${{ needs.prepare.outputs.version }}"
+          
+          # Check if this is a prerelease (date-based version)
+          if [[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            echo "Publishing as latest tag"
+            npm publish --access public
+          else
+            echo "Publishing as next tag (prerelease)"
+            npm publish --access public --tag next
+          fi

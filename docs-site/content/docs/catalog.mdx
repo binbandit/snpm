@@ -11,18 +11,20 @@ Create `snpm-catalog.yaml` in your repository root:
 
 ```yaml title="snpm-catalog.yaml"
 # Default catalog
-react: ^18.2.0
-react-dom: ^18.2.0
-typescript: ^5.0.0
+catalog:
+  react: ^18.2.0
+  react-dom: ^18.2.0
+  typescript: ^5.0.0
 
 # Named catalogs
-build:
-  vite: ^5.0.0
-  esbuild: ^0.19.0
-
-testing:
-  vitest: ^1.0.0
-  '@testing-library/react': ^14.0.0
+catalogs:
+  build:
+    vite: ^5.0.0
+    esbuild: ^0.19.0
+  
+  testing:
+    vitest: ^1.0.0
+    '@testing-library/react': ^14.0.0
 ```
 
 ## Using Catalog Versions
@@ -61,33 +63,37 @@ typescript: >=5.0.0 <6.0.0
 **Named Catalogs:**
 
 ```yaml
-# Group by purpose
-testing:
-  vitest: ^1.0.0
-  jest: ^29.0.0
-
-# Group by framework
-vue:
-  vue: ^3.3.0
-  '@vue/compiler-sfc': ^3.3.0
+catalogs:
+  # Group by purpose
+  testing:
+    vitest: ^1.0.0
+    jest: ^29.0.0
+  
+  # Group by framework
+  vue:
+    vue: ^3.3.0
+    '@vue/compiler-sfc': ^3.3.0
 ```
 
 ## Example
 
 ```yaml title="snpm-catalog.yaml"
 # Shared dependencies
-react: ^18.2.0
-react-dom: ^18.2.0
+catalog:
+  react: ^18.2.0
+  react-dom: ^18.2.0
 
-# Build tools
-build:
-  vite: ^5.0.0
-  typescript: ^5.0.0
-
-# Testing
-testing:
-  vitest: ^1.0.0
-  '@testing-library/react': ^14.0.0
+# Named catalogs
+catalogs:
+  # Build tools
+  build:
+    vite: ^5.0.0
+    typescript: ^5.0.0
+  
+  # Testing
+  testing:
+    vitest: ^1.0.0
+    '@testing-library/react': ^14.0.0
 ```
 
 ```json title="apps/web/package.json"
@@ -126,19 +132,20 @@ All packages using that catalog entry will be updated.
 **Group Related Dependencies:**
 
 ```yaml
-# Framework
-react: ^18.2.0
-vue: ^3.3.0
+# Framework dependencies in default catalog
+catalog:
+  react: ^18.2.0
+  vue: ^3.3.0
 
-# Build tools
-build:
-  vite: ^5.0.0
-  webpack: ^5.88.0
-
-# Testing
-testing:
-  vitest: ^1.0.0
-  jest: ^29.0.0
+# Grouped by purpose in named catalogs
+catalogs:
+  build:
+    vite: ^5.0.0
+    webpack: ^5.88.0
+  
+  testing:
+    vitest: ^1.0.0
+    jest: ^29.0.0
 ```
 
 **Use Semantic Versioning:**
@@ -154,9 +161,10 @@ lodash: 4.17.21
 **Document Version Choices:**
 
 ```yaml
-# Using React 18 for concurrent features
-react: ^18.2.0
-
-# Pinned to avoid breaking changes
-lodash: 4.17.21
+catalog:
+  # Using React 18 for concurrent features
+  react: ^18.2.0
+  
+  # Pinned to avoid breaking changes
+  lodash: 4.17.21
 ```

@@ -91,9 +91,73 @@ export NPM_TOKEN=your-token-here
 export SNPM_REGISTRY=https://npm.mycompany.com
 ```
 
+## Install Script Security
+
+**Critical Security Feature** - By default, snpm blocks **all** install scripts to protect against malicious packages.
+
+### How It Works
+
+Install scripts (like `postinstall`, `preinstall`) can execute arbitrary code during package installation. This is a common attack vector for supply chain attacks.
+
+snpm takes a security-first approach:
+1. **All install scripts are blocked by default**
+2. **Explicit whitelisting required** - You must specify which packages are allowed to run scripts
+3. **Clear warnings** - snpm shows which packages had their scripts blocked
+
+### Allowing Specific Packages
+
+Whitelist trusted packages that need to run install scripts:
+
+```bash
+# Allow specific packages
+export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild,@swc/core"
+```
+
+Or via workspace config:
+
+```yaml title="snpm-workspace.yaml"
+onlyBuiltDependencies:
+  - puppeteer
+  - esbuild
+  - '@swc/core'
+```
+
+### Why This Matters
+
+**Protection Against**:
+- Malicious install scripts that steal credentials
+- Cryptocurrency miners installed via npm packages
+- Backdoors installed during package installation
+- Unaudited third-party code execution
+
+**Trade-offs**:
+- Some packages require install scripts to function (e.g., `puppeteer` downloads Chrome)
+- You must manually whitelist these trusted packages
+
+<Callout type="warning">
+  Only whitelist packages you trust. Review what install scripts do before allowing them.
+</Callout>
+
+### Checking Blocked Scripts
+
+When snpm blocks scripts, it shows a summary:
+
+```
+Blocked 3 install scripts. Set SNPM_ALLOW_SCRIPTS to enable.
+  - node-sass
+  - sharp  
+  - canvas
+```
+
 ## Best Practices
 
-**Use Minimum Version Age in Production** - Set `SNPM_MIN_VERSION_AGE_DAYS=7` for production projects.
+**Use Minimum Version Age in Production** - Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` for production projects.
+
+**Control Install Scripts** - Be selective about which packages can run install scripts:
+
+```bash
+export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild"
+```
 
 **Commit Lockfiles** - Always commit `snpm-lock.yaml` to ensure consistent installs.
 
@@ -115,7 +179,10 @@ snpm install --frozen-lockfile
 
 ```bash
 # Set minimum version age
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
+
+# Control install scripts (whitelist only trusted packages)
+export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild"
 
 # Use frozen lockfile
 snpm install --frozen-lockfile
@@ -130,7 +197,8 @@ snpm run test
 ```yaml
 - name: Install dependencies
   env:
-    SNPM_MIN_VERSION_AGE_DAYS: 7
+    SNPM_MIN_PACKAGE_AGE_DAYS: 7
+    SNPM_ALLOW_SCRIPTS: "puppeteer,esbuild"
   run: snpm install --frozen-lockfile
 ```
 

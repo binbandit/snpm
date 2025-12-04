@@ -22,6 +22,11 @@ Built with a strict "no cleverness" rule, snpm focuses on making the existing np
 - **Catalog Protocol** - Define dependency versions once in `snpm-catalog.yaml`
 - **Clean Lockfile** - Simple, readable `snpm-lock.yaml` format
 - **Minimum Version Age** - Protect against zero-day malicious packages
+- **Install Script Security** - All install scripts blocked by default, explicit whitelisting required
+- **Flexible Hoisting** - Choose from none, single-version, or all hoisting modes
+- **Link Backend Options** - Auto, hardlink, symlink, or copy strategies
+- **Overrides Support** - Force specific versions via `snpm-overrides.yaml` or `package.json`
+- **Verbose Logging** - Detailed debugging output with `--verbose` flag
 
 ## Quick Start
 
@@ -37,12 +42,14 @@ snpm run build
 
 ## How It Works
 
-**Global Store** - Packages are downloaded once to `~/.snpm-store` and linked into your projects. This saves disk space and speeds up subsequent installs.
+**Global Store** - Packages are downloaded once and stored in platform-specific directories (e.g., `~/Library/Caches/snpm` on macOS) and linked into your projects. This saves disk space and speeds up subsequent installs.
 
 **Parallelism** - Multiple packages download simultaneously, and disk operations are optimized for speed.
 
 **Workspaces** - Detects `snpm-workspace.yaml` or `pnpm-workspace.yaml` and efficiently manages dependencies across multiple packages in a monorepo.
 
 **Catalog Protocol** - Define versions in `snpm-catalog.yaml` and reference them with `catalog:` in your `package.json` to eliminate version drift.
+
+**Security** - Install scripts are blocked by default. Packages must be explicitly whitelisted via `SNPM_ALLOW_SCRIPTS` to run install scripts.
 
 

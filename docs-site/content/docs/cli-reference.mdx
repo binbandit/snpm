@@ -5,6 +5,19 @@ description: Complete command-line reference for snpm
 
 Complete reference for all snpm commands and options.
 
+## Global Flags
+
+These flags can be used with any command:
+
+- `-v, --verbose` - Enable verbose logging output
+
+**Example:**
+
+```bash
+snpm install --verbose
+snpm add react --verbose
+```
+
 ## Commands
 
 ### install
@@ -115,11 +128,20 @@ Remove registry credentials.
 
 | Variable | Description |
 |----------|-------------|
-| `SNPM_REGISTRY` | Registry URL |
-| `SNPM_STORE_PATH` | Global store location |
-| `SNPM_MIN_VERSION_AGE_DAYS` | Minimum package age in days |
-| `SNPM_MAX_CONCURRENT_DOWNLOADS` | Max parallel downloads |
-| `NPM_TOKEN` | Registry authentication token |
+| `SNPM_HOME` | Custom home directory for cache and data |
+| `SNPM_REGISTRY` | Default registry URL |
+| `NPM_CONFIG_REGISTRY`, `npm_config_registry` | Alternative registry URL (npm compatibility) |
+| `SNPM_MIN_PACKAGE_AGE_DAYS` | Minimum package age in days |
+| `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS` | Metadata cache age in days |
+| `SNPM_HOIST` | Hoisting mode: `none`, `single-version`, `all` |
+| `SNPM_LINK_BACKEND` | Link strategy: `auto`, `hardlink`, `symlink`, `copy` |
+| `SNPM_STRICT_PEERS` | Fail on peer dependency conflicts |
+| `SNPM_FROZEN_LOCKFILE` | Default frozen lockfile mode |
+| `SNPM_REGISTRY_CONCURRENCY` | Max concurrent registry requests |
+| `SNPM_ALLOW_SCRIPTS` | Comma-separated list of packages allowed to run install scripts |
+| `SNPM_VERBOSE` | Enable verbose logging |
+| `SNPM_LOG_FILE` | Custom log file path |
+| `NPM_TOKEN`, `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` | Registry authentication token |
 
 ## Examples
 

@@ -11,26 +11,59 @@ snpm can be configured using environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SNPM_REGISTRY` | Registry URL | `https://registry.npmjs.org` |
-| `SNPM_STORE_PATH` | Global store location | `~/.snpm-store` |
-| `SNPM_MIN_VERSION_AGE_DAYS` | Minimum package age in days | `0` |
-| `SNPM_MAX_CONCURRENT_DOWNLOADS` | Max parallel downloads | System dependent |
-| `NPM_TOKEN` | Registry authentication token | - |
+| `SNPM_HOME` | Custom home directory for cache and data | Platform-specific |
+| `SNPM_REGISTRY` | Default registry URL | `https://registry.npmjs.org` |
+| `NPM_CONFIG_REGISTRY`, `npm_config_registry` | Alternative registry URL (npm compatibility) | - |
+| `SNPM_MIN_PACKAGE_AGE_DAYS` | Minimum package age in days (security) | `0` |
+| `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS` | Metadata cache age in days | `7` |
+| `SNPM_HOIST` | Hoisting mode: `none`, `single-version`, `all` | `single-version` |
+| `SNPM_LINK_BACKEND` | Link strategy: `auto`, `hardlink`, `symlink`, `copy` | `auto` |
+| `SNPM_STRICT_PEERS` | Fail on peer dependency conflicts | `false` |
+| `SNPM_FROZEN_LOCKFILE` | Default frozen lockfile mode | `false` |
+| `SNPM_REGISTRY_CONCURRENCY` | Max concurrent registry requests | `64` |
+| `SNPM_ALLOW_SCRIPTS` | Comma-separated list of packages allowed to run install scripts | - |
+| `SNPM_VERBOSE` | Enable verbose logging | `false` |
+| `SNPM_LOG_FILE` | Custom log file path | `.snpm.log` |
+| `NPM_TOKEN`, `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` | Registry authentication token | - |
 
 **Examples:**
 
 ```bash
+# Use custom home directory
+export SNPM_HOME=/custom/snpm
+
 # Use custom registry
 export SNPM_REGISTRY=https://npm.mycompany.com
 
-# Custom store location
-export SNPM_STORE_PATH=/custom/store
-
 # Set minimum version age (security feature)
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 
-# Increase concurrent downloads
-export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+# Set metadata cache age
+export SNPM_MIN_PACKAGE_CACHE_AGE_DAYS=14
+
+# Configure hoisting
+export SNPM_HOIST=single-version  # or 'none', 'all'
+
+# Set link backend
+export SNPM_LINK_BACKEND=hardlink  # or 'symlink', 'copy', 'auto'
+
+# Enable strict peer dependencies
+export SNPM_STRICT_PEERS=true
+
+# Set default frozen lockfile mode
+export SNPM_FROZEN_LOCKFILE=true
+
+# Increase registry concurrency
+export SNPM_REGISTRY_CONCURRENCY=128
+
+# Allow specific packages to run install scripts
+export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild,@swc/core"
+
+# Enable verbose logging
+export SNPM_VERBOSE=true
+
+# Custom log file location
+export SNPM_LOG_FILE=/var/log/snpm/install.log
 ```
 
 ## Registry Configuration
@@ -65,13 +98,16 @@ snpm login --scope @myorg --registry https://npm.mycompany.com
 The global store caches downloaded packages for reuse across projects.
 
 **Default Location:**
-- macOS/Linux: `~/.snpm-store`
-- Windows: `%USERPROFILE%\.snpm-store`
+- macOS/Linux: `~/Library/Caches/snpm` (cache), `~/Library/Application Support/snpm` (data)
+- Linux: `~/.cache/snpm` (cache), `~/.local/share/snpm` (data)
+- Windows: `%LOCALAPPDATA%\snpm\cache` (cache), `%LOCALAPPDATA%\snpm\data` (data)
 
 **Custom Location:**
 
 ```bash
-export SNPM_STORE_PATH=/custom/store
+# Set custom home directory (contains both cache and data)
+export SNPM_HOME=/custom/snpm
+# This creates /custom/snpm/cache and /custom/snpm/data
 ```
 
 ## Security Configuration
@@ -136,6 +172,78 @@ export SNPM_MAX_CONCURRENT_DOWNLOADS=50
 snpm install --frozen-lockfile
 ```
 
+## Hoisting Configuration
+
+Control how packages are hoisted to `node_modules`:
+
+```bash
+# No hoisting - strict isolation (like pnpm default)
+export SNPM_HOIST=none
+
+# Hoist single versions only (safe, default)
+export SNPM_HOIST=single-version
+
+# Hoist all packages (like npm/yarn)
+export SNPM_HOIST=all
+```
+
+Or configure via `.snpmrc`:
+
+```ini title=".snpmrc"
+snpm-hoist=single-version
+```
+
+## Link Backend Configuration
+
+Choose how packages are linked from the global store:
+
+```bash
+# Auto-detect best method (default)
+export SNPM_LINK_BACKEND=auto
+
+# Use hardlinks (fastest, saves space)
+export SNPM_LINK_BACKEND=hardlink
+
+# Use symlinks (works across filesystems)
+export SNPM_LINK_BACKEND=symlink
+
+# Copy files (slowest, most compatible)
+export SNPM_LINK_BACKEND=copy
+```
+
+## Install Scripts Configuration
+
+Control which packages can run install scripts for security:
+
+```bash
+# Allow specific packages to run install scripts
+export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild,@swc/core,canvas"
+```
+
+By default, all install scripts are blocked. This protects against malicious packages.
+
+## Verbose Logging
+
+Enable detailed logging for debugging:
+
+```bash
+# Enable verbose mode
+export SNPM_VERBOSE=true
+
+# Or use CLI flag
+snpm install --verbose
+
+# Custom log file
+export SNPM_LOG_FILE=/path/to/snpm.log
+```
+
+Verbose logs include:
+- Resolution details
+- Store operations
+- Linking progress
+- Script execution
+- Performance metrics
+
 ## Workspace Configuration
 
 Workspaces are configured via `snpm-workspace.yaml`:
@@ -144,6 +252,17 @@ Workspaces are configured via `snpm-workspace.yaml`:
 packages:
   - 'packages/*'
   - 'apps/*'
+
+# Optional: configure hoisting for workspace
+hoisting: 'single-version'
+
+# Optional: control which packages can run install scripts
+onlyBuiltDependencies:
+  - 'puppeteer'
+  - 'esbuild'
+
+ignoredBuiltDependencies:
+  - 'node-sass'
 ```
 
 ## Catalog Configuration
@@ -151,11 +270,68 @@ packages:
 Dependency versions are managed via `snpm-catalog.yaml`:
 
 ```yaml title="snpm-catalog.yaml"
-react: ^18.2.0
-typescript: ^5.0.0
+# Default catalog
+catalog:
+  react: ^18.2.0
+  typescript: ^5.0.0
 
-build:
-  vite: ^5.0.0
+# Named catalogs
+catalogs:
+  build:
+    vite: ^5.0.0
+    rollup: ^4.0.0
+  
+  testing:
+    jest: ^29.0.0
+    vitest: ^1.0.0
+```
+
+Use in `package.json`:
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:",
+    "vite": "catalog:build"
+  }
+}
 ```
 
 See the Catalog documentation for details.
+
+## Overrides Configuration
+
+Force specific versions of dependencies:
+
+### Via `snpm-overrides.yaml`
+
+```yaml title="snpm-overrides.yaml"
+overrides:
+  # Simple overrides
+  lodash: ^4.17.21
+  
+  # Scope-specific overrides  
+  "@babel/core": ^7.23.0
+```
+
+### Via `package.json`
+
+```json title="package.json"
+{
+  "snpm": {
+    "overrides": {
+      "lodash": "^4.17.21",
+      "@babel/core": "^7.23.0"
+    }
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": "^1.6.0"
+    }
+  }
+}
+```
+
+<Callout type="info">
+  Both `snpm.overrides` and `pnpm.overrides` are supported for pnpm compatibility.
+</Callout>

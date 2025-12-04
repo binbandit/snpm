@@ -43,13 +43,6 @@ fn red(text: &str) -> String {
     paint("31", text)
 }
 
-fn elapsed_ms() -> u128 {
-    START_TIME
-        .get()
-        .map(|t| t.elapsed().as_millis())
-        .unwrap_or(0)
-}
-
 pub fn header(command: &str) {
     START_TIME.get_or_init(Instant::now);
     eprintln!(

@@ -1,5 +1,5 @@
 use crate::registry::{RegistryPackage, RegistryProtocol, RegistryVersion, fetch_package};
-use crate::{Result, SnpmConfig, SnpmError};
+use crate::{Result, SnpmConfig, SnpmError, console};
 use async_recursion::async_recursion;
 use futures::future::{join, join_all};
 use futures::lock::Mutex;
@@ -200,7 +200,16 @@ where
     let packages = std::mem::take(&mut *packages_guard);
 
     let graph = ResolutionGraph { root, packages };
-    validate_peers(&graph)?;
+
+    if let Err(err) = validate_peers(&graph) {
+        if config.strict_peers {
+            return Err(err);
+        } else {
+            console::warn(&format!(
+                "peer dependency issues detected (non‑fatal): {err}"
+            ));
+        }
+    }
 
     prefetch_result?;
 

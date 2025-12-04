@@ -114,7 +114,7 @@ function HeroSection() {
 
           <div className="relative">
             <div className="aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl ring-1 ring-gray-900/10 dark:ring-teal-500/20">
-              <img src="/images/snpm-garden-1.png" alt="Tranquil garden representing peaceful development experience" className="w-full h-full object-cover" />
+              <img src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/images/snpm-garden-1.png`} alt="Tranquil garden representing peaceful development experience" className="w-full h-full object-cover" />
             </div>
 
             <div className="absolute -bottom-6 -left-6 bg-white/80 dark:bg-[#2a2118]/90 backdrop-blur-md p-6 rounded-xl shadow-xl border border-[#d4c5b0]/50 dark:border-[#4a3828]/60">
@@ -416,7 +416,7 @@ function CTA() {
   return (
     <section className="py-24 relative overflow-hidden">
       <div className="absolute inset-0">
-        <img src="/images/snpm-garden-2.png" alt="Tranquil garden background" className="w-full h-full object-cover" />
+        <img src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/images/snpm-garden-2.png`} alt="Tranquil garden background" className="w-full h-full object-cover" />
         <div className="absolute inset-0 backdrop-blur-sm bg-gradient-to-br from-teal-700/50 via-teal-600/40 to-cyan-600/50 dark:from-teal-900/70 dark:via-teal-800/60 dark:to-cyan-900/70"></div>
       </div>
       

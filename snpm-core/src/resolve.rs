@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use tokio::sync::Semaphore;
 use tokio::task::yield_now;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -76,10 +77,12 @@ where
     let package_cache = Arc::new(Mutex::new(PackageCache::new()));
     let default_protocol = RegistryProtocol::npm();
     let done = Arc::new(AtomicBool::new(false));
+    let registry_semaphore = Arc::new(Semaphore::new(config.registry_concurrency));
 
     let packages_for_resolver = packages.clone();
     let package_cache_for_resolver = package_cache.clone();
     let done_for_resolver = done.clone();
+    let semaphore_for_resolver = registry_semaphore.clone();
 
     let resolver = async move {
         let result: Result<ResolutionRoot> = async {
@@ -94,6 +97,7 @@ where
                 let range = range.clone();
                 let packages = packages_for_resolver.clone();
                 let package_cache = package_cache_for_resolver.clone();
+                let semaphore = semaphore_for_resolver.clone();
 
                 let task = async move {
                     let id = resolve_package(
@@ -108,6 +112,7 @@ where
                         force,
                         overrides,
                         None,
+                        semaphore,
                     )
                     .await?;
 
@@ -228,6 +233,7 @@ async fn resolve_package(
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
     prefetch: Option<&dyn Prefetcher>,
+    registry_semaphore: Arc<Semaphore>,
 ) -> Result<PackageId> {
     let request = build_dep_request(name, range, protocol, overrides);
     let cache_key = format!("{:?}:{}", request.protocol, request.source);
@@ -241,7 +247,10 @@ async fn resolve_package(
         if let Some(pkg) = cached {
             pkg
         } else {
+            let _permit = registry_semaphore.acquire().await.unwrap();
             let fetched = fetch_package(config, client, &request.source, &request.protocol).await?;
+            drop(_permit);
+
             let mut cache = package_cache.lock().await;
             cache.insert(cache_key, fetched.clone());
             fetched
@@ -318,6 +327,7 @@ async fn resolve_package(
         let cache_clone = package_cache.clone();
         let protocol = request.protocol.clone();
         let prefetch = prefetch;
+        let semaphore = registry_semaphore.clone();
 
         let fut = async move {
             let id = resolve_package(
@@ -332,6 +342,7 @@ async fn resolve_package(
                 force,
                 overrides,
                 prefetch,
+                semaphore,
             )
             .await?;
             Ok::<(String, PackageId), SnpmError>((name, id))
@@ -356,6 +367,7 @@ async fn resolve_package(
         let cache_clone = package_cache.clone();
         let protocol = request.protocol.clone();
         let prefetch = prefetch;
+        let semaphore = registry_semaphore.clone();
 
         let fut = async move {
             let result = resolve_package(
@@ -370,6 +382,7 @@ async fn resolve_package(
                 force,
                 overrides,
                 prefetch,
+                semaphore,
             )
             .await;
 

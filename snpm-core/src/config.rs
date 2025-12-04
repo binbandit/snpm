@@ -16,6 +16,9 @@ pub struct SnpmConfig {
     pub registry_auth: BTreeMap<String, String>,
     pub default_registry_auth_token: Option<String>,
     pub hoisting: HoistingMode,
+    /// If true, peer dependency mismatches are treated as hard errors.
+    /// If false (default), snpm will only warn.
+    pub strict_peers: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +72,10 @@ impl SnpmConfig {
 
         let mut default_registry = rc_default_registry;
         let mut default_registry_auth_token = rc_default_auth_token;
-        let mut hoisting = rc_hoisting.unwrap_or(HoistingMode::All);
+        let mut hoisting = rc_hoisting.unwrap_or(HoistingMode::SingleVersion);
+
+        // By default we are lenient with peers (pnpm‑style).
+        let mut strict_peers = false;
 
         if let Ok(value) =
             env::var("NPM_CONFIG_REGISTRY").or_else(|_| env::var("npm_config_registry"))
@@ -106,6 +112,11 @@ impl SnpmConfig {
             }
         }
 
+        if let Ok(value) = env::var("SNPM_STRICT_PEERS") {
+            let trimmed = value.trim().to_ascii_lowercase();
+            strict_peers = matches!(trimmed.as_str(), "1" | "true" | "yes" | "y" | "on");
+        }
+
         SnpmConfig {
             cache_dir,
             data_dir,
@@ -116,6 +127,7 @@ impl SnpmConfig {
             registry_auth,
             default_registry_auth_token,
             hoisting,
+            strict_peers,
         }
     }
 

@@ -16,13 +16,6 @@ pub fn link(
 ) -> Result<()> {
     let root_node_modules = project.root.join("node_modules");
 
-    if root_node_modules.exists() {
-        fs::remove_dir_all(&root_node_modules).map_err(|source| SnpmError::WriteFile {
-            path: root_node_modules.clone(),
-            source,
-        })?;
-    }
-
     fs::create_dir_all(&root_node_modules).map_err(|source| SnpmError::WriteFile {
         path: root_node_modules.clone(),
         source,

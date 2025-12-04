@@ -1,0 +1,225 @@
+---
+title: CLI Reference
+description: Complete command-line reference for snpm
+---
+
+Complete reference for all snpm commands and options.
+
+## Commands
+
+### install
+
+```bash
+snpm install [packages...]
+```
+
+Install dependencies from `package.json` or add specific packages.
+
+**Options:**
+- `--production` - Skip dev dependencies
+- `--frozen-lockfile`, `--immutable` - Fail if lockfile needs updates
+- `-f, --force` - Force re-download all packages
+- `-w, --workspace <name>` - Target specific workspace project
+
+### add
+
+```bash
+snpm add <packages...>
+```
+
+Add packages to dependencies.
+
+**Options:**
+- `-D, --dev` - Add as dev dependency
+- `-f, --force` - Force re-download
+- `-w, --workspace <name>` - Target specific workspace project
+
+### remove
+
+```bash
+snpm remove <packages...>
+```
+
+Remove packages from the project.
+
+### run
+
+```bash
+snpm run <script> [-- <args>]
+```
+
+Run a script from `package.json`.
+
+**Options:**
+- `-r, --recursive` - Run in all workspace projects
+- `--filter <pattern>` - Run in filtered workspace projects (supports globs)
+
+### upgrade
+
+```bash
+snpm upgrade [packages...]
+```
+
+Update packages to their latest versions within semver constraints.
+
+**Options:**
+- `--production` - Only upgrade production dependencies
+- `-f, --force` - Force re-download
+
+### outdated
+
+```bash
+snpm outdated
+```
+
+Check for outdated packages.
+
+**Options:**
+- `--production` - Only check production dependencies
+
+### init
+
+```bash
+snpm init
+```
+
+Initialize a new `package.json`.
+
+### login
+
+```bash
+snpm login
+```
+
+Authenticate with an npm registry.
+
+**Options:**
+- `--registry <url>` - Registry URL
+- `--token <token>` - Auth token
+- `--scope <scope>` - Associate scope with registry
+- `--web` - Use web-based authentication
+
+### logout
+
+```bash
+snpm logout
+```
+
+Remove registry credentials.
+
+**Options:**
+- `--registry <url>` - Registry URL
+- `--scope <scope>` - Remove credentials for specific scope
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `SNPM_REGISTRY` | Registry URL |
+| `SNPM_STORE_PATH` | Global store location |
+| `SNPM_MIN_VERSION_AGE_DAYS` | Minimum package age in days |
+| `SNPM_MAX_CONCURRENT_DOWNLOADS` | Max parallel downloads |
+| `NPM_TOKEN` | Registry authentication token |
+
+## Examples
+
+### Basic Usage
+
+```bash
+# Install dependencies
+snpm install
+
+# Add packages
+snpm add react react-dom
+snpm add -D typescript
+
+# Remove packages
+snpm remove lodash
+
+# Run scripts
+snpm run build
+snpm run test -- --watch
+
+# Upgrade packages
+snpm upgrade
+snpm upgrade react
+
+# Check for updates
+snpm outdated
+```
+
+### Workspaces
+
+```bash
+# Install all workspace packages
+snpm install
+
+# Install in specific workspace
+snpm install -w ui
+
+# Add to specific workspace
+snpm add react -w ui
+
+# Run in all workspaces
+snpm run build --recursive
+
+# Run in filtered workspaces
+snpm run test --filter "ui"
+snpm run build --filter "app-*"
+```
+
+### CI/CD
+
+```bash
+# Frozen lockfile (fail if out of sync)
+snpm install --frozen-lockfile
+
+# Production install
+snpm install --production --frozen-lockfile
+
+# With security settings
+SNPM_MIN_VERSION_AGE_DAYS=7 snpm install --frozen-lockfile
+```
+
+### Authentication
+
+```bash
+# Login to default registry
+snpm login
+
+# Login with token
+snpm login --token npm_xxxxxxxxxxxxx
+
+# Login to private registry
+snpm login --registry https://npm.mycompany.com
+
+# Login with scope
+snpm login --scope @myorg --registry https://npm.mycompany.com
+
+# Web-based login
+snpm login --web
+
+# Logout
+snpm logout
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Error |
+
+## Comparison with npm
+
+| npm | snpm |
+|-----|------|
+| `npm install` | `snpm install` |
+| `npm install <pkg>` | `snpm add <pkg>` |
+| `npm uninstall <pkg>` | `snpm remove <pkg>` |
+| `npm update` | `snpm upgrade` |
+| `npm outdated` | `snpm outdated` |
+| `npm run <script>` | `snpm run <script>` |
+| `npm init` | `snpm init` |
+| `npm login` | `snpm login` |
+| `npm logout` | `snpm logout` |

@@ -1,0 +1,224 @@
+---
+title: Commands
+description: Complete guide to snpm commands
+---
+
+Complete reference for all snpm commands.
+
+## install
+
+Install dependencies from `package.json`.
+
+```bash
+snpm install [packages...]
+```
+
+**Options:**
+- `--production` - Skip dev dependencies
+- `--frozen-lockfile` (alias: `--immutable`) - Fail if lockfile needs updates
+- `-f, --force` - Force re-download all packages
+- `-w, --workspace <name>` - Install in specific workspace project
+
+**Examples:**
+
+```bash
+# Install all dependencies
+snpm install
+
+# Install specific packages
+snpm install react react-dom
+
+# Production install
+snpm install --production
+
+# CI install (strict lockfile)
+snpm install --frozen-lockfile
+
+# Install in workspace project
+snpm install -w ui
+```
+
+## add
+
+Add packages to your project.
+
+```bash
+snpm add <packages...>
+```
+
+**Options:**
+- `-D, --dev` - Add as dev dependency
+- `-f, --force` - Force re-download
+- `-w, --workspace <name>` - Add to specific workspace project
+
+**Examples:**
+
+```bash
+# Add package
+snpm add react
+
+# Add specific version
+snpm add react@18.2.0
+
+# Add as dev dependency
+snpm add -D typescript
+
+# Add multiple packages
+snpm add react react-dom
+
+# Add to workspace project
+snpm add react -w ui
+```
+
+## remove
+
+Remove packages from your project.
+
+```bash
+snpm remove <packages...>
+```
+
+**Examples:**
+
+```bash
+# Remove package
+snpm remove react
+
+# Remove multiple packages
+snpm remove react react-dom
+```
+
+## run
+
+Run a script from `package.json`.
+
+```bash
+snpm run <script> [-- <args>]
+```
+
+**Options:**
+- `-r, --recursive` - Run in all workspace projects
+- `--filter <pattern>` - Run in filtered workspace projects (supports globs)
+
+**Examples:**
+
+```bash
+# Run script
+snpm run build
+
+# Pass arguments
+snpm run test -- --watch
+
+# Run in all workspaces
+snpm run build --recursive
+
+# Run in filtered workspaces
+snpm run test --filter "ui"
+snpm run build --filter "app-*"
+```
+
+## upgrade
+
+Update packages to their latest versions.
+
+```bash
+snpm upgrade [packages...]
+```
+
+**Options:**
+- `--production` - Only upgrade production dependencies
+- `-f, --force` - Force re-download
+
+**Examples:**
+
+```bash
+# Upgrade all packages
+snpm upgrade
+
+# Upgrade specific packages
+snpm upgrade react react-dom
+
+# Upgrade production only
+snpm upgrade --production
+```
+
+## outdated
+
+Check for outdated packages.
+
+```bash
+snpm outdated
+```
+
+**Options:**
+- `--production` - Only check production dependencies
+
+Shows a table of packages with newer versions available.
+
+## init
+
+Initialize a new `package.json`.
+
+```bash
+snpm init
+```
+
+Creates a basic `package.json` in the current directory.
+
+## login
+
+Authenticate with an npm registry.
+
+```bash
+snpm login
+```
+
+**Options:**
+- `--registry <url>` - Registry URL (defaults to npmjs.org)
+- `--token <token>` - Auth token (prompts if not provided)
+- `--scope <scope>` - Associate scope with registry (e.g., @myorg)
+- `--web` - Use web-based authentication
+
+**Examples:**
+
+```bash
+# Login to default registry
+snpm login
+
+# Login with token
+snpm login --token npm_xxxxxxxxxxxxx
+
+# Login to private registry
+snpm login --registry https://npm.mycompany.com
+
+# Login with scope
+snpm login --scope @myorg --registry https://npm.mycompany.com
+
+# Web-based login
+snpm login --web
+```
+
+## logout
+
+Remove registry credentials.
+
+```bash
+snpm logout
+```
+
+**Options:**
+- `--registry <url>` - Registry URL (defaults to npmjs.org)
+- `--scope <scope>` - Remove credentials for specific scope
+
+**Examples:**
+
+```bash
+# Logout from default registry
+snpm logout
+
+# Logout from specific registry
+snpm logout --registry https://npm.mycompany.com
+
+# Logout from scoped registry
+snpm logout --scope @myorg
+```

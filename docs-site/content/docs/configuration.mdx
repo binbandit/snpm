@@ -1,0 +1,161 @@
+---
+title: Configuration
+description: Configure snpm for your needs
+---
+
+Configure snpm's behavior through environment variables and configuration files.
+
+## Environment Variables
+
+snpm can be configured using environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SNPM_REGISTRY` | Registry URL | `https://registry.npmjs.org` |
+| `SNPM_STORE_PATH` | Global store location | `~/.snpm-store` |
+| `SNPM_MIN_VERSION_AGE_DAYS` | Minimum package age in days | `0` |
+| `SNPM_MAX_CONCURRENT_DOWNLOADS` | Max parallel downloads | System dependent |
+| `NPM_TOKEN` | Registry authentication token | - |
+
+**Examples:**
+
+```bash
+# Use custom registry
+export SNPM_REGISTRY=https://npm.mycompany.com
+
+# Custom store location
+export SNPM_STORE_PATH=/custom/store
+
+# Set minimum version age (security feature)
+export SNPM_MIN_VERSION_AGE_DAYS=7
+
+# Increase concurrent downloads
+export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+```
+
+## Registry Configuration
+
+### Default Registry
+
+```bash
+export SNPM_REGISTRY=https://registry.npmjs.org
+```
+
+### Private Registry
+
+```bash
+export SNPM_REGISTRY=https://npm.mycompany.com
+export NPM_TOKEN=your-token-here
+```
+
+Or use the login command:
+
+```bash
+snpm login --registry https://npm.mycompany.com
+```
+
+### Scoped Registries
+
+```bash
+snpm login --scope @myorg --registry https://npm.mycompany.com
+```
+
+## Store Configuration
+
+The global store caches downloaded packages for reuse across projects.
+
+**Default Location:**
+- macOS/Linux: `~/.snpm-store`
+- Windows: `%USERPROFILE%\.snpm-store`
+
+**Custom Location:**
+
+```bash
+export SNPM_STORE_PATH=/custom/store
+```
+
+## Security Configuration
+
+### Minimum Version Age
+
+Protect against zero-day malicious packages by ignoring recently published versions:
+
+```bash
+export SNPM_MIN_VERSION_AGE_DAYS=7
+```
+
+This makes snpm ignore any package version published within the last 7 days.
+
+<Callout type="info">
+  This is a unique security feature that helps protect against supply chain attacks.
+</Callout>
+
+## Network Configuration
+
+### Concurrent Downloads
+
+Control how many packages download simultaneously:
+
+```bash
+export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+```
+
+Higher values speed up installs but use more network bandwidth.
+
+## Common Configurations
+
+### Development
+
+Fast installs, no restrictions:
+
+```bash
+export SNPM_MIN_VERSION_AGE_DAYS=0
+export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+```
+
+### Production
+
+Secure and deterministic:
+
+```bash
+export SNPM_MIN_VERSION_AGE_DAYS=7
+```
+
+Use `--frozen-lockfile` in CI:
+
+```bash
+snpm install --frozen-lockfile
+```
+
+### CI/CD
+
+Fast and reproducible:
+
+```bash
+export SNPM_MAX_CONCURRENT_DOWNLOADS=50
+snpm install --frozen-lockfile
+```
+
+## Workspace Configuration
+
+Workspaces are configured via `snpm-workspace.yaml`:
+
+```yaml title="snpm-workspace.yaml"
+packages:
+  - 'packages/*'
+  - 'apps/*'
+```
+
+## Catalog Configuration
+
+Dependency versions are managed via `snpm-catalog.yaml`:
+
+```yaml title="snpm-catalog.yaml"
+react: ^18.2.0
+typescript: ^5.0.0
+
+build:
+  vite: ^5.0.0
+```
+
+See the Catalog documentation for details.

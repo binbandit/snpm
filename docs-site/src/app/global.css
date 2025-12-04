@@ -1,0 +1,161 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Copied directly from Landing Page for SNPM/src/styles/globals.css */
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  --background: #ffffff;
+  --foreground: oklch(0.145 0 0);
+  --card: #ffffff;
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #030213;
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0.0058 264.53);
+  --secondary-foreground: #030213;
+  --muted: #ececf0;
+  --muted-foreground: #717182;
+  --accent: #e9ebef;
+  --accent-foreground: #030213;
+  --destructive: #d4183d;
+  --destructive-foreground: #ffffff;
+  --border: rgba(0, 0, 0, 0.1);
+  --input: transparent;
+  --input-background: #f3f3f5;
+  --switch-background: #cbced4;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: #030213;
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+html {
+  font-size: var(--font-size);
+}
+
+
+/* Custom navbar styling to match landing page */
+[data-transparent="top"] {
+  @apply backdrop-blur-md bg-[#f5f1e8]/60 dark:bg-[#2a2118]/70 border border-[#d4c5b0]/20 dark:border-[#4a3828]/30 rounded-full;
+}
+
+[data-transparent="none"] {
+  @apply backdrop-blur-xl bg-[#f5f1e8]/80 dark:bg-[#2a2118]/90 shadow-lg border border-[#d4c5b0]/30 dark:border-[#4a3828]/40 rounded-full;
+}
+
+/* Style the navbar container */
+nav[data-transparent] {
+  @apply transition-all duration-300;
+}
+
+/* Navbar links styling */
+nav a {
+  @apply text-gray-700 dark:text-[#d4c5b0] hover:text-teal-700 dark:hover:text-teal-400 transition-colors;
+}
+
+/* Get Started button styling */
+nav a[href="/docs"]:last-of-type {
+  @apply bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white shadow-sm;
+}
+
+
+/* Ensure main nav text links have consistent styling (not buttons) */
+nav > ul:first-of-type a {
+  text-decoration: none;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  color: rgb(55 65 81) !important; /* gray-700 */
+  font-weight: 400 !important;
+}
+
+nav > ul:first-of-type a:hover {
+  color: rgb(15 118 110) !important; /* teal-700 */
+}
+
+.dark nav > ul:first-of-type a {
+  color: #d4c5b0 !important;
+}
+
+.dark nav > ul:first-of-type a:hover {
+  color: rgb(45 212 191) !important; /* teal-400 */
+}
+
+
+/* Add spacing between main nav links and action buttons */
+nav > ul:first-of-type {
+  margin-right: auto;
+}
+
+/* Fix spacing between nav links and action buttons */
+#nd-nav nav > ul:first-of-type {
+  margin-right: 2rem !important;
+}
+
+/* Fix GitHub icon button hover - ensure it's properly sized */
+#nd-nav button[aria-label*="GitHub"],
+#nd-nav a[href*="github"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  padding: 0.5rem !important;
+  border-radius: 0.5rem !important;
+}

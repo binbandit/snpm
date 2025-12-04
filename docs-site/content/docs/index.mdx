@@ -1,0 +1,48 @@
+---
+title: Introduction
+description: Welcome to snpm - the Speedy Node Package Manager
+---
+
+**snpm** is a fast, simple, and deterministic package manager written in Rust. It's designed to be a drop-in replacement for npm, yarn, and pnpm.
+
+<Callout type="info">
+  **Status:** snpm is functional and ready for use, but still in active development. Core features work reliably, but some advanced features are still being refined.
+</Callout>
+
+## Why snpm?
+
+Built with a strict "no cleverness" rule, snpm focuses on making the existing npm workflow **faster**, **simpler**, and **easier to maintain**.
+
+### Core Features
+
+- **Familiar Commands** - `snpm install`, `snpm add`, `snpm run` work exactly like npm
+- **Global Store** - Download packages once, reuse them across all projects
+- **Parallel Operations** - Network and disk operations run in parallel for speed
+- **Workspace Support** - First-class monorepo support with `snpm-workspace.yaml`
+- **Catalog Protocol** - Define dependency versions once in `snpm-catalog.yaml`
+- **Clean Lockfile** - Simple, readable `snpm-lock.yaml` format
+- **Minimum Version Age** - Protect against zero-day malicious packages
+
+## Quick Start
+
+```bash
+# Install snpm
+npm install -g snpm
+
+# Use it like npm
+snpm install
+snpm add react
+snpm run build
+```
+
+## How It Works
+
+**Global Store** - Packages are downloaded once to `~/.snpm-store` and linked into your projects. This saves disk space and speeds up subsequent installs.
+
+**Parallelism** - Multiple packages download simultaneously, and disk operations are optimized for speed.
+
+**Workspaces** - Detects `snpm-workspace.yaml` or `pnpm-workspace.yaml` and efficiently manages dependencies across multiple packages in a monorepo.
+
+**Catalog Protocol** - Define versions in `snpm-catalog.yaml` and reference them with `catalog:` in your `package.json` to eliminate version drift.
+
+

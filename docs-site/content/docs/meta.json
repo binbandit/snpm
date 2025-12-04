@@ -1,0 +1,22 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "---Getting Started---",
+    "installation",
+    "usage",
+    "commands",
+    "cli-reference",
+    "---Advanced---",
+    "workspaces",
+    "catalog",
+    "configuration",
+    "lockfile",
+    "---Deployment---",
+    "ci-cd",
+    "security",
+    "---Resources---",
+    "comparison",
+    "troubleshooting"
+  ]
+}

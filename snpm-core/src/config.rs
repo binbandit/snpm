@@ -11,6 +11,7 @@ pub struct SnpmConfig {
     pub data_dir: PathBuf,
     pub allow_scripts: BTreeSet<String>,
     pub min_package_age_days: Option<u32>,
+    pub min_package_cache_age_days: Option<u32>,
     pub default_registry: String,
     pub scoped_registries: BTreeMap<String, String>,
     pub registry_auth: BTreeMap<String, String>,
@@ -18,6 +19,8 @@ pub struct SnpmConfig {
     pub hoisting: HoistingMode,
     pub link_backend: LinkBackend,
     pub strict_peers: bool,
+    pub frozen_lockfile_default: bool,
+    pub registry_concurrency: usize,
     pub verbose: bool,
     pub log_file: Option<PathBuf>,
 }
@@ -82,6 +85,7 @@ impl SnpmConfig {
 
         let allow_scripts = read_allow_scripts_from_env();
         let min_package_age_days = read_min_package_age_from_env();
+        let min_package_cache_age_days = read_min_package_cache_age_from_env();
 
         let (
             rc_default_registry,
@@ -96,6 +100,8 @@ impl SnpmConfig {
         let mut hoisting = rc_hoisting.unwrap_or(HoistingMode::SingleVersion);
         let mut link_backend = LinkBackend::Auto;
         let mut strict_peers = false;
+        let mut frozen_lockfile_default = false;
+        let mut registry_concurrency = 64;
 
         if let Ok(value) =
             env::var("NPM_CONFIG_REGISTRY").or_else(|_| env::var("npm_config_registry"))
@@ -143,6 +149,19 @@ impl SnpmConfig {
             strict_peers = matches!(trimmed.as_str(), "1" | "true" | "yes" | "y" | "on");
         }
 
+        if let Ok(value) = env::var("SNPM_FROZEN_LOCKFILE") {
+            let trimmed = value.trim().to_ascii_lowercase();
+            frozen_lockfile_default = matches!(trimmed.as_str(), "1" | "true" | "yes" | "y" | "on");
+        }
+
+        if let Ok(value) = env::var("SNPM_REGISTRY_CONCURRENCY") {
+            if let Ok(parsed) = value.trim().parse::<usize>() {
+                if parsed > 0 {
+                    registry_concurrency = parsed;
+                }
+            }
+        }
+
         let verbose = match env::var("SNPM_VERBOSE") {
             Ok(value) => {
                 let v = value.trim().to_ascii_lowercase();
@@ -162,6 +181,7 @@ impl SnpmConfig {
             data_dir,
             allow_scripts,
             min_package_age_days,
+            min_package_cache_age_days,
             default_registry,
             scoped_registries,
             registry_auth,
@@ -169,6 +189,8 @@ impl SnpmConfig {
             hoisting,
             link_backend,
             strict_peers,
+            frozen_lockfile_default,
+            registry_concurrency,
             verbose,
             log_file,
         }
@@ -176,6 +198,10 @@ impl SnpmConfig {
 
     pub fn packages_dir(&self) -> PathBuf {
         self.data_dir.join("packages")
+    }
+
+    pub fn metadata_dir(&self) -> PathBuf {
+        self.data_dir.join("metadata")
     }
 
     pub fn auth_token_for_url(&self, url: &str) -> Option<&str> {
@@ -227,6 +253,23 @@ fn read_min_package_age_from_env() -> Option<u32> {
     }
 
     None
+}
+
+fn read_min_package_cache_age_from_env() -> Option<u32> {
+    if let Ok(value) = env::var("SNPM_MIN_PACKAGE_CACHE_AGE_DAYS") {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Some(7);
+        }
+
+        if let Ok(parsed) = trimmed.parse::<u32>() {
+            if parsed > 0 {
+                return Some(parsed);
+            }
+        }
+    }
+
+    Some(7)
 }
 
 fn read_registry_config() -> (

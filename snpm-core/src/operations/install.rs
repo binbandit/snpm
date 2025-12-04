@@ -212,11 +212,17 @@ pub async fn install(
 
     let mut lockfile_reused_unchanged = false;
 
-    let graph = if options.frozen_lockfile {
+    let graph = if options.frozen_lockfile || config.frozen_lockfile_default {
         if console::is_logging_enabled() {
+            let source = if config.frozen_lockfile_default {
+                "SNPM_FROZEN_LOCKFILE=1"
+            } else {
+                "--frozen-lockfile"
+            };
             console::verbose(&format!(
-                "using frozen lockfile at {}",
-                lockfile_path.display()
+                "using frozen lockfile at {} (source: {})",
+                lockfile_path.display(),
+                source
             ));
         }
 

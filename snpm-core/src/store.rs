@@ -1,6 +1,6 @@
+use crate::console;
 use crate::resolve::ResolvedPackage;
 use crate::{Result, SnpmConfig, SnpmError};
-use crate::console;
 use flate2::read::GzDecoder;
 use std::fs;
 use std::io::Cursor;
@@ -36,9 +36,7 @@ pub async fn ensure_package(
     if console::is_logging_enabled() {
         console::verbose(&format!(
             "store miss: {}@{}; downloading from {}",
-            package.id.name,
-            package.id.version,
-            package.tarball
+            package.id.name, package.id.version, package.tarball
         ));
     }
 

@@ -47,10 +47,7 @@ fn red(text: &str) -> String {
 }
 
 pub fn init_logging(path: &Path) -> io::Result<()> {
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
 
     if LOG_FILE.set(Mutex::new(file)).is_err() {
         return Ok(());

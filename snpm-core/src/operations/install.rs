@@ -485,6 +485,7 @@ pub async fn install(
     )?;
 
     let mut should_link = true;
+    let mut early_exit = false;
 
     if lockfile_reused_unchanged && !options.force {
         if console::is_logging_enabled() {
@@ -493,9 +494,12 @@ pub async fn install(
 
         if is_node_modules_fresh(project, &graph, options.include_dev) {
             should_link = false;
+            early_exit = true;
 
             if console::is_logging_enabled() {
-                console::verbose("node_modules is up to date; skipping linker::link");
+                console::verbose(
+                    "node_modules is up to date; taking early exit path (warm path optimization)",
+                );
             }
         }
     }
@@ -532,9 +536,15 @@ pub async fn install(
     }
 
     let scripts_start = Instant::now();
-    let blocked_scripts = if should_link {
+    let blocked_scripts = if !early_exit && can_any_scripts_run(config, workspace.as_ref()) {
         lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?
     } else {
+        if console::is_logging_enabled() && early_exit {
+            console::verbose("skipping install scripts (early exit - node_modules is fresh)");
+        } else if console::is_logging_enabled() && !can_any_scripts_run(config, workspace.as_ref())
+        {
+            console::verbose("skipping install scripts (no scripts can run based on config)");
+        }
         Vec::new()
     };
     let scripts_elapsed = scripts_start.elapsed();
@@ -1351,6 +1361,24 @@ pub async fn upgrade(
     };
 
     install(config, project, options).await
+}
+
+fn can_any_scripts_run(config: &SnpmConfig, workspace: Option<&Workspace>) -> bool {
+    if !config.allow_scripts.is_empty() {
+        return true;
+    }
+
+    if let Some(ws) = workspace {
+        if !ws.config.only_built_dependencies.is_empty() {
+            return true;
+        }
+
+        if !ws.config.ignored_built_dependencies.is_empty() {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn is_node_modules_fresh(project: &Project, graph: &ResolutionGraph, include_dev: bool) -> bool {

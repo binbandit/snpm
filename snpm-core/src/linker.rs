@@ -1,5 +1,5 @@
 use crate::resolve::{PackageId, ResolutionGraph};
-use crate::{HoistingMode, lifecycle};
+use crate::{HoistingMode, LinkBackend, lifecycle};
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,6 +32,9 @@ pub fn link(
     let dev_deps = &project.manifest.dev_dependencies;
     let hoisting = effective_hoisting(config, workspace);
 
+    let mut linked: BTreeMap<PackageId, PathBuf> = BTreeMap::new();
+    let mut root_bin_targets: BTreeMap<String, PathBuf> = BTreeMap::new();
+
     for (name, dep) in graph.root.dependencies.iter() {
         if !deps.contains_key(name) && !dev_deps.contains_key(name) {
             continue;
@@ -51,16 +54,25 @@ pub fn link(
             workspace,
             id,
             &dest,
-            &root_node_modules,
             graph,
             store_paths,
             &mut stack,
+            &mut linked,
         )?;
+
+        root_bin_targets
+            .entry(id.name.clone())
+            .or_insert(dest.clone());
+    }
+
+    for (pkg_name, pkg_dest) in root_bin_targets {
+        link_bins(&pkg_dest, &root_node_modules, &pkg_name)?;
     }
 
     if !matches!(hoisting, HoistingMode::None) {
         hoist_packages(config, workspace, project, graph, store_paths, hoisting)?;
     }
+
     Ok(())
 }
 
@@ -69,11 +81,33 @@ fn link_package(
     workspace: Option<&Workspace>,
     id: &PackageId,
     dest: &Path,
-    bin_root: &Path,
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
     stack: &mut BTreeSet<PackageId>,
+    linked: &mut BTreeMap<PackageId, PathBuf>,
 ) -> Result<()> {
+    if let Some(existing) = linked.get(id) {
+        if dest.exists() {
+            fs::remove_dir_all(dest).map_err(|source| SnpmError::WriteFile {
+                path: dest.to_path_buf(),
+                source,
+            })?;
+        }
+
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+
+        if let Err(_err) = symlink_dir_entry(existing, dest) {
+            copy_dir(existing, dest)?;
+        }
+
+        return Ok(());
+    }
+
     if stack.contains(id) {
         let store_root = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
             name: id.name.clone(),
@@ -92,10 +126,9 @@ fn link_package(
         if scripts_allowed {
             copy_dir(store_root, dest)?;
         } else {
-            link_dir(store_root, dest)?;
+            link_dir(config, store_root, dest)?;
         }
 
-        link_bins(dest, bin_root, &id.name)?;
         return Ok(());
     }
 
@@ -118,15 +151,13 @@ fn link_package(
     if scripts_allowed {
         copy_dir(store_root, dest)?;
     } else {
-        link_dir(store_root, dest)?;
+        link_dir(config, store_root, dest)?;
     }
-
-    link_bins(dest, bin_root, &id.name)?;
 
     let package = graph
         .packages
         .get(id)
-        .ok_or_else(|| SnpmError::StoreMissing {
+        .ok_or_else(|| SnpmError::GraphMissing {
             name: id.name.clone(),
             version: id.version.clone(),
         })?;
@@ -137,21 +168,22 @@ fn link_package(
             path: node_modules.clone(),
             source,
         })?;
-
         let child_dest = node_modules.join(dep_name);
+
         link_package(
             config,
             workspace,
             dep_id,
             &child_dest,
-            &node_modules,
             graph,
             store_paths,
             stack,
+            linked,
         )?;
     }
 
     stack.remove(id);
+    linked.insert(id.clone(), dest.to_path_buf());
 
     Ok(())
 }
@@ -194,14 +226,7 @@ fn hoist_packages(
             continue;
         }
 
-        link_shallow_package(
-            config,
-            workspace,
-            id,
-            &dest,
-            &root_node_modules,
-            store_paths,
-        )?;
+        link_shallow_package(config, workspace, id, &dest, store_paths)?;
     }
 
     Ok(())
@@ -212,7 +237,6 @@ fn link_shallow_package(
     workspace: Option<&Workspace>,
     id: &PackageId,
     dest: &Path,
-    bin_root: &Path,
     store_paths: &BTreeMap<PackageId, PathBuf>,
 ) -> Result<()> {
     if dest.exists() {
@@ -229,10 +253,10 @@ fn link_shallow_package(
     if scripts_allowed {
         copy_dir(store_root, dest)?;
     } else {
-        link_dir(store_root, dest)?;
+        link_dir(config, store_root, dest)?;
     }
 
-    link_bins(dest, bin_root, &id.name)
+    Ok(())
 }
 
 fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
@@ -337,7 +361,7 @@ fn sanitize_bin_name(name: &str) -> String {
     name.rsplit('/').next().unwrap_or(name).to_string()
 }
 
-fn link_dir(source: &Path, dest: &Path) -> Result<()> {
+fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
     fs::create_dir_all(dest).map_err(|source_err| SnpmError::WriteFile {
         path: dest.to_path_buf(),
         source: source_err,
@@ -366,12 +390,50 @@ fn link_dir(source: &Path, dest: &Path) -> Result<()> {
                 copy_dir(&from, &to)?;
             }
         } else {
-            if let Err(_err) = symlink_file_entry(&from, &to) {
-                fs::copy(&from, &to).map_err(|source_err| SnpmError::WriteFile {
-                    path: to,
+            link_file(config, &from, &to)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
+    match config.link_backend {
+        LinkBackend::Auto => {
+            if fs::hard_link(from, to).is_ok() {
+                return Ok(());
+            }
+
+            if symlink_file_entry(from, to).is_ok() {
+                return Ok(());
+            }
+
+            fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
+                path: to.to_path_buf(),
+                source: source_err,
+            })?;
+        }
+        LinkBackend::Hardlink => {
+            if fs::hard_link(from, to).is_err() {
+                fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
+                    path: to.to_path_buf(),
                     source: source_err,
                 })?;
             }
+        }
+        LinkBackend::Symlink => {
+            if symlink_file_entry(from, to).is_err() {
+                fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
+                    path: to.to_path_buf(),
+                    source: source_err,
+                })?;
+            }
+        }
+        LinkBackend::Copy => {
+            fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
+                path: to.to_path_buf(),
+                source: source_err,
+            })?;
         }
     }
 

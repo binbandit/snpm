@@ -76,6 +76,9 @@ pub enum SnpmError {
     #[error("Package {name}@{version} missing from store")]
     StoreMissing { name: String, version: String },
 
+    #[error("Package {name}@{version} missing from resolution graph")]
+    GraphMissing { name: String, version: String },
+
     #[error("Script {name} not found in package.json")]
     ScriptMissing { name: String },
 

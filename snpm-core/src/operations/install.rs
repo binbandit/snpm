@@ -10,10 +10,12 @@ use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, 
 use futures::future::join_all;
 use futures::lock::Mutex;
 use reqwest::Client;
-use serde_json::Value;
 use snpm_semver::{RangeSet, Version};
+
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -211,6 +213,7 @@ pub async fn install(
     }
 
     let mut lockfile_reused_unchanged = false;
+    let mut early_exit = false;
 
     let graph = if options.frozen_lockfile || config.frozen_lockfile_default {
         if console::is_logging_enabled() {
@@ -280,14 +283,43 @@ pub async fn install(
                 lock_requested.insert(name.clone(), dep.requested.clone());
             }
 
+            if console::is_logging_enabled() {
+                console::verbose(&format!(
+                    "lock_requested keys: {:?}",
+                    lock_requested.keys().collect::<Vec<_>>()
+                ));
+                console::verbose(&format!(
+                    "manifest_root keys: {:?}",
+                    manifest_root.keys().collect::<Vec<_>>()
+                ));
+                console::verbose(&format!(
+                    "lock == manifest: {}",
+                    lock_requested == manifest_root
+                ));
+            }
+
             if lock_requested == manifest_root {
-                if console::is_logging_enabled() {
-                    console::verbose(
-                        "lockfile is up to date with manifest; reusing existing resolution graph",
-                    );
+                let preliminary_graph = lockfile::to_graph(&existing);
+                let lockfile_hash = compute_lockfile_hash(&preliminary_graph);
+
+                if check_integrity_file(project, &lockfile_hash) {
+                    if console::is_logging_enabled() {
+                        console::verbose(
+                            "lockfile and node_modules both fresh; skipping resolution (warm path)",
+                        );
+                    }
+                    lockfile_reused_unchanged = true;
+                    early_exit = true;
+                    preliminary_graph
+                } else {
+                    if console::is_logging_enabled() {
+                        console::verbose(
+                            "lockfile is up to date with manifest; reusing existing resolution graph",
+                        );
+                    }
+                    lockfile_reused_unchanged = true;
+                    preliminary_graph
                 }
-                lockfile_reused_unchanged = true;
-                lockfile::to_graph(&existing)
             } else {
                 console::step("Resolving dependencies");
                 if console::is_logging_enabled() {
@@ -491,14 +523,19 @@ pub async fn install(
     )?;
 
     let mut should_link = true;
-    let mut early_exit = false;
 
-    if lockfile_reused_unchanged && !options.force {
+    if early_exit {
+        should_link = false;
+        if console::is_logging_enabled() {
+            console::verbose("using early exit path (warm path optimization)");
+        }
+    } else if lockfile_reused_unchanged && !options.force {
         if console::is_logging_enabled() {
             console::verbose("lockfile reused without changes; checking existing node_modules");
         }
 
-        if is_node_modules_fresh(project, &graph, options.include_dev) {
+        let lockfile_hash = compute_lockfile_hash(&graph);
+        if check_integrity_file(project, &lockfile_hash) {
             should_link = false;
             early_exit = true;
 
@@ -529,6 +566,9 @@ pub async fn install(
             options.include_dev,
         )?;
 
+        let lockfile_hash = compute_lockfile_hash(&graph);
+        write_integrity_file(project, &lockfile_hash)?;
+
         if console::is_logging_enabled() {
             console::verbose(&format!(
                 "linking completed in {:.3}s",
@@ -542,17 +582,20 @@ pub async fn install(
     }
 
     let scripts_start = Instant::now();
-    let blocked_scripts = if !early_exit && can_any_scripts_run(config, workspace.as_ref()) {
+    let blocked_scripts = if early_exit {
+        if console::is_logging_enabled() {
+            console::verbose("skipping install scripts (early exit - node_modules is fresh)");
+        }
+        Vec::new()
+    } else if can_any_scripts_run(config, workspace.as_ref()) {
         lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?
     } else {
-        if console::is_logging_enabled() && early_exit {
-            console::verbose("skipping install scripts (early exit - node_modules is fresh)");
-        } else if console::is_logging_enabled() && !can_any_scripts_run(config, workspace.as_ref())
-        {
+        if console::is_logging_enabled() {
             console::verbose("skipping install scripts (no scripts can run based on config)");
         }
         Vec::new()
     };
+
     let scripts_elapsed = scripts_start.elapsed();
 
     if console::is_logging_enabled() {
@@ -1387,51 +1430,50 @@ fn can_any_scripts_run(config: &SnpmConfig, workspace: Option<&Workspace>) -> bo
     false
 }
 
-fn is_node_modules_fresh(project: &Project, graph: &ResolutionGraph, include_dev: bool) -> bool {
-    let root_node_modules = project.root.join("node_modules");
-
-    if !root_node_modules.is_dir() {
-        return false;
-    }
-
-    let deps = &project.manifest.dependencies;
-    let dev_deps = &project.manifest.dev_dependencies;
+fn compute_lockfile_hash(graph: &ResolutionGraph) -> String {
+    let mut hasher = DefaultHasher::new();
 
     for (name, dep) in graph.root.dependencies.iter() {
-        if !deps.contains_key(name) && !dev_deps.contains_key(name) {
-            continue;
-        }
-
-        let only_dev = dev_deps.contains_key(name) && !deps.contains_key(name);
-        if !include_dev && only_dev {
-            continue;
-        }
-
-        let manifest_path = root_node_modules.join(name).join("package.json");
-
-        let data = match fs::read_to_string(&manifest_path) {
-            Ok(data) => data,
-            Err(_) => return false,
-        };
-
-        let value: Value = match serde_json::from_str(&data) {
-            Ok(value) => value,
-            Err(_) => return false,
-        };
-
-        let actual_name = value
-            .get("name")
-            .and_then(|v: &Value| v.as_str())
-            .unwrap_or("");
-        let actual_version = value
-            .get("version")
-            .and_then(|v: &Value| v.as_str())
-            .unwrap_or("");
-
-        if actual_name != dep.resolved.name || actual_version != dep.resolved.version {
-            return false;
-        }
+        name.hash(&mut hasher);
+        dep.requested.hash(&mut hasher);
+        dep.resolved.name.hash(&mut hasher);
+        dep.resolved.version.hash(&mut hasher);
     }
 
-    true
+    for (id, pkg) in graph.packages.iter() {
+        id.name.hash(&mut hasher);
+        id.version.hash(&mut hasher);
+        pkg.id.name.hash(&mut hasher);
+        pkg.id.version.hash(&mut hasher);
+    }
+
+    format!("{:x}", hasher.finish())
+}
+
+fn check_integrity_file(project: &Project, lockfile_hash: &str) -> bool {
+    let integrity_path = project.root.join("node_modules/.snpm-integrity");
+
+    match fs::read_to_string(&integrity_path) {
+        Ok(content) => {
+            let expected = format!("lockfile: {}\n", lockfile_hash);
+            content == expected
+        }
+        Err(_) => false,
+    }
+}
+
+fn write_integrity_file(project: &Project, lockfile_hash: &str) -> Result<()> {
+    let node_modules = project.root.join("node_modules");
+
+    if !node_modules.is_dir() {
+        return Ok(());
+    }
+
+    let integrity_path = node_modules.join(".snpm-integrity");
+    let content = format!("lockfile: {}\n", lockfile_hash);
+
+    fs::write(&integrity_path, content).map_err(|source| SnpmError::WriteFile {
+        path: integrity_path,
+        source,
+    })
 }

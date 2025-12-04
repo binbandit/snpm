@@ -510,27 +510,21 @@ pub async fn install(
             &store_paths_map,
             options.include_dev,
         )?;
+
+        link_local_workspace_deps(
+            project,
+            workspace.as_ref(),
+            &local_deps,
+            &local_dev_deps,
+            options.include_dev,
+        )?;
+
         if console::is_logging_enabled() {
             console::verbose(&format!(
-                "linker::link completed in {:.3}s",
+                "linking completed in {:.3}s",
                 link_start.elapsed().as_secs_f64()
             ));
         }
-    }
-
-    let local_link_start = Instant::now();
-    link_local_workspace_deps(
-        project,
-        workspace.as_ref(),
-        &local_deps,
-        &local_dev_deps,
-        options.include_dev,
-    )?;
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "link_local_workspace_deps completed in {:.3}s",
-            local_link_start.elapsed().as_secs_f64()
-        ));
     }
 
     if options.include_dev {

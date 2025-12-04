@@ -15,6 +15,25 @@ pub struct SnpmConfig {
     pub scoped_registries: BTreeMap<String, String>,
     pub registry_auth: BTreeMap<String, String>,
     pub default_registry_auth_token: Option<String>,
+    pub hoisting: HoistingMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoistingMode {
+    None,
+    SingleVersion,
+    All,
+}
+
+impl HoistingMode {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "none" | "off" | "false" | "disabled" => Some(HoistingMode::None),
+            "single" | "single-version" | "safe" => Some(HoistingMode::SingleVersion),
+            "root" | "all" | "true" | "on" | "enabled" => Some(HoistingMode::All),
+            _ => None,
+        }
+    }
 }
 
 impl SnpmConfig {
@@ -40,11 +59,17 @@ impl SnpmConfig {
         let allow_scripts = read_allow_scripts_from_env();
         let min_package_age_days = read_min_package_age_from_env();
 
-        let (rc_default_registry, scoped_registries, registry_auth, rc_default_auth_token) =
-            read_registry_config();
+        let (
+            rc_default_registry,
+            scoped_registries,
+            registry_auth,
+            rc_default_auth_token,
+            rc_hoisting,
+        ) = read_registry_config();
 
         let mut default_registry = rc_default_registry;
         let mut default_registry_auth_token = rc_default_auth_token;
+        let mut hoisting = rc_hoisting.unwrap_or(HoistingMode::All);
 
         if let Ok(value) =
             env::var("NPM_CONFIG_REGISTRY").or_else(|_| env::var("npm_config_registry"))
@@ -74,6 +99,13 @@ impl SnpmConfig {
             }
         }
 
+        if let Ok(value) = env::var("SNPM_HOIST") {
+            let trimmed = value.trim();
+            if let Some(mode) = HoistingMode::from_str(trimmed) {
+                hoisting = mode;
+            }
+        }
+
         SnpmConfig {
             cache_dir,
             data_dir,
@@ -83,6 +115,7 @@ impl SnpmConfig {
             scoped_registries,
             registry_auth,
             default_registry_auth_token,
+            hoisting,
         }
     }
 
@@ -146,11 +179,13 @@ fn read_registry_config() -> (
     BTreeMap<String, String>,
     BTreeMap<String, String>,
     Option<String>,
+    Option<HoistingMode>,
 ) {
     let mut default_registry = "https://registry.npmjs.org/".to_string();
     let mut scoped = BTreeMap::new();
     let mut registry_auth = BTreeMap::new();
     let mut default_auth_token = None;
+    let mut hoisting = None;
 
     if let Some(base) = BaseDirs::new() {
         let home = base.home_dir();
@@ -164,6 +199,7 @@ fn read_registry_config() -> (
                 &mut scoped,
                 &mut registry_auth,
                 &mut default_auth_token,
+                &mut hoisting,
             );
         }
     }
@@ -180,10 +216,17 @@ fn read_registry_config() -> (
             &mut scoped,
             &mut registry_auth,
             &mut default_auth_token,
+            &mut hoisting,
         );
     }
 
-    (default_registry, scoped, registry_auth, default_auth_token)
+    (
+        default_registry,
+        scoped,
+        registry_auth,
+        default_auth_token,
+        hoisting,
+    )
 }
 
 fn apply_rc_file(
@@ -192,6 +235,7 @@ fn apply_rc_file(
     scoped: &mut BTreeMap<String, String>,
     registry_auth: &mut BTreeMap<String, String>,
     default_auth_token: &mut Option<String>,
+    hoisting: &mut Option<HoistingMode>,
 ) {
     if !path.is_file() {
         return;
@@ -216,6 +260,10 @@ fn apply_rc_file(
                 if key == "registry" {
                     if !value.is_empty() {
                         *default_registry = value;
+                    }
+                } else if key == "snpm-hoist" || key == "snpm.hoist" || key == "snpm_hoist" {
+                    if let Some(mode) = HoistingMode::from_str(&value) {
+                        *hoisting = Some(mode);
                     }
                 } else if let Some(scope) = key.strip_suffix(":registry") {
                     let scope = scope.trim();

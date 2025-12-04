@@ -11,7 +11,7 @@ pub mod resolve;
 pub mod store;
 pub mod workspace;
 
-pub use config::SnpmConfig;
+pub use config::{HoistingMode, SnpmConfig};
 pub use error::SnpmError;
 pub use project::Project;
 pub use workspace::Workspace;

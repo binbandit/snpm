@@ -1,8 +1,8 @@
-use crate::lifecycle;
 use crate::resolve::{PackageId, ResolutionGraph};
+use crate::{HoistingMode, lifecycle};
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -30,6 +30,7 @@ pub fn link(
 
     let deps = &project.manifest.dependencies;
     let dev_deps = &project.manifest.dev_dependencies;
+    let hoisting = effective_hoisting(config, workspace);
 
     for (name, dep) in graph.root.dependencies.iter() {
         if !deps.contains_key(name) && !dev_deps.contains_key(name) {
@@ -43,6 +44,8 @@ pub fn link(
 
         let id = &dep.resolved;
         let dest = root_node_modules.join(name);
+        let mut stack = BTreeSet::new();
+
         link_package(
             config,
             workspace,
@@ -51,9 +54,13 @@ pub fn link(
             &root_node_modules,
             graph,
             store_paths,
+            &mut stack,
         )?;
     }
 
+    if !matches!(hoisting, HoistingMode::None) {
+        hoist_packages(config, workspace, project, graph, store_paths, hoisting)?;
+    }
     Ok(())
 }
 
@@ -65,7 +72,35 @@ fn link_package(
     bin_root: &Path,
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
+    stack: &mut BTreeSet<PackageId>,
 ) -> Result<()> {
+    if stack.contains(id) {
+        let store_root = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
+            name: id.name.clone(),
+            version: id.version.clone(),
+        })?;
+
+        if dest.exists() {
+            fs::remove_dir_all(dest).map_err(|source| SnpmError::WriteFile {
+                path: dest.to_path_buf(),
+                source,
+            })?;
+        }
+
+        let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
+
+        if scripts_allowed {
+            copy_dir(store_root, dest)?;
+        } else {
+            link_dir(store_root, dest)?;
+        }
+
+        link_bins(dest, bin_root, &id.name)?;
+        return Ok(());
+    }
+
+    stack.insert(id.clone());
+
     if dest.exists() {
         fs::remove_dir_all(dest).map_err(|source| SnpmError::WriteFile {
             path: dest.to_path_buf(),
@@ -112,10 +147,92 @@ fn link_package(
             &node_modules,
             graph,
             store_paths,
+            stack,
+        )?;
+    }
+
+    stack.remove(id);
+
+    Ok(())
+}
+
+fn hoist_packages(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
+    project: &Project,
+    graph: &ResolutionGraph,
+    store_paths: &BTreeMap<PackageId, PathBuf>,
+    mode: HoistingMode,
+) -> Result<()> {
+    if matches!(mode, HoistingMode::None) {
+        return Ok(());
+    }
+
+    let root_node_modules = project.root.join("node_modules");
+
+    let mut ids_by_name: BTreeMap<&str, Vec<&PackageId>> = BTreeMap::new();
+
+    for id in graph.packages.keys() {
+        ids_by_name.entry(&id.name).or_default().push(id);
+    }
+
+    for (name, ids) in ids_by_name {
+        let should_hoist = match mode {
+            HoistingMode::None => false,
+            HoistingMode::SingleVersion => ids.len() == 1,
+            HoistingMode::All => !ids.is_empty(),
+        };
+
+        if !should_hoist {
+            continue;
+        }
+
+        let id = ids[0];
+        let dest = root_node_modules.join(name);
+
+        if dest.exists() {
+            continue;
+        }
+
+        link_shallow_package(
+            config,
+            workspace,
+            id,
+            &dest,
+            &root_node_modules,
+            store_paths,
         )?;
     }
 
     Ok(())
+}
+
+fn link_shallow_package(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
+    id: &PackageId,
+    dest: &Path,
+    bin_root: &Path,
+    store_paths: &BTreeMap<PackageId, PathBuf>,
+) -> Result<()> {
+    if dest.exists() {
+        return Ok(());
+    }
+
+    let store_root = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
+        name: id.name.clone(),
+        version: id.version.clone(),
+    })?;
+
+    let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
+
+    if scripts_allowed {
+        copy_dir(store_root, dest)?;
+    } else {
+        link_dir(store_root, dest)?;
+    }
+
+    link_bins(dest, bin_root, &id.name)
 }
 
 fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
@@ -320,4 +437,56 @@ fn symlink_file_entry(from: &Path, to: &Path) -> std::io::Result<()> {
 fn symlink_file_entry(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::windows::fs::symlink_file;
     symlink_file(from, to)
+}
+
+fn effective_hoisting(config: &SnpmConfig, workspace: Option<&Workspace>) -> HoistingMode {
+    if let Some(ws) = workspace {
+        if let Some(value) = ws.config.hoisting.as_deref() {
+            if let Some(mode) = HoistingMode::from_str(value) {
+                return mode;
+            }
+        }
+    }
+
+    config.hoisting
+}
+
+fn hoist_single_version_packages(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
+    project: &Project,
+    graph: &ResolutionGraph,
+    store_paths: &BTreeMap<PackageId, PathBuf>,
+) -> Result<()> {
+    let root_node_modules = project.root.join("node_modules");
+
+    let mut ids_by_name: BTreeMap<&str, Vec<&PackageId>> = BTreeMap::new();
+
+    for id in graph.packages.keys() {
+        ids_by_name.entry(&id.name).or_default().push(id);
+    }
+
+    for (name, ids) in ids_by_name {
+        if ids.len() != 1 {
+            continue;
+        }
+
+        let id = ids[0];
+        let dest = root_node_modules.join(name);
+
+        if dest.exists() {
+            continue;
+        }
+
+        link_shallow_package(
+            config,
+            workspace,
+            id,
+            &dest,
+            &root_node_modules,
+            store_paths,
+        )?;
+    }
+
+    Ok(())
 }

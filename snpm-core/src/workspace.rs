@@ -15,6 +15,8 @@ pub struct WorkspaceConfig {
     pub only_built_dependencies: Vec<String>,
     #[serde(default, rename = "ignoredBuiltDependencies")]
     pub ignored_built_dependencies: Vec<String>,
+    #[serde(default)]
+    pub hoisting: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

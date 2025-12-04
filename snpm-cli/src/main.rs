@@ -24,12 +24,31 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
+    let Cli { verbose, command } = Cli::parse();
+
     init_tracing()?;
 
-    let args = Cli::parse();
-    let config = SnpmConfig::from_env();
+    let mut config = SnpmConfig::from_env();
 
-    match args.command {
+    if verbose || config.verbose || config.log_file.is_some() {
+        config.verbose = true;
+
+        let cwd = env::current_dir()?;
+        let log_path = config
+            .log_file
+            .clone()
+            .unwrap_or_else(|| cwd.join(".snpm.log"));
+
+        console::init_logging(&log_path)?;
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "verbose logging enabled, writing to {}",
+                log_path.display()
+            ));
+        }
+    }
+
+    match command {
         Command::Install {
             packages,
             production,
@@ -185,14 +204,12 @@ async fn run() -> Result<()> {
 
             let cwd = env::current_dir()?;
 
-            // Targeted upgrade: operate on the single discovered project
             if !packages.is_empty() {
                 let mut project = Project::discover(&cwd)?;
                 operations::upgrade(&config, &mut project, packages, production, force).await?;
                 return Ok(());
             }
 
-            // Full upgrade (no packages): always operate on the *workspace* lockfile if present
             let mut project = Project::discover(&cwd)?;
             let workspace = Workspace::discover(&cwd)?;
 
@@ -213,7 +230,6 @@ async fn run() -> Result<()> {
                 force,
             };
 
-            // If we're at the workspace root, upgrade all projects in the workspace
             if let Some(mut workspace) = workspace {
                 if workspace.root == cwd {
                     for (index, member) in workspace.projects.iter_mut().enumerate() {
@@ -228,7 +244,6 @@ async fn run() -> Result<()> {
                 }
             }
 
-            // Otherwise, upgrade just this project, but still using the workspace‑wide lockfile
             operations::install(&config, &mut project, options).await?;
         }
 

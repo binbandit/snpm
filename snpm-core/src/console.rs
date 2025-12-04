@@ -1,9 +1,12 @@
 use std::env;
+use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
-use std::sync::OnceLock;
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 static START_TIME: OnceLock<Instant> = OnceLock::new();
+static LOG_FILE: OnceLock<Mutex<File>> = OnceLock::new();
 
 fn use_color() -> bool {
     static USE_COLOR: OnceLock<bool> = OnceLock::new();
@@ -43,13 +46,56 @@ fn red(text: &str) -> String {
     paint("31", text)
 }
 
+pub fn init_logging(path: &Path) -> io::Result<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+
+    if LOG_FILE.set(Mutex::new(file)).is_err() {
+        return Ok(());
+    }
+
+    let _ = log_raw("========================================");
+    Ok(())
+}
+
+pub fn is_logging_enabled() -> bool {
+    LOG_FILE.get().is_some()
+}
+
+fn log_raw(message: &str) -> io::Result<()> {
+    if let Some(mutex) = LOG_FILE.get() {
+        if let Ok(mut file) = mutex.lock() {
+            writeln!(file, "{}", message)?;
+        }
+    }
+    Ok(())
+}
+
+fn log_prefixed(level: &str, message: &str) {
+    if LOG_FILE.get().is_none() {
+        return;
+    }
+
+    let start = *START_TIME.get_or_init(Instant::now);
+    let millis = start.elapsed().as_millis();
+    let secs = millis / 1000;
+    let ms = millis % 1000;
+    let line = format!("[{:>5}.{:03}] [{:<5}] {}", secs, ms, level, message);
+    let _ = log_raw(&line);
+}
+
+pub fn verbose(message: &str) {
+    log_prefixed("DEBUG", message);
+}
+
 pub fn header(command: &str) {
     START_TIME.get_or_init(Instant::now);
-    eprintln!(
-        "{}",
-        dim(&format!("snpm {} v{}", command, env!("CARGO_PKG_VERSION")))
-    );
+    let msg = format!("snpm {} v{}", command, env!("CARGO_PKG_VERSION"));
+    eprintln!("{}", dim(&msg));
     eprintln!();
+    log_prefixed("INFO", &msg);
 }
 
 pub fn step(message: &str) {
@@ -59,6 +105,7 @@ pub fn step(message: &str) {
     } else {
         eprintln!("{}", dim(message));
     }
+    log_prefixed("STEP", message);
 }
 
 pub fn step_with_count(message: &str, count: usize) {
@@ -68,6 +115,7 @@ pub fn step_with_count(message: &str, count: usize) {
     } else {
         eprintln!("{} {}", message, cyan(&format!("[{}]", count)));
     }
+    log_prefixed("STEP", &format!("{} [{}]", message, count));
 }
 
 pub fn clear_steps(count: usize) {
@@ -103,11 +151,21 @@ pub fn added(name: &str, version: &str, dev: bool) {
     let mark = green("+");
     let dev_label = if dev { dim(" (dev)") } else { String::new() };
     println!("{} {}@{}{}", mark, name, version, dev_label);
+    log_prefixed(
+        "INFO",
+        &format!(
+            "added {}@{}{}",
+            name,
+            version,
+            if dev { " (dev)" } else { "" }
+        ),
+    );
 }
 
 pub fn removed(name: &str) {
     let mark = red("-");
     println!("{} {}", mark, name);
+    log_prefixed("INFO", &format!("removed {}", name));
 }
 
 pub fn summary(count: usize, seconds: f32) {
@@ -131,30 +189,39 @@ pub fn summary(count: usize, seconds: f32) {
         dim(&format!("[{}]", time_str)),
         dim(&format!("({})", speed_str))
     );
+    log_prefixed(
+        "INFO",
+        &format!(
+            "summary: count={} time={}s speed={}",
+            count, seconds, speed_str
+        ),
+    );
 }
 
 pub fn warn(message: &str) {
     let tag = yellow("warn");
     eprintln!("{} {}", tag, message);
+    log_prefixed("WARN", message);
 }
 
 pub fn error(message: &str) {
     let tag = red("error");
     eprintln!("{} {}", tag, message);
+    log_prefixed("ERROR", message);
 }
 
 pub fn info(message: &str) {
     println!("{}", message);
+    log_prefixed("INFO", message);
 }
 
 pub fn blocked_scripts(packages: &[String]) {
     let count = packages.len();
     let noun = if count == 1 { "script" } else { "scripts" };
-    println!(
-        "{}",
-        dim(&format!(
-            "Blocked {} install {}. Set SNPM_ALLOW_SCRIPTS to enable.",
-            count, noun
-        ))
+    let msg = format!(
+        "Blocked {} install {}. Set SNPM_ALLOW_SCRIPTS to enable.",
+        count, noun
     );
+    println!("{}", dim(&msg));
+    log_prefixed("INFO", &msg);
 }

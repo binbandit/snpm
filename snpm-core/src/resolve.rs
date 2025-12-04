@@ -50,7 +50,6 @@ pub trait Prefetcher: Send + Sync {
 
 #[derive(Clone, Debug)]
 struct DepRequest {
-    name: String,
     source: String,
     range: String,
     protocol: RegistryProtocol,
@@ -686,14 +685,12 @@ fn build_dep_request(
 
     if let Some((proto, source, semver_range)) = split_protocol_spec(overridden) {
         DepRequest {
-            name: name.to_string(),
             source,
             range: semver_range,
             protocol: proto,
         }
     } else {
         DepRequest {
-            name: name.to_string(),
             source: name.to_string(),
             range: overridden.to_string(),
             protocol: protocol.clone(),

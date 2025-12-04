@@ -1,9 +1,11 @@
 use crate::{Result, SnpmConfig, SnpmError};
+use crate::console;
 use reqwest::Client;
 use reqwest::header::{ACCEPT, HeaderValue};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::env;
+use std::time::Instant;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegistryPackage {
@@ -115,10 +117,28 @@ async fn fetch_npm_like_package(
         request = request.header("authorization", header_value);
     }
 
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "registry request: name={} protocol={} url={}",
+            name, protocol_name, url
+        ));
+    }
+    let started = Instant::now();
+
     let response = request.send().await.map_err(|source| SnpmError::Http {
         url: url.clone(),
         source,
     })?;
+
+    let status = response.status();
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "registry response: name={} status={} in {:.3}s",
+            name,
+            status.as_u16(),
+            started.elapsed().as_secs_f64()
+        ));
+    }
 
     let package = response
         .error_for_status()
@@ -132,6 +152,15 @@ async fn fetch_npm_like_package(
             url: url.clone(),
             source,
         })?;
+
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "registry decode: name={} versions={} dist_tags={}",
+            name,
+            package.versions.len(),
+            package.dist_tags.len()
+        ));
+    }
 
     Ok(package)
 }
@@ -188,10 +217,28 @@ async fn fetch_jsr_package(
         request = request.header("authorization", header_value);
     }
 
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "registry request (jsr): name={} compat={} url={}",
+            name, compat, url
+        ));
+    }
+    let started = Instant::now();
+
     let response = request.send().await.map_err(|source| SnpmError::Http {
         url: url.clone(),
         source,
     })?;
+
+    let status = response.status();
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "registry response (jsr): name={} status={} in {:.3}s",
+            name,
+            status.as_u16(),
+            started.elapsed().as_secs_f64()
+        ));
+    }
 
     let package = response
         .error_for_status()
@@ -205,6 +252,15 @@ async fn fetch_jsr_package(
             url: url.clone(),
             source,
         })?;
+
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "registry decode (jsr): name={} versions={} dist_tags={}",
+            name,
+            package.versions.len(),
+            package.dist_tags.len()
+        ));
+    }
 
     Ok(package)
 }

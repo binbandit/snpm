@@ -48,6 +48,18 @@ pub async fn install(
 ) -> Result<()> {
     let started = Instant::now();
 
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "install start: root={} requested=[{}] dev={} include_dev={} frozen_lockfile={} force={}",
+            project.root.display(),
+            options.requested.join(", "),
+            options.dev,
+            options.include_dev,
+            options.frozen_lockfile,
+            options.force,
+        ));
+    }
+
     let registry_client = Client::new();
 
     let (requested_ranges_raw, requested_protocols_raw) =
@@ -101,6 +113,19 @@ pub async fn install(
         }
     }
 
+    if console::is_logging_enabled() {
+        let ws_root = workspace
+            .as_ref()
+            .map(|w| format!("{}", w.root.display()))
+            .unwrap_or_else(|| "<none>".to_string());
+        console::verbose(&format!(
+            "workspace_root={} overrides={} catalog_local={}",
+            ws_root,
+            overrides.len(),
+            catalog.as_ref().map(|c| c.catalog.len()).unwrap_or(0),
+        ));
+    }
+
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
     let mut manifest_protocols = BTreeMap::new();
@@ -130,6 +155,15 @@ pub async fn install(
 
     for (name, range) in additions.iter() {
         root_deps.insert(name.clone(), range.clone());
+    }
+
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "manifest_root_deps={} root_deps={} additions={}",
+            manifest_root.len(),
+            root_deps.len(),
+            additions.len()
+        ));
     }
 
     let mut root_protocols = BTreeMap::new();
@@ -166,7 +200,23 @@ pub async fn install(
 
     let is_fresh_install = !lockfile_path.exists();
 
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "lockfile_path={} exists={} fresh_install={}",
+            lockfile_path.display(),
+            lockfile_path.is_file(),
+            is_fresh_install
+        ));
+    }
+
     let graph = if options.frozen_lockfile {
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "using frozen lockfile at {}",
+                lockfile_path.display()
+            ));
+        }
+
         if !lockfile_path.is_file() {
             return Err(SnpmError::Lockfile {
                 path: lockfile_path.clone(),
@@ -202,6 +252,16 @@ pub async fn install(
         let can_reuse_lockfile =
             options.include_dev && additions.is_empty() && lockfile_path.is_file();
 
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "can_reuse_lockfile={} include_dev={} additions={} lockfile_exists={}",
+                can_reuse_lockfile,
+                options.include_dev,
+                additions.is_empty(),
+                lockfile_path.is_file()
+            ));
+        }
+
         if can_reuse_lockfile {
             let existing = lockfile::read(&lockfile_path)?;
             let mut lock_requested = BTreeMap::new();
@@ -211,9 +271,17 @@ pub async fn install(
             }
 
             if lock_requested == manifest_root {
+                if console::is_logging_enabled() {
+                    console::verbose("lockfile is up to date with manifest; reusing existing resolution graph");
+                }
                 lockfile::to_graph(&existing)
             } else {
                 console::step("Resolving dependencies");
+                if console::is_logging_enabled() {
+                    console::verbose("lockfile manifest mismatch; resolving dependencies again");
+                }
+
+                let resolve_started = Instant::now();
                 let paths = store_paths.clone();
                 let cfg = store_config.clone();
                 let client = store_client.clone();
@@ -266,11 +334,24 @@ pub async fn install(
                 )
                 .await?;
 
+                if console::is_logging_enabled() {
+                    console::verbose(&format!(
+                        "resolve completed in {:.3}s (packages={})",
+                        resolve_started.elapsed().as_secs_f64(),
+                        graph.packages.len()
+                    ));
+                }
+
                 lockfile::write(&lockfile_path, &graph)?;
                 graph
             }
         } else {
             console::step("Resolving dependencies");
+            if console::is_logging_enabled() {
+                console::verbose("no reusable lockfile; resolving dependencies");
+            }
+
+            let resolve_started = Instant::now();
             let paths = store_paths.clone();
             let cfg = store_config.clone();
             let client = store_client.clone();
@@ -321,6 +402,15 @@ pub async fn install(
                 },
             )
             .await?;
+
+            if console::is_logging_enabled() {
+                console::verbose(&format!(
+                    "resolve completed in {:.3}s (packages={})",
+                    resolve_started.elapsed().as_secs_f64(),
+                    graph.packages.len()
+                ));
+            }
+
             if options.include_dev {
                 lockfile::write(&lockfile_path, &graph)?;
             }
@@ -335,11 +425,24 @@ pub async fn install(
             std::mem::take(&mut *guard)
         };
 
+        if console::is_logging_enabled() {
+            console::verbose(&format!("joining {} store tasks", handles.len()));
+        }
+
+        let store_wait_started = Instant::now();
+
         for handle in handles {
             let result = handle.await.map_err(|error| SnpmError::StoreTask {
                 reason: error.to_string(),
             })?;
             result?;
+        }
+
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "store tasks completed in {:.3}s",
+                store_wait_started.elapsed().as_secs_f64()
+            ));
         }
     }
 
@@ -349,7 +452,18 @@ pub async fn install(
     };
 
     if store_paths_map.is_empty() && !graph.packages.is_empty() {
+        if console::is_logging_enabled() {
+            console::verbose("no store tasks were scheduled; materializing store on demand");
+        }
+        let mat_start = Instant::now();
         store_paths_map = materialize_store(config, &graph).await?;
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "materialized store in {:.3}s (packages={})",
+                mat_start.elapsed().as_secs_f64(),
+                store_paths_map.len()
+            ));
+        }
     }
 
     console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
@@ -362,6 +476,8 @@ pub async fn install(
         workspace.as_ref(),
         catalog.as_ref(),
     )?;
+
+    let link_start = Instant::now();
     linker::link(
         config,
         workspace.as_ref(),
@@ -370,6 +486,14 @@ pub async fn install(
         &store_paths_map,
         options.include_dev,
     )?;
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "linker::link completed in {:.3}s",
+            link_start.elapsed().as_secs_f64()
+        ));
+    }
+
+    let local_link_start = Instant::now();
     link_local_workspace_deps(
         project,
         workspace.as_ref(),
@@ -377,13 +501,29 @@ pub async fn install(
         &local_dev_deps,
         options.include_dev,
     )?;
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "linked local workspace deps in {:.3}s",
+            local_link_start.elapsed().as_secs_f64()
+        ));
+    }
 
     if options.include_dev {
         console::step("Saved lockfile");
     }
 
+    let scripts_start = Instant::now();
     let blocked_scripts =
         lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?;
+    let scripts_elapsed = scripts_start.elapsed();
+
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "install scripts completed in {:.3}s (blocked_scripts={})",
+            scripts_elapsed.as_secs_f64(),
+            blocked_scripts.len()
+        ));
+    }
 
     let step_count = if options.include_dev { 3 } else { 2 };
     console::clear_steps(step_count);
@@ -420,6 +560,18 @@ pub async fn install(
     let elapsed = started.elapsed();
     let seconds = elapsed.as_secs_f32();
     console::summary(graph.packages.len(), seconds);
+
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "install completed in {:.3}s (packages={} store_paths={} additions={} is_fresh_install={} blocked_scripts={})",
+            seconds,
+            graph.packages.len(),
+            store_paths_map.len(),
+            additions.len(),
+            is_fresh_install,
+            blocked_scripts.len()
+        ));
+    }
 
     if !blocked_scripts.is_empty() {
         println!();
@@ -972,6 +1124,16 @@ pub async fn outdated(
         }
     }
 
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "outdated: resolving {} root deps (include_dev={} force={})",
+            root_deps.len(),
+            include_dev,
+            force
+        ));
+    }
+
+    let outdated_resolve_started = Instant::now();
     let graph = resolve::resolve(
         config,
         &registry_client,
@@ -983,6 +1145,13 @@ pub async fn outdated(
         |_package| async { Ok::<(), SnpmError>(()) },
     )
     .await?;
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "outdated: resolve completed in {:.3}s (packages={})",
+            outdated_resolve_started.elapsed().as_secs_f64(),
+            graph.packages.len()
+        ));
+    }
 
     let lockfile_path = workspace
         .as_ref()
@@ -1066,19 +1235,6 @@ fn detect_manifest_protocol(spec: &str) -> Option<RegistryProtocol> {
         Some(RegistryProtocol::jsr())
     } else {
         None
-    }
-}
-
-fn project_label(project: &Project) -> String {
-    if let Some(name) = project.manifest.name.as_deref() {
-        name.to_string()
-    } else {
-        project
-            .root
-            .file_name()
-            .and_then(|os| os.to_str())
-            .unwrap_or(".")
-            .to_string()
     }
 }
 

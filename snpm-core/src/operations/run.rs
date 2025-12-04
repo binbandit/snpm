@@ -12,16 +12,13 @@ pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()
         });
     }
 
-    // pre<script>
     let pre_name = format!("pre{}", script);
     if scripts.contains_key(&pre_name) {
         run_single_script(project, &pre_name, &[])?;
     }
 
-    // <script>
     run_single_script(project, script, args)?;
 
-    // post<script>
     let post_name = format!("post{}", script);
     if scripts.contains_key(&post_name) {
         run_single_script(project, &post_name, &[])?;
@@ -45,7 +42,6 @@ pub fn run_workspace_scripts(
             continue;
         }
 
-        // Skip projects that don't have this script at all.
         if !project.manifest.scripts.contains_key(script) {
             continue;
         }
@@ -147,18 +143,15 @@ fn matches_filters(name: &str, filters: &[String]) -> bool {
     }
 
     for filter in filters {
-        // Exact match
         if filter == name {
             return true;
         }
 
-        // Try glob-style pattern
         if let Ok(pattern) = glob::Pattern::new(filter) {
             if pattern.matches(name) {
                 return true;
             }
         } else if name.contains(filter) {
-            // Fallback: substring match for invalid glob patterns
             return true;
         }
     }

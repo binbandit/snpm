@@ -1,9 +1,11 @@
 use crate::resolve::ResolvedPackage;
 use crate::{Result, SnpmConfig, SnpmError};
+use crate::console;
 use flate2::read::GzDecoder;
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::time::Instant;
 use tar::Archive;
 
 pub async fn ensure_package(
@@ -11,13 +13,33 @@ pub async fn ensure_package(
     package: &ResolvedPackage,
     client: &reqwest::Client,
 ) -> Result<PathBuf> {
+    let start = Instant::now();
+
     let base = config.packages_dir();
     let name_dir = sanitize_name(&package.id.name);
     let pkg_dir = base.join(name_dir).join(&package.id.version);
 
     let marker = pkg_dir.join(".snpm_complete");
     if marker.is_file() {
-        return Ok(package_root_dir(&pkg_dir));
+        let root = package_root_dir(&pkg_dir);
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "store hit: {}@{} ({})",
+                package.id.name,
+                package.id.version,
+                root.display()
+            ));
+        }
+        return Ok(root);
+    }
+
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "store miss: {}@{}; downloading from {}",
+            package.id.name,
+            package.id.version,
+            package.tarball
+        ));
     }
 
     fs::create_dir_all(&pkg_dir).map_err(|source| SnpmError::WriteFile {
@@ -25,15 +47,48 @@ pub async fn ensure_package(
         source,
     })?;
 
+    let download_started = Instant::now();
     let bytes = download_tarball(config, &package.tarball, client).await?;
+    let download_elapsed = download_started.elapsed();
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "downloaded tarball for {}@{} ({} bytes) in {:.3}s",
+            package.id.name,
+            package.id.version,
+            bytes.len(),
+            download_elapsed.as_secs_f64()
+        ));
+    }
+
+    let unpack_started = Instant::now();
     unpack_tarball(&pkg_dir, bytes)?;
+    let unpack_elapsed = unpack_started.elapsed();
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "unpacked tarball for {}@{} in {:.3}s",
+            package.id.name,
+            package.id.version,
+            unpack_elapsed.as_secs_f64()
+        ));
+    }
 
     fs::write(&marker, []).map_err(|source| SnpmError::WriteFile {
         path: marker.clone(),
         source,
     })?;
 
-    Ok(package_root_dir(&pkg_dir))
+    let root = package_root_dir(&pkg_dir);
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "ensure_package complete for {}@{} in {:.3}s (root={})",
+            package.id.name,
+            package.id.version,
+            start.elapsed().as_secs_f64(),
+            root.display()
+        ));
+    }
+
+    Ok(root)
 }
 
 fn sanitize_name(name: &str) -> String {

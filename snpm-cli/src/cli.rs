@@ -3,6 +3,9 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(name = "snpm", about = "speedy node package manager", version)]
 pub struct Cli {
+    #[arg(short = 'v', long = "verbose", global = true)]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -27,7 +30,6 @@ pub enum Command {
         #[arg(short = 'f', long = "force")]
         force: bool,
         packages: Vec<String>,
-        /// Target a specific workspace broject by its package name
         #[arg(short = 'w', long = "workspace")]
         workspace: Option<String>,
     },

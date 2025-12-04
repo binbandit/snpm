@@ -10,6 +10,7 @@ use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, linker, resolve, 
 use futures::future::join_all;
 use futures::lock::Mutex;
 use reqwest::Client;
+use serde_json::Value;
 use snpm_semver::{RangeSet, Version};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -209,6 +210,8 @@ pub async fn install(
         ));
     }
 
+    let mut lockfile_reused_unchanged = false;
+
     let graph = if options.frozen_lockfile {
         if console::is_logging_enabled() {
             console::verbose(&format!(
@@ -247,6 +250,7 @@ pub async fn install(
             });
         }
 
+        lockfile_reused_unchanged = true;
         lockfile::to_graph(&existing)
     } else {
         let can_reuse_lockfile =
@@ -272,8 +276,11 @@ pub async fn install(
 
             if lock_requested == manifest_root {
                 if console::is_logging_enabled() {
-                    console::verbose("lockfile is up to date with manifest; reusing existing resolution graph");
+                    console::verbose(
+                        "lockfile is up to date with manifest; reusing existing resolution graph",
+                    );
                 }
+                lockfile_reused_unchanged = true;
                 lockfile::to_graph(&existing)
             } else {
                 console::step("Resolving dependencies");
@@ -477,20 +484,38 @@ pub async fn install(
         catalog.as_ref(),
     )?;
 
-    let link_start = Instant::now();
-    linker::link(
-        config,
-        workspace.as_ref(),
-        project,
-        &graph,
-        &store_paths_map,
-        options.include_dev,
-    )?;
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "linker::link completed in {:.3}s",
-            link_start.elapsed().as_secs_f64()
-        ));
+    let mut should_link = true;
+
+    if lockfile_reused_unchanged && !options.force {
+        if console::is_logging_enabled() {
+            console::verbose("lockfile reused without changes; checking existing node_modules");
+        }
+
+        if is_node_modules_fresh(project, &graph, options.include_dev) {
+            should_link = false;
+
+            if console::is_logging_enabled() {
+                console::verbose("node_modules is up to date; skipping linker::link");
+            }
+        }
+    }
+
+    if should_link {
+        let link_start = Instant::now();
+        linker::link(
+            config,
+            workspace.as_ref(),
+            project,
+            &graph,
+            &store_paths_map,
+            options.include_dev,
+        )?;
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "linker::link completed in {:.3}s",
+                link_start.elapsed().as_secs_f64()
+            ));
+        }
     }
 
     let local_link_start = Instant::now();
@@ -503,7 +528,7 @@ pub async fn install(
     )?;
     if console::is_logging_enabled() {
         console::verbose(&format!(
-            "linked local workspace deps in {:.3}s",
+            "link_local_workspace_deps completed in {:.3}s",
             local_link_start.elapsed().as_secs_f64()
         ));
     }
@@ -513,8 +538,11 @@ pub async fn install(
     }
 
     let scripts_start = Instant::now();
-    let blocked_scripts =
-        lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?;
+    let blocked_scripts = if should_link {
+        lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?
+    } else {
+        Vec::new()
+    };
     let scripts_elapsed = scripts_start.elapsed();
 
     if console::is_logging_enabled() {
@@ -1329,4 +1357,53 @@ pub async fn upgrade(
     };
 
     install(config, project, options).await
+}
+
+fn is_node_modules_fresh(project: &Project, graph: &ResolutionGraph, include_dev: bool) -> bool {
+    let root_node_modules = project.root.join("node_modules");
+
+    if !root_node_modules.is_dir() {
+        return false;
+    }
+
+    let deps = &project.manifest.dependencies;
+    let dev_deps = &project.manifest.dev_dependencies;
+
+    for (name, dep) in graph.root.dependencies.iter() {
+        if !deps.contains_key(name) && !dev_deps.contains_key(name) {
+            continue;
+        }
+
+        let only_dev = dev_deps.contains_key(name) && !deps.contains_key(name);
+        if !include_dev && only_dev {
+            continue;
+        }
+
+        let manifest_path = root_node_modules.join(name).join("package.json");
+
+        let data = match fs::read_to_string(&manifest_path) {
+            Ok(data) => data,
+            Err(_) => return false,
+        };
+
+        let value: Value = match serde_json::from_str(&data) {
+            Ok(value) => value,
+            Err(_) => return false,
+        };
+
+        let actual_name = value
+            .get("name")
+            .and_then(|v: &Value| v.as_str())
+            .unwrap_or("");
+        let actual_version = value
+            .get("version")
+            .and_then(|v: &Value| v.as_str())
+            .unwrap_or("");
+
+        if actual_name != dep.resolved.name || actual_version != dep.resolved.version {
+            return false;
+        }
+    }
+
+    true
 }

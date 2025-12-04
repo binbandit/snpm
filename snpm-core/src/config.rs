@@ -16,9 +16,30 @@ pub struct SnpmConfig {
     pub registry_auth: BTreeMap<String, String>,
     pub default_registry_auth_token: Option<String>,
     pub hoisting: HoistingMode,
+    pub link_backend: LinkBackend,
     pub strict_peers: bool,
     pub verbose: bool,
     pub log_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkBackend {
+    Auto,
+    Hardlink,
+    Symlink,
+    Copy,
+}
+
+impl LinkBackend {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "auto" | "default" => Some(LinkBackend::Auto),
+            "hardlink" | "hardlinks" | "hard" => Some(LinkBackend::Hardlink),
+            "symlink" | "symlinks" | "symbolic" | "sym" => Some(LinkBackend::Symlink),
+            "copy" | "copies" => Some(LinkBackend::Copy),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +94,7 @@ impl SnpmConfig {
         let mut default_registry = rc_default_registry;
         let mut default_registry_auth_token = rc_default_auth_token;
         let mut hoisting = rc_hoisting.unwrap_or(HoistingMode::SingleVersion);
+        let mut link_backend = LinkBackend::Auto;
         let mut strict_peers = false;
 
         if let Ok(value) =
@@ -110,6 +132,12 @@ impl SnpmConfig {
             }
         }
 
+        if let Ok(value) = env::var("SNPM_LINK_BACKEND") {
+            if let Some(backend) = LinkBackend::from_str(value.trim()) {
+                link_backend = backend;
+            }
+        }
+
         if let Ok(value) = env::var("SNPM_STRICT_PEERS") {
             let trimmed = value.trim().to_ascii_lowercase();
             strict_peers = matches!(trimmed.as_str(), "1" | "true" | "yes" | "y" | "on");
@@ -139,6 +167,7 @@ impl SnpmConfig {
             registry_auth,
             default_registry_auth_token,
             hoisting,
+            link_backend,
             strict_peers,
             verbose,
             log_file,

@@ -147,7 +147,7 @@ pub fn clear_line() {
 pub fn added(name: &str, version: &str, dev: bool) {
     let mark = green("+");
     let dev_label = if dev { dim(" (dev)") } else { String::new() };
-    println!("{} {}@{}{}", mark, name, version, dev_label);
+    println!("{} {}{}{}", mark, name, dim(&format!("@{}", version)), dev_label);
     log_prefixed(
         "INFO",
         &format!(
@@ -181,7 +181,7 @@ pub fn summary(count: usize, seconds: f32) {
     };
     println!(
         "{} {} installed {} {}",
-        count,
+        cyan(&count.to_string()),
         noun,
         dim(&format!("[{}]", time_str)),
         dim(&format!("({})", speed_str))

@@ -2,7 +2,7 @@ use crate::console;
 use crate::lifecycle;
 use crate::lockfile;
 use crate::registry::RegistryProtocol;
-use crate::resolve::ResolutionGraph;
+use crate::resolve::{PackageId, ResolutionGraph};
 
 use crate::workspace::CatalogConfig;
 use crate::workspace::OverridesConfig;
@@ -18,8 +18,22 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tokio::task::JoinHandle;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstallScenario {
+    Hot,
+    WarmLinkOnly,
+    WarmPartialCache,
+    Cold,
+}
+
+struct CacheCheckResult {
+    cached: BTreeMap<PackageId, PathBuf>,
+    missing: Vec<crate::resolve::ResolvedPackage>,
+}
 
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
@@ -196,13 +210,6 @@ pub async fn install(
         }
     }
 
-    let store_paths = Arc::new(Mutex::new(
-        BTreeMap::<crate::resolve::PackageId, PathBuf>::new(),
-    ));
-    let store_config = config.clone();
-    let store_client = registry_client.clone();
-    let store_tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> = Arc::new(Mutex::new(Vec::new()));
-
     let lockfile_path = workspace
         .as_ref()
         .map(|w| w.root.join("snpm-lock.yaml"))
@@ -219,10 +226,7 @@ pub async fn install(
         ));
     }
 
-    let mut lockfile_reused_unchanged = false;
-    let mut early_exit = false;
-
-    let graph = if options.frozen_lockfile || config.frozen_lockfile_default {
+    if options.frozen_lockfile || config.frozen_lockfile_default {
         if console::is_logging_enabled() {
             let source = if config.frozen_lockfile_default {
                 "SNPM_FROZEN_LOCKFILE=1"
@@ -265,151 +269,104 @@ pub async fn install(
                         .into(),
             });
         }
+    }
 
-        lockfile_reused_unchanged = true;
-        lockfile::to_graph(&existing)
+    let can_use_scenario_optimization = options.include_dev && additions.is_empty();
+
+    let (scenario, existing_lockfile) = if can_use_scenario_optimization {
+        detect_install_scenario(project, &lockfile_path, &manifest_root, config, options.force)
     } else {
-        let can_reuse_lockfile =
-            options.include_dev && additions.is_empty() && lockfile_path.is_file();
+        (InstallScenario::Cold, None)
+    };
 
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "can_reuse_lockfile={} include_dev={} additions={} lockfile_exists={}",
-                can_reuse_lockfile,
-                options.include_dev,
-                additions.is_empty(),
-                lockfile_path.is_file()
-            ));
+    let mut lockfile_reused_unchanged = false;
+    let mut early_exit = false;
+    let mut store_paths_map: BTreeMap<PackageId, PathBuf> = BTreeMap::new();
+
+    let graph = match scenario {
+        InstallScenario::Hot => {
+            early_exit = true;
+            lockfile_reused_unchanged = true;
+            let existing = existing_lockfile.expect("Hot scenario requires lockfile");
+            lockfile::to_graph(&existing)
         }
 
-        if can_reuse_lockfile {
-            let existing = lockfile::read(&lockfile_path)?;
-            let mut lock_requested = BTreeMap::new();
+        InstallScenario::WarmLinkOnly => {
+            lockfile_reused_unchanged = true;
+            let existing = existing_lockfile.expect("WarmLinkOnly scenario requires lockfile");
+            let graph = lockfile::to_graph(&existing);
 
-            for (name, dep) in existing.root.dependencies.iter() {
-                lock_requested.insert(name.clone(), dep.requested.clone());
-            }
+            let cache_check = check_store_cache(config, &graph);
+            store_paths_map = cache_check.cached;
 
             if console::is_logging_enabled() {
                 console::verbose(&format!(
-                    "lock_requested keys: {:?}",
-                    lock_requested.keys().collect::<Vec<_>>()
-                ));
-                console::verbose(&format!(
-                    "manifest_root keys: {:?}",
-                    manifest_root.keys().collect::<Vec<_>>()
-                ));
-                console::verbose(&format!(
-                    "lock == manifest: {}",
-                    lock_requested == manifest_root
+                    "warm link-only path: {} packages from cache",
+                    store_paths_map.len()
                 ));
             }
 
-            if lock_requested == manifest_root {
-                let preliminary_graph = lockfile::to_graph(&existing);
-                let lockfile_hash = compute_lockfile_hash(&preliminary_graph);
+            console::step_with_count("Using cached packages", store_paths_map.len());
+            graph
+        }
 
-                if check_integrity_file(project, &lockfile_hash) {
-                    if console::is_logging_enabled() {
-                        console::verbose(
-                            "lockfile and node_modules both fresh; skipping resolution (warm path)",
-                        );
-                    }
-                    lockfile_reused_unchanged = true;
-                    early_exit = true;
-                    preliminary_graph
-                } else {
-                    if console::is_logging_enabled() {
-                        console::verbose(
-                            "lockfile is up to date with manifest; reusing existing resolution graph",
-                        );
-                    }
-                    lockfile_reused_unchanged = true;
-                    preliminary_graph
-                }
-            } else {
-                console::step("Resolving dependencies");
-                if console::is_logging_enabled() {
-                    console::verbose("lockfile manifest mismatch; resolving dependencies again");
-                }
+        InstallScenario::WarmPartialCache => {
+            lockfile_reused_unchanged = true;
+            let existing = existing_lockfile.expect("WarmPartialCache scenario requires lockfile");
+            let graph = lockfile::to_graph(&existing);
 
-                let resolve_started = Instant::now();
-                let paths = store_paths.clone();
-                let cfg = store_config.clone();
-                let client = store_client.clone();
-                let tasks = store_tasks.clone();
-                let progress_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-                let progress_total = Arc::new(std::sync::atomic::AtomicUsize::new(root_deps.len()));
+            let cache_check = check_store_cache(config, &graph);
+            let cached_count = cache_check.cached.len();
+            let missing_count = cache_check.missing.len();
 
-                let graph = resolve::resolve(
-                    config,
-                    &registry_client,
-                    &root_deps,
-                    &root_protocols,
-                    config.min_package_age_days,
-                    options.force,
-                    Some(&overrides),
-                    move |package| {
-                        let cfg = cfg.clone();
-                        let client = client.clone();
-                        let paths = paths.clone();
-                        let tasks = tasks.clone();
-                        let count = progress_count.clone();
-                        let total = progress_total.clone();
-                        let name = package.id.name.clone();
+            if console::is_logging_enabled() {
+                console::verbose(&format!(
+                    "warm partial-cache path: {} cached, {} to download",
+                    cached_count,
+                    missing_count
+                ));
+            }
 
-                        async move {
-                            let current =
-                                count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                            let mut total_val = total.load(std::sync::atomic::Ordering::Relaxed);
-                            if current > total_val {
-                                total_val = current;
-                                total.store(total_val, std::sync::atomic::Ordering::Relaxed);
-                            }
-                            console::progress("🚚", &name, current, total_val);
+            store_paths_map = cache_check.cached;
 
-                            let package_id = package.id.clone();
-
-                            let handle = tokio::spawn(async move {
-                                let path = store::ensure_package(&cfg, &package, &client).await?;
-                                let mut map = paths.lock().await;
-                                map.insert(package_id, path);
-                                Ok::<(), SnpmError>(())
-                            });
-
-                            let mut guard = tasks.lock().await;
-                            guard.push(handle);
-
-                            Ok(())
-                        }
-                    },
-                )
-                .await?;
+            if !cache_check.missing.is_empty() {
+                console::step("Downloading missing packages");
+                let mat_start = Instant::now();
+                let downloaded = materialize_missing_packages(config, &cache_check.missing).await?;
 
                 if console::is_logging_enabled() {
                     console::verbose(&format!(
-                        "resolve completed in {:.3}s (packages={})",
-                        resolve_started.elapsed().as_secs_f64(),
-                        graph.packages.len()
+                        "downloaded {} missing packages in {:.3}s",
+                        downloaded.len(),
+                        mat_start.elapsed().as_secs_f64()
                     ));
                 }
 
-                lockfile::write(&lockfile_path, &graph)?;
-                graph
+                store_paths_map.extend(downloaded);
             }
-        } else {
+
+            console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
+            graph
+        }
+
+        InstallScenario::Cold => {
             console::step("Resolving dependencies");
             if console::is_logging_enabled() {
-                console::verbose("no reusable lockfile; resolving dependencies");
+                console::verbose("cold path: full resolution required");
             }
+
+            let store_paths = Arc::new(Mutex::new(BTreeMap::<PackageId, PathBuf>::new()));
+            let store_config = config.clone();
+            let store_client = registry_client.clone();
+            let store_tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> = Arc::new(Mutex::new(Vec::new()));
 
             let resolve_started = Instant::now();
             let paths = store_paths.clone();
             let cfg = store_config.clone();
             let client = store_client.clone();
             let tasks = store_tasks.clone();
-            let progress_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            let progress_total = Arc::new(std::sync::atomic::AtomicUsize::new(root_deps.len()));
+            let progress_count = Arc::new(AtomicUsize::new(0));
+            let progress_total = Arc::new(AtomicUsize::new(root_deps.len()));
 
             let graph = resolve::resolve(
                 config,
@@ -429,11 +386,11 @@ pub async fn install(
                     let name = package.id.name.clone();
 
                     async move {
-                        let current = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                        let mut total_val = total.load(std::sync::atomic::Ordering::Relaxed);
+                        let current = count.fetch_add(1, Ordering::Relaxed) + 1;
+                        let mut total_val = total.load(Ordering::Relaxed);
                         if current > total_val {
                             total_val = current;
-                            total.store(total_val, std::sync::atomic::Ordering::Relaxed);
+                            total.store(total_val, Ordering::Relaxed);
                         }
                         console::progress("🚚", &name, current, total_val);
 
@@ -463,62 +420,61 @@ pub async fn install(
                 ));
             }
 
+            {
+                let handles = {
+                    let mut guard = store_tasks.lock().await;
+                    std::mem::take(&mut *guard)
+                };
+
+                if console::is_logging_enabled() {
+                    console::verbose(&format!("joining {} store tasks", handles.len()));
+                }
+
+                let store_wait_started = Instant::now();
+
+                for handle in handles {
+                    let result = handle.await.map_err(|error| SnpmError::StoreTask {
+                        reason: error.to_string(),
+                    })?;
+                    result?;
+                }
+
+                if console::is_logging_enabled() {
+                    console::verbose(&format!(
+                        "store tasks completed in {:.3}s",
+                        store_wait_started.elapsed().as_secs_f64()
+                    ));
+                }
+            }
+
+            store_paths_map = {
+                let guard = store_paths.lock().await;
+                guard.clone()
+            };
+
+            if store_paths_map.is_empty() && !graph.packages.is_empty() {
+                if console::is_logging_enabled() {
+                    console::verbose("no store tasks were scheduled; materializing store on demand");
+                }
+                let mat_start = Instant::now();
+                store_paths_map = materialize_store(config, &graph).await?;
+                if console::is_logging_enabled() {
+                    console::verbose(&format!(
+                        "materialized store in {:.3}s (packages={})",
+                        mat_start.elapsed().as_secs_f64(),
+                        store_paths_map.len()
+                    ));
+                }
+            }
+
             if options.include_dev {
                 lockfile::write(&lockfile_path, &graph)?;
             }
 
+            console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
             graph
         }
     };
-
-    {
-        let handles = {
-            let mut guard = store_tasks.lock().await;
-            std::mem::take(&mut *guard)
-        };
-
-        if console::is_logging_enabled() {
-            console::verbose(&format!("joining {} store tasks", handles.len()));
-        }
-
-        let store_wait_started = Instant::now();
-
-        for handle in handles {
-            let result = handle.await.map_err(|error| SnpmError::StoreTask {
-                reason: error.to_string(),
-            })?;
-            result?;
-        }
-
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "store tasks completed in {:.3}s",
-                store_wait_started.elapsed().as_secs_f64()
-            ));
-        }
-    }
-
-    let mut store_paths_map = {
-        let guard = store_paths.lock().await;
-        guard.clone()
-    };
-
-    if store_paths_map.is_empty() && !graph.packages.is_empty() {
-        if console::is_logging_enabled() {
-            console::verbose("no store tasks were scheduled; materializing store on demand");
-        }
-        let mat_start = Instant::now();
-        store_paths_map = materialize_store(config, &graph).await?;
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "materialized store in {:.3}s (packages={})",
-                mat_start.elapsed().as_secs_f64(),
-                store_paths_map.len()
-            ));
-        }
-    }
-
-    console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
 
     write_manifest(
         project,
@@ -873,7 +829,7 @@ fn parse_spec(spec: &str) -> (String, String) {
 async fn materialize_store(
     config: &SnpmConfig,
     graph: &ResolutionGraph,
-) -> Result<BTreeMap<crate::resolve::PackageId, PathBuf>> {
+) -> Result<BTreeMap<PackageId, PathBuf>> {
     let client = Client::new();
     let mut futures = Vec::new();
 
@@ -884,7 +840,7 @@ async fn materialize_store(
         let future = async move {
             let path = store::ensure_package(&config, &package, &client).await?;
             let id = package.id.clone();
-            Ok::<(crate::resolve::PackageId, PathBuf), crate::SnpmError>((id, path))
+            Ok::<(PackageId, PathBuf), crate::SnpmError>((id, path))
         };
 
         futures.push(future);
@@ -899,6 +855,140 @@ async fn materialize_store(
     }
 
     Ok(paths)
+}
+
+fn check_store_cache(config: &SnpmConfig, graph: &ResolutionGraph) -> CacheCheckResult {
+    let base = config.packages_dir();
+    let mut cached = BTreeMap::new();
+    let mut missing = Vec::new();
+
+    for package in graph.packages.values() {
+        let name_dir = package.id.name.replace('/', "_");
+        let pkg_dir = base.join(&name_dir).join(&package.id.version);
+        let marker = pkg_dir.join(".snpm_complete");
+
+        if marker.is_file() {
+            let candidate = pkg_dir.join("package");
+            let root = if candidate.is_dir() { candidate } else { pkg_dir };
+            cached.insert(package.id.clone(), root);
+        } else {
+            missing.push(package.clone());
+        }
+    }
+
+    CacheCheckResult { cached, missing }
+}
+
+async fn materialize_missing_packages(
+    config: &SnpmConfig,
+    missing: &[crate::resolve::ResolvedPackage],
+) -> Result<BTreeMap<PackageId, PathBuf>> {
+    if missing.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    let client = Client::new();
+    let total = missing.len();
+    let progress_count = Arc::new(AtomicUsize::new(0));
+    let mut futures = Vec::with_capacity(total);
+
+    for package in missing {
+        let config = config.clone();
+        let client = client.clone();
+        let package = package.clone();
+        let count = progress_count.clone();
+
+        let future = async move {
+            let current = count.fetch_add(1, Ordering::Relaxed) + 1;
+            console::progress("📦", &package.id.name, current, total);
+
+            let path = store::ensure_package(&config, &package, &client).await?;
+            Ok::<(PackageId, PathBuf), SnpmError>((package.id.clone(), path))
+        };
+
+        futures.push(future);
+    }
+
+    let results = join_all(futures).await;
+    let mut paths = BTreeMap::new();
+
+    for result in results {
+        let (id, path) = result?;
+        paths.insert(id, path);
+    }
+
+    Ok(paths)
+}
+
+fn detect_install_scenario(
+    project: &Project,
+    lockfile_path: &Path,
+    manifest_root: &BTreeMap<String, String>,
+    config: &SnpmConfig,
+    force: bool,
+) -> (InstallScenario, Option<lockfile::Lockfile>) {
+    if !lockfile_path.is_file() {
+        if console::is_logging_enabled() {
+            console::verbose("scenario: Cold (no lockfile)");
+        }
+        return (InstallScenario::Cold, None);
+    }
+
+    let existing = match lockfile::read(lockfile_path) {
+        Ok(lf) => lf,
+        Err(_) => {
+            if console::is_logging_enabled() {
+                console::verbose("scenario: Cold (lockfile unreadable)");
+            }
+            return (InstallScenario::Cold, None);
+        }
+    };
+
+    let mut lock_requested = BTreeMap::new();
+    for (name, dep) in existing.root.dependencies.iter() {
+        lock_requested.insert(name.clone(), dep.requested.clone());
+    }
+
+    if lock_requested != *manifest_root {
+        if console::is_logging_enabled() {
+            console::verbose("scenario: Cold (lockfile doesn't match manifest)");
+        }
+        return (InstallScenario::Cold, Some(existing));
+    }
+
+    let graph = lockfile::to_graph(&existing);
+    let lockfile_hash = compute_lockfile_hash(&graph);
+
+    if !force && check_integrity_file(project, &lockfile_hash) {
+        if console::is_logging_enabled() {
+            console::verbose("scenario: Hot (lockfile + node_modules valid)");
+        }
+        return (InstallScenario::Hot, Some(existing));
+    }
+
+    let cache_check = check_store_cache(config, &graph);
+    let missing_count = cache_check.missing.len();
+    let total_count = graph.packages.len();
+
+    if missing_count == 0 {
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "scenario: WarmLinkOnly ({} packages all cached)",
+                total_count
+            ));
+        }
+        return (InstallScenario::WarmLinkOnly, Some(existing));
+    }
+
+    if console::is_logging_enabled() {
+        console::verbose(&format!(
+            "scenario: WarmPartialCache ({}/{} packages cached, {} missing)",
+            total_count - missing_count,
+            total_count,
+            missing_count
+        ));
+    }
+    (InstallScenario::WarmPartialCache, Some(existing))
 }
 
 fn write_manifest(

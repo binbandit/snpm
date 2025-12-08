@@ -78,26 +78,20 @@ async fn run() -> Result<()> {
                     include_dev: !production,
                     frozen_lockfile,
                     force,
+                    silent_summary: false,
                 };
                 operations::install(&config, project, options).await?;
             } else {
                 if packages.is_empty() {
                     if let Some(mut workspace) = Workspace::discover(&cwd)? {
                         if workspace.root == cwd {
-                            for (index, project) in workspace.projects.iter_mut().enumerate() {
-                                if index > 0 {
-                                    println!();
-                                }
-
-                                let options = operations::InstallOptions {
-                                    requested: Vec::new(),
-                                    dev: false,
-                                    include_dev: !production,
-                                    frozen_lockfile,
-                                    force,
-                                };
-                                operations::install(&config, project, options).await?;
-                            }
+                            operations::install_workspace(
+                                &config,
+                                &mut workspace,
+                                !production,
+                                frozen_lockfile,
+                                force,
+                            ).await?;
 
                             return Ok(());
                         }
@@ -111,6 +105,7 @@ async fn run() -> Result<()> {
                     include_dev: !production,
                     frozen_lockfile,
                     force,
+                    silent_summary: false,
                 };
                 operations::install(&config, &mut project, options).await?;
             }
@@ -144,6 +139,7 @@ async fn run() -> Result<()> {
                     include_dev: true,
                     frozen_lockfile: false,
                     force,
+                    silent_summary: false,
                 };
                 operations::install(&config, project, options).await?;
             } else {
@@ -154,6 +150,7 @@ async fn run() -> Result<()> {
                     include_dev: true,
                     frozen_lockfile: false,
                     force,
+                    silent_summary: false,
                 };
                 operations::install(&config, &mut project, options).await?;
             }
@@ -222,27 +219,28 @@ async fn run() -> Result<()> {
                 fs::remove_file(&lockfile_path)?;
             }
 
+            if let Some(mut workspace) = workspace {
+                if workspace.root == cwd {
+                    operations::install_workspace(
+                        &config,
+                        &mut workspace,
+                        !production,
+                        false,
+                        force,
+                    ).await?;
+
+                    return Ok(());
+                }
+            }
+
             let options = InstallOptions {
                 requested: Vec::new(),
                 dev: false,
                 include_dev: !production,
                 frozen_lockfile: false,
                 force,
+                silent_summary: false,
             };
-
-            if let Some(mut workspace) = workspace {
-                if workspace.root == cwd {
-                    for (index, member) in workspace.projects.iter_mut().enumerate() {
-                        if index > 0 {
-                            println!();
-                        }
-
-                        operations::install(&config, member, options.clone()).await?;
-                    }
-
-                    return Ok(());
-                }
-            }
 
             operations::install(&config, &mut project, options).await?;
         }

@@ -28,6 +28,13 @@ pub struct InstallOptions {
     pub include_dev: bool,
     pub frozen_lockfile: bool,
     pub force: bool,
+    pub silent_summary: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct InstallResult {
+    pub package_count: usize,
+    pub elapsed_seconds: f32,
 }
 
 #[derive(Debug)]
@@ -48,7 +55,7 @@ pub async fn install(
     config: &SnpmConfig,
     project: &mut Project,
     options: InstallOptions,
-) -> Result<()> {
+) -> Result<InstallResult> {
     let started = Instant::now();
 
     if console::is_logging_enabled() {
@@ -640,13 +647,17 @@ pub async fn install(
 
     let elapsed = started.elapsed();
     let seconds = elapsed.as_secs_f32();
-    console::summary(graph.packages.len(), seconds);
+    let package_count = graph.packages.len();
+
+    if !options.silent_summary {
+        console::summary(package_count, seconds);
+    }
 
     if console::is_logging_enabled() {
         console::verbose(&format!(
             "install completed in {:.3}s (packages={} store_paths={} additions={} is_fresh_install={} blocked_scripts={})",
             seconds,
-            graph.packages.len(),
+            package_count,
             store_paths_map.len(),
             additions.len(),
             is_fresh_install,
@@ -659,7 +670,93 @@ pub async fn install(
         console::blocked_scripts(&blocked_scripts);
     }
 
-    Ok(())
+    Ok(InstallResult {
+        package_count,
+        elapsed_seconds: seconds,
+    })
+}
+
+/// Install dependencies for an entire workspace at once.
+/// This resolves and downloads packages once, then links to all member projects.
+pub async fn install_workspace(
+    config: &SnpmConfig,
+    workspace: &mut Workspace,
+    include_dev: bool,
+    frozen_lockfile: bool,
+    force: bool,
+) -> Result<InstallResult> {
+    let started = Instant::now();
+
+    if workspace.projects.is_empty() {
+        return Ok(InstallResult {
+            package_count: 0,
+            elapsed_seconds: 0.0,
+        });
+    }
+
+    // Use the first project as the "root" for resolution purposes
+    // The resolution will collect deps from all workspace members via collect_workspace_root_deps
+    let project = &mut workspace.projects[0];
+
+    let options = InstallOptions {
+        requested: Vec::new(),
+        dev: false,
+        include_dev,
+        frozen_lockfile,
+        force,
+        silent_summary: true,
+    };
+
+    // Run install for the first project - this resolves all workspace deps
+    let result = install(config, project, options.clone()).await?;
+
+    // Now link to remaining workspace projects
+    for project in workspace.projects.iter().skip(1) {
+        let node_modules = project.root.join("node_modules");
+        
+        // Collect this project's local workspace deps
+        let mut local_deps = BTreeSet::new();
+        let mut local_dev_deps = BTreeSet::new();
+        
+        for (name, value) in project.manifest.dependencies.iter() {
+            if value.starts_with("workspace:") {
+                local_deps.insert(name.clone());
+            }
+        }
+        
+        for (name, value) in project.manifest.dev_dependencies.iter() {
+            if value.starts_with("workspace:") {
+                local_dev_deps.insert(name.clone());
+            }
+        }
+        
+        // Link workspace dependencies for this project
+        link_local_workspace_deps(
+            project,
+            Some(workspace),
+            &local_deps,
+            &local_dev_deps,
+            include_dev,
+        )?;
+
+        // Create node_modules if it doesn't exist (for projects with only workspace deps)
+        if !node_modules.exists() {
+            fs::create_dir_all(&node_modules).map_err(|source| SnpmError::WriteFile {
+                path: node_modules.clone(),
+                source,
+            })?;
+        }
+    }
+
+    let elapsed = started.elapsed();
+    let seconds = elapsed.as_secs_f32();
+
+    console::summary(result.package_count, seconds);
+
+    Ok(InstallResult {
+        package_count: result.package_count,
+        elapsed_seconds: seconds,
+    })
 }
 
 pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<String>) -> Result<()> {
@@ -696,9 +793,11 @@ pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<Strin
         include_dev: true,
         frozen_lockfile: false,
         force: false,
+        silent_summary: false,
     };
 
-    install(config, project, options).await
+    install(config, project, options).await?;
+    Ok(())
 }
 
 fn parse_requested_spec(spec: &str) -> ParsedSpec {
@@ -1350,9 +1449,11 @@ pub async fn upgrade(
             include_dev: !production,
             frozen_lockfile: false,
             force,
+            silent_summary: false,
         };
 
-        return install(config, project, options).await;
+        install(config, project, options).await?;
+        return Ok(());
     }
 
     let include_dev = !production;
@@ -1417,9 +1518,11 @@ pub async fn upgrade(
         include_dev,
         frozen_lockfile: false,
         force,
+        silent_summary: false,
     };
 
-    install(config, project, options).await
+    install(config, project, options).await?;
+    Ok(())
 }
 
 fn can_any_scripts_run(config: &SnpmConfig, workspace: Option<&Workspace>) -> bool {

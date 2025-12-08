@@ -134,18 +134,17 @@ fn link_package(
         })?;
     }
 
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+
     let store_root = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
         name: id.name.clone(),
         version: id.version.clone(),
     })?;
-
-    let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
-
-    if scripts_allowed {
-        copy_dir(store_root, dest)?;
-    } else {
-        link_dir(config, store_root, dest)?;
-    }
 
     let package = graph
         .packages
@@ -154,6 +153,21 @@ fn link_package(
             name: id.name.clone(),
             version: id.version.clone(),
         })?;
+
+    let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
+    let has_nested_deps = !package.dependencies.is_empty();
+
+    if scripts_allowed || has_nested_deps {
+        if scripts_allowed {
+            copy_dir(store_root, dest)?;
+        } else {
+            link_dir(config, store_root, dest)?;
+        }
+    } else {
+        if symlink_dir_entry(store_root, dest).is_err() {
+            link_dir(config, store_root, dest)?;
+        }
+    }
 
     for (dep_name, dep_id) in package.dependencies.iter() {
         let node_modules = dest.join("node_modules");

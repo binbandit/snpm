@@ -1109,6 +1109,16 @@ fn link_local_workspace_deps(
 
         let dest = node_modules.join(name);
 
+        // Ensure parent directory exists (for scoped packages like @scope/pkg)
+        if let Some(parent) = dest.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
+        }
+
         if dest.exists() {
             if dest.is_dir() {
                 fs::remove_dir_all(&dest)

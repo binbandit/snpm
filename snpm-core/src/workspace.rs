@@ -109,17 +109,49 @@ impl Workspace {
 fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
     let snpm_path = dir.join("snpm-workspace.yaml");
     let pnpm_path = dir.join("pnpm-workspace.yaml");
+    let package_json_path = dir.join("package.json");
 
-    let path = if snpm_path.is_file() {
-        snpm_path
+    let yaml_path = if snpm_path.is_file() {
+        Some(snpm_path)
     } else if pnpm_path.is_file() {
-        pnpm_path
+        Some(pnpm_path)
     } else {
-        return Ok(None);
+        None
     };
 
+    let pkg_workspaces = if package_json_path.is_file() {
+        read_package_json_workspaces(&package_json_path)?
+    } else {
+        None
+    };
+
+    if yaml_path.is_none() && pkg_workspaces.is_none() {
+        return Ok(None);
+    }
+
     let root = dir.to_path_buf();
-    let mut cfg = read_config(&path)?;
+
+    let mut cfg = if let Some(path) = yaml_path {
+        read_config(&path)?
+    } else {
+        WorkspaceConfig {
+            packages: Vec::new(),
+            catalog: BTreeMap::new(),
+            catalogs: BTreeMap::new(),
+            only_built_dependencies: Vec::new(),
+            ignored_built_dependencies: Vec::new(),
+            hoisting: None,
+        }
+    };
+
+    if let Some(patterns) = pkg_workspaces {
+        for pattern in patterns {
+            if !cfg.packages.contains(&pattern) {
+                cfg.packages.push(pattern);
+            }
+        }
+    }
+
     merge_snpm_catalog(&root, &mut cfg)?;
     let projects = load_projects(&root, &cfg)?;
     Ok(Workspace {
@@ -128,6 +160,26 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
         config: cfg,
     }
     .into())
+}
+
+fn read_package_json_workspaces(path: &Path) -> Result<Option<Vec<String>>> {
+    let data = fs::read_to_string(path).map_err(|source| SnpmError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    #[derive(Deserialize)]
+    struct PartialManifest {
+        workspaces: Option<crate::project::WorkspacesField>,
+    }
+
+    let manifest: PartialManifest =
+        serde_json::from_str(&data).map_err(|source| SnpmError::ParseJson {
+            path: path.to_path_buf(),
+            source,
+        })?;
+
+    Ok(manifest.workspaces.map(|w| w.patterns().to_vec()))
 }
 
 fn read_config(path: &Path) -> Result<WorkspaceConfig> {
@@ -201,13 +253,17 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    #[test]
-    fn test_catalog_overlay() {
+    fn temp_dir(name: &str) -> PathBuf {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("snpm_test_{}", timestamp));
+        std::env::temp_dir().join(format!("snpm_test_{}_{}", name, timestamp))
+    }
+
+    #[test]
+    fn test_catalog_overlay() {
+        let dir = temp_dir("catalog_overlay");
         fs::create_dir_all(&dir).unwrap();
 
         let workspace_yaml = r#"
@@ -239,6 +295,111 @@ catalog:
             workspace.config.catalog.get("axios").map(|s| s.as_str()),
             Some("1.0.0")
         );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_package_json_workspaces_array() {
+        let dir = temp_dir("pkg_json_workspaces_array");
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("packages/foo")).unwrap();
+
+        fs::write(
+            dir.join("package.json"),
+            r#"{ "name": "my-monorepo", "workspaces": ["packages/*"] }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("packages/foo/package.json"),
+            r#"{ "name": "foo", "version": "1.0.0" }"#,
+        )
+        .unwrap();
+
+        let workspace = Workspace::discover(&dir).unwrap().unwrap();
+
+        assert_eq!(workspace.config.packages, vec!["packages/*"]);
+        assert_eq!(workspace.projects.len(), 1);
+        assert_eq!(workspace.projects[0].manifest.name.as_deref(), Some("foo"));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_package_json_workspaces_object() {
+        let dir = temp_dir("pkg_json_workspaces_object");
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("apps/bar")).unwrap();
+
+        fs::write(
+            dir.join("package.json"),
+            r#"{ "name": "my-monorepo", "workspaces": { "packages": ["apps/*"] } }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("apps/bar/package.json"),
+            r#"{ "name": "bar", "version": "2.0.0" }"#,
+        )
+        .unwrap();
+
+        let workspace = Workspace::discover(&dir).unwrap().unwrap();
+
+        assert_eq!(workspace.config.packages, vec!["apps/*"]);
+        assert_eq!(workspace.projects.len(), 1);
+        assert_eq!(workspace.projects[0].manifest.name.as_deref(), Some("bar"));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_combined_yaml_and_package_json_workspaces() {
+        let dir = temp_dir("combined_workspaces");
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("packages/a")).unwrap();
+        fs::create_dir_all(dir.join("apps/b")).unwrap();
+
+        fs::write(dir.join("snpm-workspace.yaml"), "packages:\n  - \"packages/*\"\n").unwrap();
+        fs::write(
+            dir.join("package.json"),
+            r#"{ "name": "my-monorepo", "workspaces": ["apps/*"] }"#,
+        )
+        .unwrap();
+        fs::write(dir.join("packages/a/package.json"), r#"{ "name": "pkg-a" }"#).unwrap();
+        fs::write(dir.join("apps/b/package.json"), r#"{ "name": "app-b" }"#).unwrap();
+
+        let workspace = Workspace::discover(&dir).unwrap().unwrap();
+
+        assert!(workspace.config.packages.contains(&"packages/*".to_string()));
+        assert!(workspace.config.packages.contains(&"apps/*".to_string()));
+        assert_eq!(workspace.projects.len(), 2);
+
+        let names: Vec<_> = workspace
+            .projects
+            .iter()
+            .filter_map(|p| p.manifest.name.as_deref())
+            .collect();
+        assert!(names.contains(&"pkg-a"));
+        assert!(names.contains(&"app-b"));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_no_duplicate_patterns() {
+        let dir = temp_dir("no_duplicate_patterns");
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(dir.join("snpm-workspace.yaml"), "packages:\n  - \"packages/*\"\n").unwrap();
+        fs::write(
+            dir.join("package.json"),
+            r#"{ "name": "my-monorepo", "workspaces": ["packages/*"] }"#,
+        )
+        .unwrap();
+
+        let workspace = Workspace::discover(&dir).unwrap().unwrap();
+
+        assert_eq!(workspace.config.packages.len(), 1);
+        assert_eq!(workspace.config.packages[0], "packages/*");
 
         fs::remove_dir_all(&dir).unwrap();
     }

@@ -5,6 +5,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum WorkspacesField {
+    Patterns(Vec<String>),
+    Object { packages: Vec<String> },
+}
+
+impl WorkspacesField {
+    pub fn patterns(&self) -> &[String] {
+        match self {
+            WorkspacesField::Patterns(p) => p,
+            WorkspacesField::Object { packages } => packages,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
     pub name: Option<String>,
@@ -19,6 +35,8 @@ pub struct Manifest {
     pub pnpm: Option<ManifestPnpm>,
     #[serde(default)]
     pub snpm: Option<ManifestSnpm>,
+    #[serde(default)]
+    pub workspaces: Option<WorkspacesField>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

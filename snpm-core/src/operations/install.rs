@@ -713,23 +713,23 @@ pub async fn install_workspace(
     // Now link to remaining workspace projects
     for project in workspace.projects.iter().skip(1) {
         let node_modules = project.root.join("node_modules");
-        
+
         // Collect this project's local workspace deps
         let mut local_deps = BTreeSet::new();
         let mut local_dev_deps = BTreeSet::new();
-        
+
         for (name, value) in project.manifest.dependencies.iter() {
             if value.starts_with("workspace:") {
                 local_deps.insert(name.clone());
             }
         }
-        
+
         for (name, value) in project.manifest.dev_dependencies.iter() {
             if value.starts_with("workspace:") {
                 local_dev_deps.insert(name.clone());
             }
         }
-        
+
         // Link workspace dependencies for this project
         link_local_workspace_deps(
             project,

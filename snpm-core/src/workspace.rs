@@ -358,18 +358,31 @@ catalog:
         fs::create_dir_all(dir.join("packages/a")).unwrap();
         fs::create_dir_all(dir.join("apps/b")).unwrap();
 
-        fs::write(dir.join("snpm-workspace.yaml"), "packages:\n  - \"packages/*\"\n").unwrap();
+        fs::write(
+            dir.join("snpm-workspace.yaml"),
+            "packages:\n  - \"packages/*\"\n",
+        )
+        .unwrap();
         fs::write(
             dir.join("package.json"),
             r#"{ "name": "my-monorepo", "workspaces": ["apps/*"] }"#,
         )
         .unwrap();
-        fs::write(dir.join("packages/a/package.json"), r#"{ "name": "pkg-a" }"#).unwrap();
+        fs::write(
+            dir.join("packages/a/package.json"),
+            r#"{ "name": "pkg-a" }"#,
+        )
+        .unwrap();
         fs::write(dir.join("apps/b/package.json"), r#"{ "name": "app-b" }"#).unwrap();
 
         let workspace = Workspace::discover(&dir).unwrap().unwrap();
 
-        assert!(workspace.config.packages.contains(&"packages/*".to_string()));
+        assert!(
+            workspace
+                .config
+                .packages
+                .contains(&"packages/*".to_string())
+        );
         assert!(workspace.config.packages.contains(&"apps/*".to_string()));
         assert_eq!(workspace.projects.len(), 2);
 
@@ -389,7 +402,11 @@ catalog:
         let dir = temp_dir("no_duplicate_patterns");
         fs::create_dir_all(&dir).unwrap();
 
-        fs::write(dir.join("snpm-workspace.yaml"), "packages:\n  - \"packages/*\"\n").unwrap();
+        fs::write(
+            dir.join("snpm-workspace.yaml"),
+            "packages:\n  - \"packages/*\"\n",
+        )
+        .unwrap();
         fs::write(
             dir.join("package.json"),
             r#"{ "name": "my-monorepo", "workspaces": ["packages/*"] }"#,

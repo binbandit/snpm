@@ -147,7 +147,13 @@ pub fn clear_line() {
 pub fn added(name: &str, version: &str, dev: bool) {
     let mark = green("+");
     let dev_label = if dev { dim(" (dev)") } else { String::new() };
-    println!("{} {}{}{}", mark, name, dim(&format!("@{}", version)), dev_label);
+    println!(
+        "{} {}{}{}",
+        mark,
+        name,
+        dim(&format!("@{}", version)),
+        dev_label
+    );
     log_prefixed(
         "INFO",
         &format!(

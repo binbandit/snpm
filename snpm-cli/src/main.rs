@@ -91,7 +91,8 @@ async fn run() -> Result<()> {
                                 !production,
                                 frozen_lockfile,
                                 force,
-                            ).await?;
+                            )
+                            .await?;
 
                             return Ok(());
                         }
@@ -227,7 +228,8 @@ async fn run() -> Result<()> {
                         !production,
                         false,
                         force,
-                    ).await?;
+                    )
+                    .await?;
 
                     return Ok(());
                 }

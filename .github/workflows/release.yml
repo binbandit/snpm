@@ -415,6 +415,9 @@ jobs:
     name: Publish to npm
     needs: [prepare, release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     if: needs.prepare.outputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' || inputs.version != '') && needs.release.result == 'success'
     steps:
       - uses: actions/checkout@v4
@@ -450,8 +453,8 @@ jobs:
           # Check if this is a prerelease (date-based version)
           if [[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
             echo "Publishing as latest tag"
-            npm publish --access public
+            npm publish --access public --provenance
           else
             echo "Publishing as next tag (prerelease)"
-            npm publish --access public --tag next
+            npm publish --access public --tag next --provenance
           fi

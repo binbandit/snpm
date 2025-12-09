@@ -414,7 +414,8 @@ async fn resolve_package(
 }
 
 fn version_age_days(package: &RegistryPackage, version: &str, now: OffsetDateTime) -> Option<i64> {
-    let time_str = package.time.get(version)?;
+    let time_val = package.time.get(version)?;
+    let time_str = time_val.as_str()?;
     let published = OffsetDateTime::parse(time_str, &Rfc3339).ok()?;
     let age = now - published;
     Some(age.whole_days())

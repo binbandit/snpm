@@ -58,12 +58,125 @@ pub fn link(
             .or_insert(dest.clone());
     }
 
-    for (pkg_name, pkg_dest) in root_bin_targets {
-        link_bins(&pkg_dest, &root_node_modules, &pkg_name)?;
+    for (pkg_name, pkg_dest) in root_bin_targets.iter() {
+        link_bins(pkg_dest, &root_node_modules, pkg_name)?;
     }
+
+    link_bundled_bins_recursive(graph, &linked)?;
 
     if !matches!(hoisting, HoistingMode::None) {
         hoist_packages(config, workspace, project, graph, store_paths, hoisting)?;
+    }
+
+    Ok(())
+}
+
+fn link_bundled_bins_recursive(
+    graph: &ResolutionGraph,
+    linked: &BTreeMap<PackageId, PathBuf>,
+) -> Result<()> {
+    for (id, dest) in linked.iter() {
+        if let Some(package) = graph.packages.get(id) {
+            if let Some(ref bundled) = package.bundled_dependencies {
+                if !bundled.is_empty() {
+                    link_bundled_bins(dest)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn link_bundled_bins(pkg_dest: &Path) -> Result<()> {
+    let bundled_modules = pkg_dest.join("node_modules");
+    if !bundled_modules.is_dir() {
+        return Ok(());
+    }
+
+    let bin_dir = bundled_modules.join(".bin");
+
+    let entries = match fs::read_dir(&bundled_modules) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = match entry.file_name().to_str() {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        if name.starts_with('.') {
+            continue;
+        }
+
+        if name.starts_with('@') {
+            if let Ok(scope_entries) = fs::read_dir(&path) {
+                for scope_entry in scope_entries.flatten() {
+                    let scope_path = scope_entry.path();
+                    if scope_path.is_dir() {
+                        if let Some(pkg_name) = scope_entry.file_name().to_str() {
+                            let full_name = format!("{}/{}", name, pkg_name);
+                            link_bins_from_bundled_pkg(&scope_path, &bin_dir, &full_name)?;
+                        }
+                    }
+                }
+            }
+        } else {
+            link_bins_from_bundled_pkg(&path, &bin_dir, &name)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn link_bins_from_bundled_pkg(pkg_path: &Path, bin_dir: &Path, pkg_name: &str) -> Result<()> {
+    let manifest_path = pkg_path.join("package.json");
+    if !manifest_path.is_file() {
+        return Ok(());
+    }
+
+    let data = match fs::read_to_string(&manifest_path) {
+        Ok(d) => d,
+        Err(_) => return Ok(()),
+    };
+
+    let value: Value = match serde_json::from_str(&data) {
+        Ok(v) => v,
+        Err(_) => return Ok(()),
+    };
+
+    let bin = match value.get("bin") {
+        Some(b) => b,
+        None => return Ok(()),
+    };
+
+    fs::create_dir_all(bin_dir).map_err(|source| SnpmError::WriteFile {
+        path: bin_dir.to_path_buf(),
+        source,
+    })?;
+
+    match bin {
+        Value::String(script) => {
+            let target = pkg_path.join(script);
+            let bin_name = sanitize_bin_name(pkg_name);
+            create_bin_file(bin_dir, &bin_name, &target)?;
+        }
+        Value::Object(map) => {
+            for (entry_name, v) in map.iter() {
+                if let Some(script) = v.as_str() {
+                    let target = pkg_path.join(script);
+                    let bin_name = sanitize_bin_name(entry_name);
+                    create_bin_file(bin_dir, &bin_name, &target)?;
+                }
+            }
+        }
+        _ => {}
     }
 
     Ok(())

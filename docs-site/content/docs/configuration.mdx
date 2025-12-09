@@ -24,7 +24,7 @@ snpm can be configured using environment variables:
 | `SNPM_ALLOW_SCRIPTS` | Comma-separated list of packages allowed to run install scripts | - |
 | `SNPM_VERBOSE` | Enable verbose logging | `false` |
 | `SNPM_LOG_FILE` | Custom log file path | `.snpm.log` |
-| `NPM_TOKEN`, `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` | Registry authentication token | - |
+| `NPM_TOKEN`, `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` | Registry authentication token (Bearer scheme) | - |
 
 **Examples:**
 
@@ -77,14 +77,14 @@ export SNPM_REGISTRY=https://registry.npmjs.org
 ### Private Registry
 
 ```bash
-export SNPM_REGISTRY=https://npm.mycompany.com
-export NPM_TOKEN=your-token-here
+export SNPM_REGISTRY=https://npm.mycompany.com  # URL must include protocol; trailing slashes are normalized
+export NPM_TOKEN=your-token-here                # Auth tokens use Bearer scheme
 ```
 
 Or use the login command:
 
 ```bash
-snpm login --registry https://npm.mycompany.com
+snpm login --registry https://npm.mycompany.com  # Web/basic credentials are exchanged for a Bearer token; URL normalization applied
 ```
 
 ### Scoped Registries

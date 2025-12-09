@@ -19,6 +19,8 @@ pub struct PackageId {
     pub version: String,
 }
 
+use crate::registry::BundledDependencies;
+
 #[derive(Clone, Debug)]
 pub struct ResolvedPackage {
     pub id: PackageId,
@@ -26,6 +28,8 @@ pub struct ResolvedPackage {
     pub integrity: Option<String>,
     pub dependencies: BTreeMap<String, PackageId>,
     pub peer_dependencies: BTreeMap<String, String>,
+    pub bundled_dependencies: Option<BundledDependencies>,
+    pub has_bin: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -299,12 +303,20 @@ async fn resolve_package(
         }
     }
 
+    let bundled_deps = version_meta.get_bundled_dependencies().cloned();
+    let bundled_set = bundled_deps
+        .as_ref()
+        .map(|bd| bd.to_set(&version_meta.dependencies))
+        .unwrap_or_default();
+
     let placeholder = ResolvedPackage {
         id: id.clone(),
         tarball: version_meta.dist.tarball.clone(),
         integrity: version_meta.dist.integrity.clone(),
         dependencies: BTreeMap::new(),
         peer_dependencies,
+        bundled_dependencies: bundled_deps.clone(),
+        has_bin: version_meta.has_bin(),
     };
 
     {
@@ -321,6 +333,10 @@ async fn resolve_package(
     let mut dep_futures = Vec::new();
 
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
+        if bundled_set.contains(dep_name) {
+            continue;
+        }
+
         let name = dep_name.clone();
         let range = dep_range.clone();
         let packages_clone = packages.clone();

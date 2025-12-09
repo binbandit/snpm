@@ -1,3 +1,4 @@
+use crate::registry::BundledDependencies;
 use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency};
 use crate::{Result, SnpmError};
 use serde::{Deserialize, Serialize};
@@ -21,8 +22,17 @@ pub struct LockPackage {
     pub name: String,
     pub version: String,
     pub tarball: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub integrity: Option<String>,
     pub dependencies: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "bundledDependencies")]
+    pub bundled_dependencies: Option<BundledDependencies>,
+    #[serde(default, skip_serializing_if = "is_false", rename = "hasBin")]
+    pub has_bin: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -59,6 +69,8 @@ pub fn write(path: &Path, graph: &ResolutionGraph) -> Result<()> {
             tarball: package.tarball.clone(),
             integrity: package.integrity.clone(),
             dependencies: deps,
+            bundled_dependencies: package.bundled_dependencies.clone(),
+            has_bin: package.has_bin,
         };
 
         let key = format!("{}@{}", package.id.name, package.id.version);
@@ -115,6 +127,8 @@ pub fn to_graph(lockfile: &Lockfile) -> ResolutionGraph {
             integrity: lock_pkg.integrity.clone(),
             dependencies: BTreeMap::new(),
             peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: lock_pkg.bundled_dependencies.clone(),
+            has_bin: lock_pkg.has_bin,
         };
 
         packages.insert(id, resolved);

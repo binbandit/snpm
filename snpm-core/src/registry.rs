@@ -13,7 +13,7 @@ use std::time::Instant;
 pub struct RegistryPackage {
     pub versions: BTreeMap<String, RegistryVersion>,
     #[serde(default)]
-    pub time: BTreeMap<String, String>,
+    pub time: BTreeMap<String, serde_json::Value>,
     #[serde(default, rename = "dist-tags")]
     pub dist_tags: BTreeMap<String, String>,
 }

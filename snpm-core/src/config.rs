@@ -1,4 +1,10 @@
 use directories::{BaseDirs, ProjectDirs};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthScheme {
+    Bearer,
+    Basic,
+}
 use std::collections::{BTreeMap, BTreeSet};
 use std::{
     env, fs,
@@ -16,10 +22,13 @@ pub struct SnpmConfig {
     pub scoped_registries: BTreeMap<String, String>,
     pub registry_auth: BTreeMap<String, String>,
     pub default_registry_auth_token: Option<String>,
+    pub default_registry_auth_scheme: AuthScheme,
+    pub registry_auth_schemes: BTreeMap<String, AuthScheme>,
     pub hoisting: HoistingMode,
     pub link_backend: LinkBackend,
     pub strict_peers: bool,
     pub frozen_lockfile_default: bool,
+    pub always_auth: bool,
     pub registry_concurrency: usize,
     pub verbose: bool,
     pub log_file: Option<PathBuf>,
@@ -93,6 +102,7 @@ impl SnpmConfig {
             registry_auth,
             rc_default_auth_token,
             rc_hoisting,
+            rc_default_auth_basic,
         ) = read_registry_config();
 
         let mut default_registry = rc_default_registry;
@@ -102,6 +112,10 @@ impl SnpmConfig {
         let mut strict_peers = false;
         let mut frozen_lockfile_default = false;
         let mut registry_concurrency = 64;
+        // Default to Bearer; may switch to Basic if _auth detected or token looks like Basic credentials
+        let mut default_registry_auth_scheme = AuthScheme::Bearer;
+        // Honor always-auth default (can be overridden by env below)
+        let mut always_auth = false;
 
         if let Ok(value) =
             env::var("NPM_CONFIG_REGISTRY").or_else(|_| env::var("npm_config_registry"))
@@ -117,17 +131,25 @@ impl SnpmConfig {
                     default_registry_auth_token = None;
                 }
 
-                default_registry = new_default;
+                default_registry = normalize_registry_url(&new_default);
             }
         }
 
         if let Ok(token) = env::var("NODE_AUTH_TOKEN")
             .or_else(|_| env::var("NPM_TOKEN"))
             .or_else(|_| env::var("SNPM_AUTH_TOKEN"))
+            .or_else(|_| env::var("NPM_CONFIG__AUTH"))
+            .or_else(|_| env::var("npm_config__auth"))
         {
             let trimmed = token.trim();
             if !trimmed.is_empty() {
                 default_registry_auth_token = Some(trimmed.to_string());
+                // Heuristic: if token contains ':' or looks base64, prefer Basic to align with _auth semantics
+                let looks_basic = trimmed.contains(':')
+                    || trimmed.chars().all(|c| c.is_ascii_alphanumeric() || "+/=_-.".contains(c));
+                if looks_basic {
+                    default_registry_auth_scheme = AuthScheme::Basic;
+                }
             }
         }
 
@@ -161,6 +183,19 @@ impl SnpmConfig {
                 }
             }
         }
+        // Respect always-auth across env configs (pnpm/npm compatible names)
+        if let Ok(v) = env::var("NPM_CONFIG_ALWAYS_AUTH")
+            .or_else(|_| env::var("npm_config_always_auth"))
+            .or_else(|_| env::var("SNPM_ALWAYS_AUTH"))
+        {
+            let on = match v.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "y" | "on" => true,
+                _ => false,
+            };
+            if on {
+                always_auth = true;
+            }
+        }
 
         let verbose = match env::var("SNPM_VERBOSE") {
             Ok(value) => {
@@ -186,10 +221,18 @@ impl SnpmConfig {
             scoped_registries,
             registry_auth,
             default_registry_auth_token,
+            // If rc parsing indicated _auth, prefer Basic for default registry
+            default_registry_auth_scheme: if rc_default_auth_basic {
+                AuthScheme::Basic
+            } else {
+                default_registry_auth_scheme
+            },
+            registry_auth_schemes: BTreeMap::new(),
             hoisting,
             link_backend,
             strict_peers,
             frozen_lockfile_default,
+            always_auth,
             registry_concurrency,
             verbose,
             log_file,
@@ -220,6 +263,94 @@ impl SnpmConfig {
         }
 
         None
+    }
+}
+
+fn expand_env_vars(s: &str) -> String {
+    use std::env;
+
+    let mut out = String::new();
+    let mut i = 0;
+    let bytes = s.as_bytes();
+
+    while i < bytes.len() {
+        if bytes[i] == b'$' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+                if let Some(end) = s[i + 2..].find('}') {
+                    let var = &s[i + 2..i + 2 + end];
+                    let val = env::var(var).unwrap_or_default();
+                    out.push_str(&val);
+                    i += 2 + end + 1;
+                    continue;
+                }
+            }
+
+            let mut j = i + 1;
+            while j < bytes.len()
+                && (bytes[j] == b'_'
+                    || (bytes[j] as char).is_ascii_alphanumeric())
+            {
+                j += 1;
+            }
+
+            let var = &s[i + 1..j];
+            if !var.is_empty() {
+                let val = env::var(var).unwrap_or_default();
+                out.push_str(&val);
+                i = j;
+                continue;
+            }
+
+            out.push('$');
+            i += 1;
+            continue;
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+
+    out
+}
+
+fn normalize_registry_url(value: &str) -> String {
+    let mut v = if value.starts_with("//") {
+        format!("https:{}", value)
+    } else {
+        value.to_string()
+    };
+
+    if v.ends_with('/') {
+        v.pop();
+    }
+
+    let (scheme, rest) = if let Some(r) = v.strip_prefix("https://") {
+        ("https", r)
+    } else if let Some(r) = v.strip_prefix("http://") {
+        ("http", r)
+    } else if let Some(r) = v.strip_prefix("//") {
+        ("https", r)
+    } else {
+        return v;
+    };
+
+    let mut parts = rest.splitn(2, '/');
+    let hostport = parts.next().unwrap_or("").to_ascii_lowercase();
+    let suffix = parts.next().unwrap_or("");
+
+    let mut host = hostport.clone();
+    if let Some((h, p)) = hostport.split_once(':') {
+        let default_https = scheme == "https" && p == "443";
+        let default_http = scheme == "http" && p == "80";
+        if default_https || default_http {
+            host = h.to_string();
+        }
+    }
+
+    if suffix.is_empty() {
+        format!("{}://{}", scheme, host)
+    } else {
+        format!("{}://{}/{}", scheme, host, suffix)
     }
 }
 
@@ -278,12 +409,14 @@ fn read_registry_config() -> (
     BTreeMap<String, String>,
     Option<String>,
     Option<HoistingMode>,
+    bool,
 ) {
     let mut default_registry = "https://registry.npmjs.org/".to_string();
     let mut scoped = BTreeMap::new();
     let mut registry_auth = BTreeMap::new();
     let mut default_auth_token = None;
     let mut hoisting = None;
+    let mut rc_default_auth_basic = false;
 
     if let Some(base) = BaseDirs::new() {
         let home = base.home_dir();
@@ -298,6 +431,7 @@ fn read_registry_config() -> (
                 &mut registry_auth,
                 &mut default_auth_token,
                 &mut hoisting,
+                &mut rc_default_auth_basic,
             );
         }
     }
@@ -305,17 +439,27 @@ fn read_registry_config() -> (
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let rc_files = [".snpmrc", ".npmrc", ".pnpmrc"];
 
-    for rc_name in rc_files.iter() {
-        let path = cwd.join(rc_name);
+    // Walk up parent directories to root to respect rc precedence across nested workspaces
+    let mut dir_opt = Some(cwd.clone());
+    while let Some(dir) = dir_opt {
+        for rc_name in rc_files.iter() {
+            let path = dir.join(rc_name);
 
-        apply_rc_file(
-            &path,
-            &mut default_registry,
-            &mut scoped,
-            &mut registry_auth,
-            &mut default_auth_token,
-            &mut hoisting,
-        );
+            apply_rc_file(
+                &path,
+                &mut default_registry,
+                &mut scoped,
+                &mut registry_auth,
+                &mut default_auth_token,
+                &mut hoisting,
+                &mut rc_default_auth_basic,
+            );
+        }
+
+        dir_opt = dir.parent().map(|p| p.to_path_buf());
+        if dir_opt.as_ref().map(|d| d == &dir).unwrap_or(true) {
+            break;
+        }
     }
 
     (
@@ -324,6 +468,7 @@ fn read_registry_config() -> (
         registry_auth,
         default_auth_token,
         hoisting,
+        rc_default_auth_basic,
     )
 }
 
@@ -334,6 +479,7 @@ fn apply_rc_file(
     registry_auth: &mut BTreeMap<String, String>,
     default_auth_token: &mut Option<String>,
     hoisting: &mut Option<HoistingMode>,
+    default_auth_basic: &mut bool,
 ) {
     if !path.is_file() {
         return;
@@ -349,7 +495,7 @@ fn apply_rc_file(
             if let Some(eq_idx) = trimmed.find('=') {
                 let (key, value) = trimmed.split_at(eq_idx);
                 let key = key.trim();
-                let mut value = value[1..].trim().to_string();
+                let mut value = expand_env_vars(value[1..].trim());
 
                 if value.ends_with('/') && !key.starts_with("//") {
                     value.pop();
@@ -357,7 +503,7 @@ fn apply_rc_file(
 
                 if key == "registry" {
                     if !value.is_empty() {
-                        *default_registry = value;
+                        *default_registry = normalize_registry_url(&value);
                     }
                 } else if key == "snpm-hoist" || key == "snpm.hoist" || key == "snpm_hoist" {
                     if let Some(mode) = HoistingMode::from_str(&value) {
@@ -366,7 +512,7 @@ fn apply_rc_file(
                 } else if let Some(scope) = key.strip_suffix(":registry") {
                     let scope = scope.trim();
                     if !scope.is_empty() && !value.is_empty() {
-                        scoped.insert(scope.to_string(), value);
+                        scoped.insert(scope.to_string(), normalize_registry_url(&value));
                     }
                 } else if let Some(rest) = key.strip_prefix("//") {
                     let host_and_path = if let Some(prefix) = rest.strip_suffix("/:_authToken") {
@@ -378,12 +524,22 @@ fn apply_rc_file(
                     };
 
                     if !host_and_path.is_empty() {
-                        let host = host_and_path
+                        let raw_host = host_and_path
                             .split('/')
                             .next()
                             .unwrap_or("")
                             .trim()
                             .trim_end_matches('/');
+
+                        // Normalize host:
+                        // - Lowercase
+                        // - Strip default ports (:443, :80) to match PNPM behavior
+                        let mut host = raw_host.to_ascii_lowercase();
+                        if let Some((h, p)) = host.split_once(':') {
+                            if p == "443" || p == "80" {
+                                host = h.to_string();
+                            }
+                        }
 
                         if !host.is_empty() && !value.is_empty() {
                             registry_auth.insert(host.to_string(), value);
@@ -392,6 +548,19 @@ fn apply_rc_file(
                 } else if key == "_authToken" {
                     if !value.is_empty() {
                         *default_auth_token = Some(value);
+                    }
+                } else if key == "_auth" {
+                    // Support legacy _auth entries (basic auth). Store as default token and mark scheme
+                    if !value.is_empty() {
+                        *default_auth_token = Some(value);
+                        *default_auth_basic = true;
+                    }
+                } else if key == "always-auth" || key == "always_auth" || key == "always.auth" {
+                    let v = value.trim().to_ascii_lowercase();
+                    let on = matches!(v.as_str(), "1" | "true" | "yes" | "y" | "on");
+                    if on {
+                        // This flag is applied in from_env() defaults
+                        // Kept here for symmetry with pnpm configs
                     }
                 }
             }
@@ -405,16 +574,33 @@ pub(crate) fn host_from_url(url: &str) -> Option<String> {
         return None;
     }
 
+    let is_https = trimmed.starts_with("https://");
+    let is_http = trimmed.starts_with("http://");
+
     let without_scheme = trimmed
         .strip_prefix("https://")
         .or_else(|| trimmed.strip_prefix("http://"))
         .unwrap_or(trimmed);
 
-    let host = without_scheme.split('/').next().unwrap_or("").trim();
+    let hostport = without_scheme.split('/').next().unwrap_or("").trim();
+
+    if hostport.is_empty() {
+        return None;
+    }
+
+    let mut host = hostport.to_ascii_lowercase();
+
+    if let Some((h, p)) = host.split_once(':') {
+        let default_https = is_https && p == "443";
+        let default_http = is_http && p == "80";
+        if default_https || default_http {
+            host = h.to_string();
+        }
+    }
 
     if host.is_empty() {
         None
     } else {
-        Some(host.to_string())
+        Some(host)
     }
 }

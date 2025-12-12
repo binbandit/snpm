@@ -377,6 +377,10 @@ async fn resolve_package(
     let mut opt_futures = Vec::new();
 
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
+        if bundled_set.contains(dep_name) {
+            continue;
+        }
+
         let name = dep_name.clone();
         let range = dep_range.clone();
         let packages_clone = packages.clone();

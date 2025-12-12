@@ -6,6 +6,10 @@ default:
 build:
   cargo build
 
+# Checks the workspace for errors
+check:
+  cargo check
+
 # Install snpm globally
 install:
   cargo install --path snpm-cli --force

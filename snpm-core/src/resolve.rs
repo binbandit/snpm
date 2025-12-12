@@ -6,6 +6,7 @@ use futures::lock::Mutex;
 use reqwest::Client;
 use snpm_semver::{RangeSet, Version};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use time::OffsetDateTime;
@@ -338,7 +339,22 @@ async fn resolve_package(
         }
 
         let name = dep_name.clone();
-        let range = dep_range.clone();
+
+        let range =
+            if version_meta.dist.tarball.starts_with("file://") && dep_range.starts_with("file:") {
+                let base_pkg_path =
+                    Path::new(version_meta.dist.tarball.strip_prefix("file://").unwrap());
+
+                if let Some(rel_path) = dep_range.strip_prefix("file:") {
+                    let resolved = resolve_relative_path(base_pkg_path, rel_path);
+                    format!("file:{}", resolved.display())
+                } else {
+                    dep_range.clone()
+                }
+            } else {
+                dep_range.clone()
+            };
+
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
         let protocol = request.protocol.clone();
@@ -704,6 +720,27 @@ fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, String)>
     }
 
     Some((protocol, source, range))
+}
+
+fn resolve_relative_path(base: &Path, rel: &str) -> PathBuf {
+    let mut components = base.to_path_buf();
+
+    for part in Path::new(rel).components() {
+        use std::path::Component;
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                components.pop();
+            }
+            Component::Normal(c) => components.push(c),
+            Component::RootDir => {
+                components = PathBuf::from("/");
+            }
+            Component::Prefix(_) => {}
+        }
+    }
+
+    components
 }
 
 fn build_dep_request(

@@ -1,4 +1,5 @@
 use crate::console;
+use crate::project::Manifest;
 use crate::{Result, SnpmConfig, SnpmError};
 use reqwest::Client;
 use reqwest::header::{ACCEPT, HeaderValue};
@@ -6,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+use tokio::process::Command;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RegistryPackage {
@@ -32,7 +34,10 @@ pub enum BundledDependencies {
 }
 
 impl BundledDependencies {
-    pub fn to_set(&self, all_deps: &BTreeMap<String, String>) -> std::collections::BTreeSet<String> {
+    pub fn to_set(
+        &self,
+        all_deps: &BTreeMap<String, String>,
+    ) -> std::collections::BTreeSet<String> {
         match self {
             BundledDependencies::List(list) => list.iter().cloned().collect(),
             BundledDependencies::All(true) => all_deps.keys().cloned().collect(),
@@ -74,7 +79,9 @@ pub struct RegistryVersion {
 
 impl RegistryVersion {
     pub fn get_bundled_dependencies(&self) -> Option<&BundledDependencies> {
-        self.bundled_dependencies.as_ref().or(self.bundle_dependencies.as_ref())
+        self.bundled_dependencies
+            .as_ref()
+            .or(self.bundle_dependencies.as_ref())
     }
 
     pub fn has_bin(&self) -> bool {
@@ -217,8 +224,222 @@ pub async fn fetch_package(
 ) -> Result<RegistryPackage> {
     if protocol.name == "jsr" {
         fetch_jsr_package(config, client, name).await
+    } else if protocol.name == "file" {
+        fetch_file_package(config, name).await
+    } else if protocol.name == "git" {
+        fetch_git_package(config, name).await
     } else {
         fetch_npm_like_package(config, client, name, &protocol.name).await
+    }
+}
+
+async fn fetch_file_package(_config: &SnpmConfig, path_str: &str) -> Result<RegistryPackage> {
+    let cwd = env::current_dir().map_err(|e| SnpmError::Io {
+        path: PathBuf::from("."),
+        source: e,
+    })?;
+
+    let path = Path::new(path_str);
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+
+    if !abs_path.exists() {
+        return Err(SnpmError::ResolutionFailed {
+            name: path_str.to_string(),
+            range: "latest".to_string(),
+            reason: format!("File path does not exist: {}", abs_path.display()),
+        });
+    }
+
+    if abs_path.is_dir() {
+        let manifest_path = abs_path.join("package.json");
+        let manifest_content =
+            fs::read_to_string(&manifest_path).map_err(|e| SnpmError::ReadFile {
+                path: manifest_path.clone(),
+                source: e,
+            })?;
+
+        let manifest: Manifest =
+            serde_json::from_str(&manifest_content).map_err(|e| SnpmError::ParseJson {
+                path: manifest_path.clone(),
+                source: e,
+            })?;
+
+        let version = manifest
+            .version
+            .clone()
+            .unwrap_or_else(|| "0.0.0".to_string());
+
+        let reg_version =
+            registry_version_from_manifest(manifest, &format!("file://{}", abs_path.display()));
+
+        let mut versions = BTreeMap::new();
+        versions.insert(version.clone(), reg_version);
+
+        let mut dist_tags = BTreeMap::new();
+        dist_tags.insert("latest".to_string(), version);
+
+        Ok(RegistryPackage {
+            versions,
+            time: BTreeMap::new(),
+            dist_tags,
+        })
+    } else {
+        Err(SnpmError::ResolutionFailed {
+            name: path_str.to_string(),
+            range: "latest".to_string(),
+            reason: "Single file dependencies are not yet fully supported (expected directory)"
+                .to_string(),
+        })
+    }
+}
+
+async fn fetch_git_package(config: &SnpmConfig, url: &str) -> Result<RegistryPackage> {
+    let safe_name = url.replace(|c: char| !c.is_alphanumeric(), "_");
+    let cache_dir = config.cache_dir.join("git").join(&safe_name);
+
+    if !cache_dir.exists() {
+        fs::create_dir_all(&cache_dir).map_err(|e| SnpmError::Io {
+            path: cache_dir.clone(),
+            source: e,
+        })?;
+    }
+
+    let repo_dir = cache_dir.join("repo");
+
+    if repo_dir.exists() {
+        let status = Command::new("git")
+            .current_dir(&repo_dir)
+            .arg("fetch")
+            .arg("--all")
+            .status()
+            .await
+            .map_err(|e| SnpmError::ResolutionFailed {
+                name: url.to_string(),
+                range: "latest".to_string(),
+                reason: format!("Failed to run git fetch: {}", e),
+            })?;
+
+        if !status.success() {
+            return Err(SnpmError::ResolutionFailed {
+                name: url.to_string(),
+                range: "latest".to_string(),
+                reason: "git fetch failed".to_string(),
+            });
+        }
+    } else {
+        let mut clean_url = url.to_string();
+        let mut committish = None;
+
+        if let Some(idx) = url.rfind('#') {
+            committish = Some(&url[idx + 1..]);
+            clean_url = url[..idx].to_string();
+        }
+
+        let status = Command::new("git")
+            .current_dir(&cache_dir)
+            .arg("clone")
+            .arg(&clean_url)
+            .arg("repo")
+            .status()
+            .await
+            .map_err(|e| SnpmError::ResolutionFailed {
+                name: url.to_string(),
+                range: "latest".to_string(),
+                reason: format!("Failed to run git clone: {}", e),
+            })?;
+
+        if !status.success() {
+            return Err(SnpmError::ResolutionFailed {
+                name: url.to_string(),
+                range: "latest".to_string(),
+                reason: "git clone failed".to_string(),
+            });
+        }
+
+        if let Some(rev) = committish {
+            let status = Command::new("git")
+                .current_dir(&repo_dir)
+                .arg("checkout")
+                .arg(rev)
+                .status()
+                .await
+                .map_err(|e| SnpmError::ResolutionFailed {
+                    name: url.to_string(),
+                    range: rev.to_string(),
+                    reason: format!("Failed to run git checkout: {}", e),
+                })?;
+
+            if !status.success() {
+                return Err(SnpmError::ResolutionFailed {
+                    name: url.to_string(),
+                    range: rev.to_string(),
+                    reason: "git checkout failed".to_string(),
+                });
+            }
+        }
+    }
+
+    let manifest_path = repo_dir.join("package.json");
+    if !manifest_path.exists() {
+        return Err(SnpmError::ResolutionFailed {
+            name: url.to_string(),
+            range: "latest".to_string(),
+            reason: "package.json not found in git repo".to_string(),
+        });
+    }
+
+    let manifest_content = fs::read_to_string(&manifest_path).map_err(|e| SnpmError::ReadFile {
+        path: manifest_path.clone(),
+        source: e,
+    })?;
+
+    let manifest: Manifest =
+        serde_json::from_str(&manifest_content).map_err(|e| SnpmError::ParseJson {
+            path: manifest_path.clone(),
+            source: e,
+        })?;
+
+    let version = manifest
+        .version
+        .clone()
+        .unwrap_or_else(|| "0.0.0".to_string());
+
+    let reg_version =
+        registry_version_from_manifest(manifest, &format!("file://{}", repo_dir.display()));
+
+    let mut versions = BTreeMap::new();
+    versions.insert(version.clone(), reg_version);
+
+    let mut dist_tags = BTreeMap::new();
+    dist_tags.insert("latest".to_string(), version);
+
+    Ok(RegistryPackage {
+        versions,
+        time: BTreeMap::new(),
+        dist_tags,
+    })
+}
+
+fn registry_version_from_manifest(manifest: Manifest, dist_url: &str) -> RegistryVersion {
+    RegistryVersion {
+        version: manifest.version.unwrap_or_else(|| "0.0.0".to_string()),
+        dependencies: manifest.dependencies,
+        optional_dependencies: BTreeMap::new(),
+        peer_dependencies: BTreeMap::new(),
+        peer_dependencies_meta: BTreeMap::new(),
+        bundled_dependencies: None,
+        bundle_dependencies: None,
+        dist: RegistryDist {
+            tarball: dist_url.to_string(),
+            integrity: None,
+        },
+        os: vec![],
+        cpu: vec![],
+        bin: None,
     }
 }
 
@@ -253,9 +474,7 @@ async fn fetch_npm_like_package(
         ),
     );
 
-
     let mut auth_token = config.auth_token_for_url(&url).map(|t| t.to_string());
-
 
     if auth_token.is_none() && config.always_auth {
         if let Some(default_host) = crate::config::host_from_url(&config.default_registry) {
@@ -275,7 +494,10 @@ async fn fetch_npm_like_package(
         if let Some(default_host) = crate::config::host_from_url(&config.default_registry) {
             if let Some(req_host) = crate::config::host_from_url(&url) {
                 if req_host == default_host {
-                    use_basic = matches!(config.default_registry_auth_scheme, crate::config::AuthScheme::Basic);
+                    use_basic = matches!(
+                        config.default_registry_auth_scheme,
+                        crate::config::AuthScheme::Basic
+                    );
                 }
             }
         }
@@ -390,7 +612,6 @@ async fn fetch_jsr_package(
         ),
     );
 
-
     let mut auth_token = config.auth_token_for_url(&url).map(|t| t.to_string());
 
     if auth_token.is_none() && config.always_auth {
@@ -410,7 +631,10 @@ async fn fetch_jsr_package(
         if let Some(default_host) = crate::config::host_from_url(&config.default_registry) {
             if let Some(req_host) = crate::config::host_from_url(&url) {
                 if req_host == default_host {
-                    use_basic = matches!(config.default_registry_auth_scheme, crate::config::AuthScheme::Basic);
+                    use_basic = matches!(
+                        config.default_registry_auth_scheme,
+                        crate::config::AuthScheme::Basic
+                    );
                 }
             }
         }

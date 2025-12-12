@@ -45,29 +45,55 @@ pub async fn ensure_package(
         source,
     })?;
 
-    let download_started = Instant::now();
-    let bytes = download_tarball(config, &package.tarball, client).await?;
-    let download_elapsed = download_started.elapsed();
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "downloaded tarball for {}@{} ({} bytes) in {:.3}s",
-            package.id.name,
-            package.id.version,
-            bytes.len(),
-            download_elapsed.as_secs_f64()
-        ));
-    }
+    if package.tarball.starts_with("file://") {
+        let path_str = package.tarball.strip_prefix("file://").unwrap();
+        let source_path = PathBuf::from(path_str);
 
-    let unpack_started = Instant::now();
-    unpack_tarball(&pkg_dir, bytes)?;
-    let unpack_elapsed = unpack_started.elapsed();
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "unpacked tarball for {}@{} in {:.3}s",
-            package.id.name,
-            package.id.version,
-            unpack_elapsed.as_secs_f64()
-        ));
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "installing local package from {}",
+                source_path.display()
+            ));
+        }
+
+        if source_path.is_dir() {
+            let dest_dir = pkg_dir.join("package");
+            copy_dir_all(&source_path, &dest_dir).map_err(|e| SnpmError::Io {
+                path: dest_dir.clone(),
+                source: e,
+            })?;
+        } else {
+            let bytes = fs::read(&source_path).map_err(|source| SnpmError::ReadFile {
+                path: source_path.clone(),
+                source,
+            })?;
+            unpack_tarball(&pkg_dir, bytes)?;
+        }
+    } else {
+        let download_started = Instant::now();
+        let bytes = download_tarball(config, &package.tarball, client).await?;
+        let download_elapsed = download_started.elapsed();
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "downloaded tarball for {}@{} ({} bytes) in {:.3}s",
+                package.id.name,
+                package.id.version,
+                bytes.len(),
+                download_elapsed.as_secs_f64()
+            ));
+        }
+
+        let unpack_started = Instant::now();
+        unpack_tarball(&pkg_dir, bytes)?;
+        let unpack_elapsed = unpack_started.elapsed();
+        if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "unpacked tarball for {}@{} in {:.3}s",
+                package.id.name,
+                package.id.version,
+                unpack_elapsed.as_secs_f64()
+            ));
+        }
     }
 
     fs::write(&marker, []).map_err(|source| SnpmError::WriteFile {
@@ -147,5 +173,26 @@ fn unpack_tarball(pkg_dir: &PathBuf, data: Vec<u8>) -> Result<()> {
             source,
         })?;
 
+    Ok(())
+}
+
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let name = entry.file_name();
+
+        if name == ".git" || name == "node_modules" {
+            continue;
+        }
+
+        let dst_path = dst.join(&name);
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else {
+            fs::copy(entry.path(), dst_path)?;
+        }
+    }
     Ok(())
 }

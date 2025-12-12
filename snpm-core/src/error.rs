@@ -96,4 +96,10 @@ pub enum SnpmError {
 
     #[error("Authentication error: {reason}")]
     Auth { reason: String },
+
+    #[error("I/O error at {path:?}: {source}")]
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }

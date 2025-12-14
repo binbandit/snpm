@@ -163,9 +163,10 @@ impl SnpmConfig {
         }
 
         if let Ok(value) = env::var("SNPM_LINK_BACKEND")
-            && let Some(backend) = LinkBackend::from_str(value.trim()) {
-                link_backend = backend;
-            }
+            && let Some(backend) = LinkBackend::from_str(value.trim())
+        {
+            link_backend = backend;
+        }
 
         if let Ok(value) = env::var("SNPM_STRICT_PEERS") {
             let trimmed = value.trim().to_ascii_lowercase();
@@ -179,9 +180,10 @@ impl SnpmConfig {
 
         if let Ok(value) = env::var("SNPM_REGISTRY_CONCURRENCY")
             && let Ok(parsed) = value.trim().parse::<usize>()
-                && parsed > 0 {
-                    registry_concurrency = parsed;
-                }
+            && parsed > 0
+        {
+            registry_concurrency = parsed;
+        }
         // Respect always-auth across env configs (pnpm/npm compatible names)
         if let Ok(v) = env::var("NPM_CONFIG_ALWAYS_AUTH")
             .or_else(|_| env::var("npm_config_always_auth"))
@@ -255,9 +257,10 @@ impl SnpmConfig {
 
         if let Some(default_host) = host_from_url(&self.default_registry)
             && host == default_host
-                && let Some(token) = self.default_registry_auth_token.as_ref() {
-                    return Some(token.as_str());
-                }
+            && let Some(token) = self.default_registry_auth_token.as_ref()
+        {
+            return Some(token.as_str());
+        }
 
         None
     }
@@ -272,14 +275,16 @@ fn expand_env_vars(s: &str) -> String {
 
     while i < bytes.len() {
         if bytes[i] == b'$' {
-            if i + 1 < bytes.len() && bytes[i + 1] == b'{'
-                && let Some(end) = s[i + 2..].find('}') {
-                    let var = &s[i + 2..i + 2 + end];
-                    let val = env::var(var).unwrap_or_default();
-                    out.push_str(&val);
-                    i += 2 + end + 1;
-                    continue;
-                }
+            if i + 1 < bytes.len()
+                && bytes[i + 1] == b'{'
+                && let Some(end) = s[i + 2..].find('}')
+            {
+                let var = &s[i + 2..i + 2 + end];
+                let val = env::var(var).unwrap_or_default();
+                out.push_str(&val);
+                i += 2 + end + 1;
+                continue;
+            }
 
             let mut j = i + 1;
             while j < bytes.len()
@@ -372,9 +377,10 @@ fn read_min_package_age_from_env() -> Option<u32> {
         }
 
         if let Ok(parsed) = trimmed.parse::<u32>()
-            && parsed > 0 {
-                return Some(parsed);
-            }
+            && parsed > 0
+        {
+            return Some(parsed);
+        }
     }
 
     None
@@ -388,9 +394,10 @@ fn read_min_package_cache_age_from_env() -> Option<u32> {
         }
 
         if let Ok(parsed) = trimmed.parse::<u32>()
-            && parsed > 0 {
-                return Some(parsed);
-            }
+            && parsed > 0
+        {
+            return Some(parsed);
+        }
     }
 
     Some(7)
@@ -529,9 +536,10 @@ fn apply_rc_file(
                         // - Strip default ports (:443, :80) to match PNPM behavior
                         let mut host = raw_host.to_ascii_lowercase();
                         if let Some((h, p)) = host.split_once(':')
-                            && (p == "443" || p == "80") {
-                                host = h.to_string();
-                            }
+                            && (p == "443" || p == "80")
+                        {
+                            host = h.to_string();
+                        }
 
                         if !host.is_empty() && !value.is_empty() {
                             registry_auth.insert(host.to_string(), value);

@@ -14,28 +14,28 @@ pub fn select_version(
 ) -> Result<RegistryVersion> {
     let trimmed = range.trim();
 
-    if trimmed == "latest"
-        && let Some(tag_version) = package.dist_tags.get("latest")
-            && let Some(meta) = package.versions.get(tag_version) {
-                let now = OffsetDateTime::now_utc();
+    if let Some(tag_version) = package.dist_tags.get(trimmed)
+        && let Some(meta) = package.versions.get(tag_version)
+    {
+        let now = OffsetDateTime::now_utc();
 
-                if let Some(min_days) = min_age_days
-                    && !force
-                        && let Some(age_days) = version_age_days(package, &meta.version, now)
-                            && age_days < min_days as i64 {
-                                return Err(SnpmError::ResolutionFailed {
-                                    name: name.to_string(),
-                                    range: range.to_string(),
-                                    reason: format!(
-                                        "latest dist-tag points to version {} which is only {} days old, less than the configured minimum of {} days",
-                                        meta.version, age_days, min_days
-                                    ),
-                                });
-                            }
+        if let Some(min_days) = min_age_days
+            && !force
+            && let Some(age_days) = version_age_days(package, &meta.version, now)
+            && age_days < min_days as i64
+        {
+            return Err(SnpmError::ResolutionFailed {
+                name: name.to_string(),
+                range: range.to_string(),
+                reason: format!(
+                    "dist-tag {} points to version {} which is only {} days old, less than the configured minimum of {} days",
+                    range, meta.version, age_days, min_days
+                ),
+            });
+        }
 
-                return Ok(meta.clone());
-            }
-
+        return Ok(meta.clone());
+    }
     let ranges = parse_range_set(name, range)?;
     let mut selected: Option<(Version, RegistryVersion)> = None;
     let now = OffsetDateTime::now_utc();
@@ -50,13 +50,14 @@ pub fn select_version(
 
             if let Some(min_days) = min_age_days
                 && !force
-                    && let Some(age_days) = version_age_days(package, version_str, now)
-                        && age_days < min_days as i64 {
-                            if youngest_rejected.is_none() {
-                                youngest_rejected = Some((version_str.clone(), age_days));
-                            }
-                            continue;
-                        }
+                && let Some(age_days) = version_age_days(package, version_str, now)
+                && age_days < min_days as i64
+            {
+                if youngest_rejected.is_none() {
+                    youngest_rejected = Some((version_str.clone(), age_days));
+                }
+                continue;
+            }
 
             match &selected {
                 Some((best, _)) if ver <= *best => {}
@@ -70,15 +71,16 @@ pub fn select_version(
     } else {
         if let Some(min_days) = min_age_days
             && !force
-                && let Some((ver_str, age_days)) = youngest_rejected {
-                    return Err(SnpmError::ResolutionFailed {
-                        name: name.to_string(),
-                        range: range.to_string(),
-                        reason: format!(
-                            "latest matching version {ver_str} is only {age_days} days old, which is less than the configured minimum of {min_days} days"
-                        ),
-                    });
-                }
+            && let Some((ver_str, age_days)) = youngest_rejected
+        {
+            return Err(SnpmError::ResolutionFailed {
+                name: name.to_string(),
+                range: range.to_string(),
+                reason: format!(
+                    "latest matching version {ver_str} is only {age_days} days old, which is less than the configured minimum of {min_days} days"
+                ),
+            });
+        }
 
         Err(SnpmError::ResolutionFailed {
             name: name.to_string(),
@@ -112,5 +114,41 @@ mod tests {
         let ranges = parse_range_set("pkg", ">= 4.21.0").unwrap();
         let v = Version::parse("4.21.0").unwrap();
         assert!(ranges.matches(&v));
+    }
+
+    #[test]
+    fn selects_custom_dist_tag() {
+        let mut versions = std::collections::BTreeMap::new();
+        let version_meta = RegistryVersion {
+            version: "1.0.0".to_string(),
+            dependencies: Default::default(),
+            optional_dependencies: Default::default(),
+            peer_dependencies: Default::default(),
+            peer_dependencies_meta: Default::default(),
+            bundled_dependencies: None,
+            bundle_dependencies: None,
+            dist: crate::registry::RegistryDist {
+                tarball: "Url".to_string(),
+                integrity: None,
+            },
+            os: vec![],
+            cpu: vec![],
+            bin: None,
+        };
+        versions.insert("1.0.0".to_string(), version_meta);
+
+        let mut dist_tags = std::collections::BTreeMap::new();
+        dist_tags.insert("ts5.9".to_string(), "1.0.0".to_string());
+
+        let package = RegistryPackage {
+            versions,
+            time: Default::default(),
+            dist_tags,
+        };
+
+        // Should succeed resolving "ts5.9" tag
+        let result = select_version("pkg", "ts5.9", &package, None, false);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().version, "1.0.0");
     }
 }

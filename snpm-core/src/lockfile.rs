@@ -25,7 +25,10 @@ pub struct LockPackage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub integrity: Option<String>,
     pub dependencies: BTreeMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "bundledDependencies")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "bundledDependencies"
+    )]
     pub bundled_dependencies: Option<BundledDependencies>,
     #[serde(default, skip_serializing_if = "is_false", rename = "hasBin")]
     pub has_bin: bool,

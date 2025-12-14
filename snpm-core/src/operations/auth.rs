@@ -123,11 +123,10 @@ fn filter_existing_credentials(lines: &[String], host: &str, scope: Option<&str>
                 return None;
             }
 
-            if let Some(scope_name) = scope {
-                if is_scope_registry_line(trimmed, scope_name) {
+            if let Some(scope_name) = scope
+                && is_scope_registry_line(trimmed, scope_name) {
                     return None;
                 }
-            }
 
             Some(line.clone())
         })

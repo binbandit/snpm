@@ -63,9 +63,10 @@ pub fn is_logging_enabled() -> bool {
 
 fn log_raw(message: &str) -> io::Result<()> {
     if let Some(mutex) = LOG_FILE.get()
-        && let Ok(mut file) = mutex.lock() {
-            writeln!(file, "{}", message)?;
-        }
+        && let Ok(mut file) = mutex.lock()
+    {
+        writeln!(file, "{}", message)?;
+    }
     Ok(())
 }
 

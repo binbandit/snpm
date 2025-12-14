@@ -12,9 +12,10 @@ pub fn link_bundled_bins_recursive(
     for (id, dest) in linked.iter() {
         if let Some(package) = graph.packages.get(id)
             && let Some(ref bundled) = package.bundled_dependencies
-                && !bundled.is_empty() {
-                    link_bundled_bins(dest)?;
-                }
+            && !bundled.is_empty()
+        {
+            link_bundled_bins(dest)?;
+        }
     }
     Ok(())
 }
@@ -52,10 +53,11 @@ fn link_bundled_bins(pkg_dest: &Path) -> Result<()> {
                 for scope_entry in scope_entries.flatten() {
                     let scope_path = scope_entry.path();
                     if scope_path.is_dir()
-                        && let Some(pkg_name) = scope_entry.file_name().to_str() {
-                            let full_name = format!("{}/{}", name, pkg_name);
-                            link_bins_from_bundled_pkg(&scope_path, &bin_dir, &full_name)?;
-                        }
+                        && let Some(pkg_name) = scope_entry.file_name().to_str()
+                    {
+                        let full_name = format!("{}/{}", name, pkg_name);
+                        link_bins_from_bundled_pkg(&scope_path, &bin_dir, &full_name)?;
+                    }
                 }
             }
         } else {

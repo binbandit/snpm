@@ -13,23 +13,24 @@ pub fn load_metadata(config: &SnpmConfig, name: &str) -> Option<RegistryPackage>
     }
 
     if let Ok(data) = fs::read_to_string(&cache_path)
-        && let Ok(package) = serde_json::from_str::<RegistryPackage>(&data) {
-            if is_fresh(config, &cache_path) {
-                if console::is_logging_enabled() {
-                    console::verbose(&format!(
-                        "using cached metadata for {} from {}",
-                        name,
-                        cache_path.display()
-                    ));
-                }
-                return Some(package);
-            } else if console::is_logging_enabled() {
+        && let Ok(package) = serde_json::from_str::<RegistryPackage>(&data)
+    {
+        if is_fresh(config, &cache_path) {
+            if console::is_logging_enabled() {
                 console::verbose(&format!(
-                    "cached metadata for {} is stale, will refetch",
-                    name
+                    "using cached metadata for {} from {}",
+                    name,
+                    cache_path.display()
                 ));
             }
+            return Some(package);
+        } else if console::is_logging_enabled() {
+            console::verbose(&format!(
+                "cached metadata for {} is stale, will refetch",
+                name
+            ));
         }
+    }
 
     None
 }
@@ -84,10 +85,11 @@ fn is_fresh(config: &SnpmConfig, cache_path: &Path) -> bool {
 
     if let Ok(metadata) = fs::metadata(cache_path)
         && let Ok(modified) = metadata.modified()
-            && let Ok(elapsed) = modified.elapsed() {
-                let age_days = elapsed.as_secs() / 86400;
-                return age_days < max_age_days as u64;
-            }
+        && let Ok(elapsed) = modified.elapsed()
+    {
+        let age_days = elapsed.as_secs() / 86400;
+        return age_days < max_age_days as u64;
+    }
 
     false
 }

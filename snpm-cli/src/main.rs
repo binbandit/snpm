@@ -40,12 +40,10 @@ async fn run() -> Result<()> {
             .unwrap_or_else(|| cwd.join(".snpm.log"));
 
         console::init_logging(&log_path)?;
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "verbose logging enabled, writing to {}",
-                log_path.display()
-            ));
-        }
+        console::verbose(&format!(
+            "verbose logging enabled, writing to {}",
+            log_path.display()
+        ));
     }
 
     match command {
@@ -91,7 +89,8 @@ async fn run() -> Result<()> {
                                 !production,
                                 frozen_lockfile,
                                 force,
-                            ).await?;
+                            )
+                            .await?;
 
                             return Ok(());
                         }
@@ -227,7 +226,8 @@ async fn run() -> Result<()> {
                         !production,
                         false,
                         force,
-                    ).await?;
+                    )
+                    .await?;
 
                     return Ok(());
                 }

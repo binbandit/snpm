@@ -72,17 +72,15 @@ pub async fn install(
 ) -> Result<InstallResult> {
     let started = Instant::now();
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "install start: root={} requested=[{}] dev={} include_dev={} frozen_lockfile={} force={}",
-            project.root.display(),
-            options.requested.join(", "),
-            options.dev,
-            options.include_dev,
-            options.frozen_lockfile,
-            options.force,
-        ));
-    }
+    console::verbose(&format!(
+        "install start: root={} requested=[{}] dev={} include_dev={} frozen_lockfile={} force={}",
+        project.root.display(),
+        options.requested.join(", "),
+        options.dev,
+        options.include_dev,
+        options.frozen_lockfile,
+        options.force,
+    ));
 
     let registry_client = Client::new();
 
@@ -137,18 +135,16 @@ pub async fn install(
         }
     }
 
-    if console::is_logging_enabled() {
-        let ws_root = workspace
-            .as_ref()
-            .map(|w| format!("{}", w.root.display()))
-            .unwrap_or_else(|| "<none>".to_string());
-        console::verbose(&format!(
-            "workspace_root={} overrides={} catalog_local={}",
-            ws_root,
-            overrides.len(),
-            catalog.as_ref().map(|c| c.catalog.len()).unwrap_or(0),
-        ));
-    }
+    let ws_root = workspace
+        .as_ref()
+        .map(|w| format!("{}", w.root.display()))
+        .unwrap_or_else(|| "<none>".to_string());
+    console::verbose(&format!(
+        "workspace_root={} overrides={} catalog_local={}",
+        ws_root,
+        overrides.len(),
+        catalog.as_ref().map(|c| c.catalog.len()).unwrap_or(0),
+    ));
 
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
@@ -181,14 +177,12 @@ pub async fn install(
         root_deps.insert(name.clone(), range.clone());
     }
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "manifest_root_deps={} root_deps={} additions={}",
-            manifest_root.len(),
-            root_deps.len(),
-            additions.len()
-        ));
-    }
+    console::verbose(&format!(
+        "manifest_root_deps={} root_deps={} additions={}",
+        manifest_root.len(),
+        root_deps.len(),
+        additions.len()
+    ));
 
     let mut root_protocols = BTreeMap::new();
 
@@ -217,28 +211,24 @@ pub async fn install(
 
     let is_fresh_install = !lockfile_path.exists();
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "lockfile_path={} exists={} fresh_install={}",
-            lockfile_path.display(),
-            lockfile_path.is_file(),
-            is_fresh_install
-        ));
-    }
+    console::verbose(&format!(
+        "lockfile_path={} exists={} fresh_install={}",
+        lockfile_path.display(),
+        lockfile_path.is_file(),
+        is_fresh_install
+    ));
 
     if options.frozen_lockfile || config.frozen_lockfile_default {
-        if console::is_logging_enabled() {
-            let source = if config.frozen_lockfile_default {
-                "SNPM_FROZEN_LOCKFILE=1"
-            } else {
-                "--frozen-lockfile"
-            };
-            console::verbose(&format!(
-                "using frozen lockfile at {} (source: {})",
-                lockfile_path.display(),
-                source
-            ));
-        }
+        let source = if config.frozen_lockfile_default {
+            "SNPM_FROZEN_LOCKFILE=1"
+        } else {
+            "--frozen-lockfile"
+        };
+        console::verbose(&format!(
+            "using frozen lockfile at {} (source: {})",
+            lockfile_path.display(),
+            source
+        ));
 
         if !lockfile_path.is_file() {
             return Err(SnpmError::Lockfile {
@@ -274,7 +264,13 @@ pub async fn install(
     let can_use_scenario_optimization = options.include_dev && additions.is_empty();
 
     let (scenario, existing_lockfile) = if can_use_scenario_optimization {
-        detect_install_scenario(project, &lockfile_path, &manifest_root, config, options.force)
+        detect_install_scenario(
+            project,
+            &lockfile_path,
+            &manifest_root,
+            config,
+            options.force,
+        )
     } else {
         (InstallScenario::Cold, None)
     };
@@ -299,12 +295,10 @@ pub async fn install(
             let cache_check = check_store_cache(config, &graph);
             store_paths_map = cache_check.cached;
 
-            if console::is_logging_enabled() {
-                console::verbose(&format!(
-                    "warm link-only path: {} packages from cache",
-                    store_paths_map.len()
-                ));
-            }
+            console::verbose(&format!(
+                "warm link-only path: {} packages from cache",
+                store_paths_map.len()
+            ));
 
             console::step_with_count("Using cached packages", store_paths_map.len());
             graph
@@ -319,13 +313,10 @@ pub async fn install(
             let cached_count = cache_check.cached.len();
             let missing_count = cache_check.missing.len();
 
-            if console::is_logging_enabled() {
-                console::verbose(&format!(
-                    "warm partial-cache path: {} cached, {} to download",
-                    cached_count,
-                    missing_count
-                ));
-            }
+            console::verbose(&format!(
+                "warm partial-cache path: {} cached, {} to download",
+                cached_count, missing_count
+            ));
 
             store_paths_map = cache_check.cached;
 
@@ -334,13 +325,11 @@ pub async fn install(
                 let mat_start = Instant::now();
                 let downloaded = materialize_missing_packages(config, &cache_check.missing).await?;
 
-                if console::is_logging_enabled() {
-                    console::verbose(&format!(
-                        "downloaded {} missing packages in {:.3}s",
-                        downloaded.len(),
-                        mat_start.elapsed().as_secs_f64()
-                    ));
-                }
+                console::verbose(&format!(
+                    "downloaded {} missing packages in {:.3}s",
+                    downloaded.len(),
+                    mat_start.elapsed().as_secs_f64()
+                ));
 
                 store_paths_map.extend(downloaded);
             }
@@ -351,14 +340,13 @@ pub async fn install(
 
         InstallScenario::Cold => {
             console::step("Resolving dependencies");
-            if console::is_logging_enabled() {
-                console::verbose("cold path: full resolution required");
-            }
+            console::verbose("cold path: full resolution required");
 
             let store_paths = Arc::new(Mutex::new(BTreeMap::<PackageId, PathBuf>::new()));
             let store_config = config.clone();
             let store_client = registry_client.clone();
-            let store_tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> = Arc::new(Mutex::new(Vec::new()));
+            let store_tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> =
+                Arc::new(Mutex::new(Vec::new()));
 
             let resolve_started = Instant::now();
             let paths = store_paths.clone();
@@ -412,13 +400,11 @@ pub async fn install(
             )
             .await?;
 
-            if console::is_logging_enabled() {
-                console::verbose(&format!(
-                    "resolve completed in {:.3}s (packages={})",
-                    resolve_started.elapsed().as_secs_f64(),
-                    graph.packages.len()
-                ));
-            }
+            console::verbose(&format!(
+                "resolve completed in {:.3}s (packages={})",
+                resolve_started.elapsed().as_secs_f64(),
+                graph.packages.len()
+            ));
 
             {
                 let handles = {
@@ -426,9 +412,7 @@ pub async fn install(
                     std::mem::take(&mut *guard)
                 };
 
-                if console::is_logging_enabled() {
-                    console::verbose(&format!("joining {} store tasks", handles.len()));
-                }
+                console::verbose(&format!("joining {} store tasks", handles.len()));
 
                 let store_wait_started = Instant::now();
 
@@ -439,12 +423,10 @@ pub async fn install(
                     result?;
                 }
 
-                if console::is_logging_enabled() {
-                    console::verbose(&format!(
-                        "store tasks completed in {:.3}s",
-                        store_wait_started.elapsed().as_secs_f64()
-                    ));
-                }
+                console::verbose(&format!(
+                    "store tasks completed in {:.3}s",
+                    store_wait_started.elapsed().as_secs_f64()
+                ));
             }
 
             store_paths_map = {
@@ -453,18 +435,14 @@ pub async fn install(
             };
 
             if store_paths_map.is_empty() && !graph.packages.is_empty() {
-                if console::is_logging_enabled() {
-                    console::verbose("no store tasks were scheduled; materializing store on demand");
-                }
+                console::verbose("no store tasks were scheduled; materializing store on demand");
                 let mat_start = Instant::now();
                 store_paths_map = materialize_store(config, &graph).await?;
-                if console::is_logging_enabled() {
-                    console::verbose(&format!(
-                        "materialized store in {:.3}s (packages={})",
-                        mat_start.elapsed().as_secs_f64(),
-                        store_paths_map.len()
-                    ));
-                }
+                console::verbose(&format!(
+                    "materialized store in {:.3}s (packages={})",
+                    mat_start.elapsed().as_secs_f64(),
+                    store_paths_map.len()
+                ));
             }
 
             if options.include_dev {
@@ -489,24 +467,18 @@ pub async fn install(
 
     if early_exit {
         should_link = false;
-        if console::is_logging_enabled() {
-            console::verbose("using early exit path (warm path optimization)");
-        }
+        console::verbose("using early exit path (warm path optimization)");
     } else if lockfile_reused_unchanged && !options.force {
-        if console::is_logging_enabled() {
-            console::verbose("lockfile reused without changes; checking existing node_modules");
-        }
+        console::verbose("lockfile reused without changes; checking existing node_modules");
 
         let lockfile_hash = compute_lockfile_hash(&graph);
         if check_integrity_file(project, &lockfile_hash) {
             should_link = false;
             early_exit = true;
 
-            if console::is_logging_enabled() {
-                console::verbose(
-                    "node_modules is up to date; taking early exit path (warm path optimization)",
-                );
-            }
+            console::verbose(
+                "node_modules is up to date; taking early exit path (warm path optimization)",
+            );
         }
     }
 
@@ -532,12 +504,10 @@ pub async fn install(
         let lockfile_hash = compute_lockfile_hash(&graph);
         write_integrity_file(project, &lockfile_hash)?;
 
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "linking completed in {:.3}s",
-                link_start.elapsed().as_secs_f64()
-            ));
-        }
+        console::verbose(&format!(
+            "linking completed in {:.3}s",
+            link_start.elapsed().as_secs_f64()
+        ));
     }
 
     if options.include_dev {
@@ -546,28 +516,22 @@ pub async fn install(
 
     let scripts_start = Instant::now();
     let blocked_scripts = if early_exit {
-        if console::is_logging_enabled() {
-            console::verbose("skipping install scripts (early exit - node_modules is fresh)");
-        }
+        console::verbose("skipping install scripts (early exit - node_modules is fresh)");
         Vec::new()
     } else if can_any_scripts_run(config, workspace.as_ref()) {
         lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?
     } else {
-        if console::is_logging_enabled() {
-            console::verbose("skipping install scripts (no scripts can run based on config)");
-        }
+        console::verbose("skipping install scripts (no scripts can run based on config)");
         Vec::new()
     };
 
     let scripts_elapsed = scripts_start.elapsed();
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "install scripts completed in {:.3}s (blocked_scripts={})",
-            scripts_elapsed.as_secs_f64(),
-            blocked_scripts.len()
-        ));
-    }
+    console::verbose(&format!(
+        "install scripts completed in {:.3}s (blocked_scripts={})",
+        scripts_elapsed.as_secs_f64(),
+        blocked_scripts.len()
+    ));
 
     let step_count = if options.include_dev { 3 } else { 2 };
     console::clear_steps(step_count);
@@ -609,17 +573,15 @@ pub async fn install(
         console::summary(package_count, seconds);
     }
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "install completed in {:.3}s (packages={} store_paths={} additions={} is_fresh_install={} blocked_scripts={})",
-            seconds,
-            package_count,
-            store_paths_map.len(),
-            additions.len(),
-            is_fresh_install,
-            blocked_scripts.len()
-        ));
-    }
+    console::verbose(&format!(
+        "install completed in {:.3}s (packages={} store_paths={} additions={} is_fresh_install={} blocked_scripts={})",
+        seconds,
+        package_count,
+        store_paths_map.len(),
+        additions.len(),
+        is_fresh_install,
+        blocked_scripts.len()
+    ));
 
     if !blocked_scripts.is_empty() {
         println!();
@@ -669,23 +631,23 @@ pub async fn install_workspace(
     // Now link to remaining workspace projects
     for project in workspace.projects.iter().skip(1) {
         let node_modules = project.root.join("node_modules");
-        
+
         // Collect this project's local workspace deps
         let mut local_deps = BTreeSet::new();
         let mut local_dev_deps = BTreeSet::new();
-        
+
         for (name, value) in project.manifest.dependencies.iter() {
             if value.starts_with("workspace:") {
                 local_deps.insert(name.clone());
             }
         }
-        
+
         for (name, value) in project.manifest.dev_dependencies.iter() {
             if value.starts_with("workspace:") {
                 local_dev_deps.insert(name.clone());
             }
         }
-        
+
         // Link workspace dependencies for this project
         link_local_workspace_deps(
             project,
@@ -768,8 +730,7 @@ fn parse_requested_spec(spec: &str) -> ParsedSpec {
         }
     }
 
-    if rest.starts_with('@') {
-        let without_at = &rest[1..];
+    if let Some(without_at) = rest.strip_prefix('@') {
         if let Some(idx) = without_at.rfind('@') {
             let (scope_and_name, range) = without_at.split_at(idx);
             let name = format!("@{}", scope_and_name);
@@ -805,8 +766,7 @@ fn parse_requested_spec(spec: &str) -> ParsedSpec {
 }
 
 fn parse_spec(spec: &str) -> (String, String) {
-    if spec.starts_with('@') {
-        let without_at = &spec[1..];
+    if let Some(without_at) = spec.strip_prefix('@') {
         if let Some(idx) = without_at.rfind('@') {
             let (scope_and_name, range) = without_at.split_at(idx);
             let name = format!("@{}", scope_and_name);
@@ -838,7 +798,7 @@ async fn materialize_store(
         let client = client.clone();
 
         let future = async move {
-            let path = store::ensure_package(&config, &package, &client).await?;
+            let path = store::ensure_package(&config, package, &client).await?;
             let id = package.id.clone();
             Ok::<(PackageId, PathBuf), crate::SnpmError>((id, path))
         };
@@ -869,7 +829,11 @@ fn check_store_cache(config: &SnpmConfig, graph: &ResolutionGraph) -> CacheCheck
 
         if marker.is_file() {
             let candidate = pkg_dir.join("package");
-            let root = if candidate.is_dir() { candidate } else { pkg_dir };
+            let root = if candidate.is_dir() {
+                candidate
+            } else {
+                pkg_dir
+            };
             cached.insert(package.id.clone(), root);
         } else {
             missing.push(package.clone());
@@ -928,18 +892,14 @@ fn detect_install_scenario(
     force: bool,
 ) -> (InstallScenario, Option<lockfile::Lockfile>) {
     if !lockfile_path.is_file() {
-        if console::is_logging_enabled() {
-            console::verbose("scenario: Cold (no lockfile)");
-        }
+        console::verbose("scenario: Cold (no lockfile)");
         return (InstallScenario::Cold, None);
     }
 
     let existing = match lockfile::read(lockfile_path) {
         Ok(lf) => lf,
         Err(_) => {
-            if console::is_logging_enabled() {
-                console::verbose("scenario: Cold (lockfile unreadable)");
-            }
+            console::verbose("scenario: Cold (lockfile unreadable)");
             return (InstallScenario::Cold, None);
         }
     };
@@ -950,9 +910,7 @@ fn detect_install_scenario(
     }
 
     if lock_requested != *manifest_root {
-        if console::is_logging_enabled() {
-            console::verbose("scenario: Cold (lockfile doesn't match manifest)");
-        }
+        console::verbose("scenario: Cold (lockfile doesn't match manifest)");
         return (InstallScenario::Cold, Some(existing));
     }
 
@@ -960,9 +918,7 @@ fn detect_install_scenario(
     let lockfile_hash = compute_lockfile_hash(&graph);
 
     if !force && check_integrity_file(project, &lockfile_hash) {
-        if console::is_logging_enabled() {
-            console::verbose("scenario: Hot (lockfile + node_modules valid)");
-        }
+        console::verbose("scenario: Hot (lockfile + node_modules valid)");
         return (InstallScenario::Hot, Some(existing));
     }
 
@@ -971,23 +927,19 @@ fn detect_install_scenario(
     let total_count = graph.packages.len();
 
     if missing_count == 0 {
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "scenario: WarmLinkOnly ({} packages all cached)",
-                total_count
-            ));
-        }
+        console::verbose(&format!(
+            "scenario: WarmLinkOnly ({} packages all cached)",
+            total_count
+        ));
         return (InstallScenario::WarmLinkOnly, Some(existing));
     }
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "scenario: WarmPartialCache ({}/{} packages cached, {} missing)",
-            total_count - missing_count,
-            total_count,
-            missing_count
-        ));
-    }
+    console::verbose(&format!(
+        "scenario: WarmPartialCache ({}/{} packages cached, {} missing)",
+        total_count - missing_count,
+        total_count,
+        missing_count
+    ));
     (InstallScenario::WarmPartialCache, Some(existing))
 }
 
@@ -1155,10 +1107,10 @@ fn apply_specs(
             value.clone()
         };
 
-        if let Some(map) = &mut protocol_map {
-            if let Some(proto) = detect_manifest_protocol(&resolved) {
-                map.insert(name.clone(), proto);
-            }
+        if let Some(map) = &mut protocol_map
+            && let Some(proto) = detect_manifest_protocol(&resolved)
+        {
+            map.insert(name.clone(), proto);
         }
 
         result.insert(name.clone(), resolved);
@@ -1299,13 +1251,13 @@ fn link_local_workspace_deps(
         let dest = node_modules.join(name);
 
         // Ensure parent directory exists (for scoped packages like @scope/pkg)
-        if let Some(parent) = dest.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
+        if let Some(parent) = dest.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                path: parent.to_path_buf(),
+                source,
+            })?;
         }
 
         if dest.exists() {
@@ -1404,14 +1356,12 @@ pub async fn outdated(
         }
     }
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "outdated: resolving {} root deps (include_dev={} force={})",
-            root_deps.len(),
-            include_dev,
-            force
-        ));
-    }
+    console::verbose(&format!(
+        "outdated: resolving {} root deps (include_dev={} force={})",
+        root_deps.len(),
+        include_dev,
+        force
+    ));
 
     let outdated_resolve_started = Instant::now();
     let graph = resolve::resolve(
@@ -1425,13 +1375,11 @@ pub async fn outdated(
         |_package| async { Ok::<(), SnpmError>(()) },
     )
     .await?;
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "outdated: resolve completed in {:.3}s (packages={})",
-            outdated_resolve_started.elapsed().as_secs_f64(),
-            graph.packages.len()
-        ));
-    }
+    console::verbose(&format!(
+        "outdated: resolve completed in {:.3}s (packages={})",
+        outdated_resolve_started.elapsed().as_secs_f64(),
+        graph.packages.len()
+    ));
 
     let lockfile_path = workspace
         .as_ref()
@@ -1469,10 +1417,10 @@ pub async fn outdated(
         let wanted = root_dep.resolved.version.clone();
         let current = current_versions.get(&name).cloned();
 
-        if let Some(ref cur) = current {
-            if cur == &wanted {
-                continue;
-            }
+        if let Some(ref cur) = current
+            && cur == &wanted
+        {
+            continue;
         }
 
         result.push(OutdatedEntry {
@@ -1572,22 +1520,22 @@ pub async fn upgrade(
 
         let mut updated = false;
 
-        if let Some(current) = manifest.dependencies.get_mut(&name) {
-            if !is_special_protocol_spec(current) {
-                *current = format!("^{}", wanted);
-                console::info(&format!("updating {name} to ^{wanted}"));
-                updated = true;
-            }
+        if let Some(current) = manifest.dependencies.get_mut(&name)
+            && !is_special_protocol_spec(current)
+        {
+            *current = format!("^{}", wanted);
+            console::info(&format!("updating {name} to ^{wanted}"));
+            updated = true;
         }
 
-        if !updated && !production {
-            if let Some(current) = manifest.dev_dependencies.get_mut(&name) {
-                if !is_special_protocol_spec(current) {
-                    *current = format!("^{}", wanted);
-                    console::info(&format!("updating {name} (dev) to ^{wanted}"));
-                    updated = true;
-                }
-            }
+        if !updated
+            && !production
+            && let Some(current) = manifest.dev_dependencies.get_mut(&name)
+            && !is_special_protocol_spec(current)
+        {
+            *current = format!("^{}", wanted);
+            console::info(&format!("updating {name} (dev) to ^{wanted}"));
+            updated = true;
         }
 
         if updated {

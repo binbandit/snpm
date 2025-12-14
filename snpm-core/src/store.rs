@@ -1,5 +1,5 @@
 use crate::console;
-use crate::resolve::ResolvedPackage;
+use crate::resolve::types::ResolvedPackage;
 use crate::{Result, SnpmConfig, SnpmError};
 use flate2::read::GzDecoder;
 use std::fs;
@@ -22,23 +22,19 @@ pub async fn ensure_package(
     let marker = pkg_dir.join(".snpm_complete");
     if marker.is_file() {
         let root = package_root_dir(&pkg_dir);
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "store hit: {}@{} ({})",
-                package.id.name,
-                package.id.version,
-                root.display()
-            ));
-        }
+        console::verbose(&format!(
+            "store hit: {}@{} ({})",
+            package.id.name,
+            package.id.version,
+            root.display()
+        ));
         return Ok(root);
     }
 
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "store miss: {}@{}; downloading from {}",
-            package.id.name, package.id.version, package.tarball
-        ));
-    }
+    console::verbose(&format!(
+        "store miss: {}@{}; downloading from {}",
+        package.id.name, package.id.version, package.tarball
+    ));
 
     fs::create_dir_all(&pkg_dir).map_err(|source| SnpmError::WriteFile {
         path: pkg_dir.clone(),
@@ -49,12 +45,10 @@ pub async fn ensure_package(
         let path_str = package.tarball.strip_prefix("file://").unwrap();
         let source_path = PathBuf::from(path_str);
 
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "installing local package from {}",
-                source_path.display()
-            ));
-        }
+        console::verbose(&format!(
+            "installing local package from {}",
+            source_path.display()
+        ));
 
         if source_path.is_dir() {
             let dest_dir = pkg_dir.join("package");
@@ -73,27 +67,23 @@ pub async fn ensure_package(
         let download_started = Instant::now();
         let bytes = download_tarball(config, &package.tarball, client).await?;
         let download_elapsed = download_started.elapsed();
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "downloaded tarball for {}@{} ({} bytes) in {:.3}s",
-                package.id.name,
-                package.id.version,
-                bytes.len(),
-                download_elapsed.as_secs_f64()
-            ));
-        }
+        console::verbose(&format!(
+            "downloaded tarball for {}@{} ({} bytes) in {:.3}s",
+            package.id.name,
+            package.id.version,
+            bytes.len(),
+            download_elapsed.as_secs_f64()
+        ));
 
         let unpack_started = Instant::now();
         unpack_tarball(&pkg_dir, bytes)?;
         let unpack_elapsed = unpack_started.elapsed();
-        if console::is_logging_enabled() {
-            console::verbose(&format!(
-                "unpacked tarball for {}@{} in {:.3}s",
-                package.id.name,
-                package.id.version,
-                unpack_elapsed.as_secs_f64()
-            ));
-        }
+        console::verbose(&format!(
+            "unpacked tarball for {}@{} in {:.3}s",
+            package.id.name,
+            package.id.version,
+            unpack_elapsed.as_secs_f64()
+        ));
     }
 
     fs::write(&marker, []).map_err(|source| SnpmError::WriteFile {
@@ -102,15 +92,13 @@ pub async fn ensure_package(
     })?;
 
     let root = package_root_dir(&pkg_dir);
-    if console::is_logging_enabled() {
-        console::verbose(&format!(
-            "ensure_package complete for {}@{} in {:.3}s (root={})",
-            package.id.name,
-            package.id.version,
-            start.elapsed().as_secs_f64(),
-            root.display()
-        ));
-    }
+    console::verbose(&format!(
+        "ensure_package complete for {}@{} in {:.3}s (root={})",
+        package.id.name,
+        package.id.version,
+        start.elapsed().as_secs_f64(),
+        root.display()
+    ));
 
     Ok(root)
 }

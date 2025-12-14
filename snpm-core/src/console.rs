@@ -62,11 +62,10 @@ pub fn is_logging_enabled() -> bool {
 }
 
 fn log_raw(message: &str) -> io::Result<()> {
-    if let Some(mutex) = LOG_FILE.get() {
-        if let Ok(mut file) = mutex.lock() {
+    if let Some(mutex) = LOG_FILE.get()
+        && let Ok(mut file) = mutex.lock() {
             writeln!(file, "{}", message)?;
         }
-    }
     Ok(())
 }
 
@@ -147,7 +146,13 @@ pub fn clear_line() {
 pub fn added(name: &str, version: &str, dev: bool) {
     let mark = green("+");
     let dev_label = if dev { dim(" (dev)") } else { String::new() };
-    println!("{} {}{}{}", mark, name, dim(&format!("@{}", version)), dev_label);
+    println!(
+        "{} {}{}{}",
+        mark,
+        name,
+        dim(&format!("@{}", version)),
+        dev_label
+    );
     log_prefixed(
         "INFO",
         &format!(

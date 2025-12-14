@@ -146,7 +146,9 @@ impl SnpmConfig {
                 default_registry_auth_token = Some(trimmed.to_string());
                 // Heuristic: if token contains ':' or looks base64, prefer Basic to align with _auth semantics
                 let looks_basic = trimmed.contains(':')
-                    || trimmed.chars().all(|c| c.is_ascii_alphanumeric() || "+/=_-.".contains(c));
+                    || trimmed
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || "+/=_-.".contains(c));
                 if looks_basic {
                     default_registry_auth_scheme = AuthScheme::Basic;
                 }
@@ -160,11 +162,10 @@ impl SnpmConfig {
             }
         }
 
-        if let Ok(value) = env::var("SNPM_LINK_BACKEND") {
-            if let Some(backend) = LinkBackend::from_str(value.trim()) {
+        if let Ok(value) = env::var("SNPM_LINK_BACKEND")
+            && let Some(backend) = LinkBackend::from_str(value.trim()) {
                 link_backend = backend;
             }
-        }
 
         if let Ok(value) = env::var("SNPM_STRICT_PEERS") {
             let trimmed = value.trim().to_ascii_lowercase();
@@ -176,13 +177,11 @@ impl SnpmConfig {
             frozen_lockfile_default = matches!(trimmed.as_str(), "1" | "true" | "yes" | "y" | "on");
         }
 
-        if let Ok(value) = env::var("SNPM_REGISTRY_CONCURRENCY") {
-            if let Ok(parsed) = value.trim().parse::<usize>() {
-                if parsed > 0 {
+        if let Ok(value) = env::var("SNPM_REGISTRY_CONCURRENCY")
+            && let Ok(parsed) = value.trim().parse::<usize>()
+                && parsed > 0 {
                     registry_concurrency = parsed;
                 }
-            }
-        }
         // Respect always-auth across env configs (pnpm/npm compatible names)
         if let Ok(v) = env::var("NPM_CONFIG_ALWAYS_AUTH")
             .or_else(|_| env::var("npm_config_always_auth"))
@@ -254,13 +253,11 @@ impl SnpmConfig {
             return Some(token.as_str());
         }
 
-        if let Some(default_host) = host_from_url(&self.default_registry) {
-            if host == default_host {
-                if let Some(token) = self.default_registry_auth_token.as_ref() {
+        if let Some(default_host) = host_from_url(&self.default_registry)
+            && host == default_host
+                && let Some(token) = self.default_registry_auth_token.as_ref() {
                     return Some(token.as_str());
                 }
-            }
-        }
 
         None
     }
@@ -275,20 +272,18 @@ fn expand_env_vars(s: &str) -> String {
 
     while i < bytes.len() {
         if bytes[i] == b'$' {
-            if i + 1 < bytes.len() && bytes[i + 1] == b'{' {
-                if let Some(end) = s[i + 2..].find('}') {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'{'
+                && let Some(end) = s[i + 2..].find('}') {
                     let var = &s[i + 2..i + 2 + end];
                     let val = env::var(var).unwrap_or_default();
                     out.push_str(&val);
                     i += 2 + end + 1;
                     continue;
                 }
-            }
 
             let mut j = i + 1;
             while j < bytes.len()
-                && (bytes[j] == b'_'
-                    || (bytes[j] as char).is_ascii_alphanumeric())
+                && (bytes[j] == b'_' || (bytes[j] as char).is_ascii_alphanumeric())
             {
                 j += 1;
             }
@@ -376,11 +371,10 @@ fn read_min_package_age_from_env() -> Option<u32> {
             return None;
         }
 
-        if let Ok(parsed) = trimmed.parse::<u32>() {
-            if parsed > 0 {
+        if let Ok(parsed) = trimmed.parse::<u32>()
+            && parsed > 0 {
                 return Some(parsed);
             }
-        }
     }
 
     None
@@ -393,11 +387,10 @@ fn read_min_package_cache_age_from_env() -> Option<u32> {
             return Some(7);
         }
 
-        if let Ok(parsed) = trimmed.parse::<u32>() {
-            if parsed > 0 {
+        if let Ok(parsed) = trimmed.parse::<u32>()
+            && parsed > 0 {
                 return Some(parsed);
             }
-        }
     }
 
     Some(7)
@@ -535,11 +528,10 @@ fn apply_rc_file(
                         // - Lowercase
                         // - Strip default ports (:443, :80) to match PNPM behavior
                         let mut host = raw_host.to_ascii_lowercase();
-                        if let Some((h, p)) = host.split_once(':') {
-                            if p == "443" || p == "80" {
+                        if let Some((h, p)) = host.split_once(':')
+                            && (p == "443" || p == "80") {
                                 host = h.to_string();
                             }
-                        }
 
                         if !host.is_empty() && !value.is_empty() {
                             registry_auth.insert(host.to_string(), value);
@@ -598,9 +590,5 @@ pub(crate) fn host_from_url(url: &str) -> Option<String> {
         }
     }
 
-    if host.is_empty() {
-        None
-    } else {
-        Some(host)
-    }
+    if host.is_empty() { None } else { Some(host) }
 }

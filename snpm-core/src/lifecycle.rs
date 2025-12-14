@@ -21,6 +21,49 @@ pub fn run_install_scripts(
     Ok(blocked)
 }
 
+pub fn run_project_scripts(
+    _config: &SnpmConfig,
+    _workspace: Option<&Workspace>,
+    project_root: &Path,
+) -> Result<()> {
+    let manifest_path = project_root.join("package.json");
+
+    if !manifest_path.exists() {
+        return Ok(());
+    }
+
+    let data = fs::read_to_string(&manifest_path).map_err(|source| SnpmError::ReadFile {
+        path: manifest_path.to_path_buf(),
+        source,
+    })?;
+
+    let value: Value = serde_json::from_str(&data).map_err(|source| SnpmError::ParseJson {
+        path: manifest_path.to_path_buf(),
+        source,
+    })?;
+
+    let name = value
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("root")
+        .to_string();
+
+    let scripts = match value.get("scripts") {
+        Some(Value::Object(map)) => map,
+        _ => return Ok(()),
+    };
+
+    // For root project, we run: preinstall, install, postinstall, prepare
+    let script_names = ["preinstall", "install", "postinstall", "prepare"];
+    let display_name = if name.is_empty() { "root" } else { &name };
+
+    for script_name in script_names {
+        run_script_if_present(display_name, project_root, scripts, script_name)?;
+    }
+
+    Ok(())
+}
+
 fn walk_node_modules(
     config: &SnpmConfig,
     workspace: Option<&Workspace>,
@@ -98,9 +141,10 @@ fn run_package_scripts(
         _ => return Ok(()),
     };
 
-    let has_install_scripts = scripts.contains_key("install");
+    let script_names = ["preinstall", "install", "postinstall", "prepare"];
+    let has_any_script = script_names.iter().any(|s| scripts.contains_key(*s));
 
-    if !has_install_scripts {
+    if !has_any_script {
         return Ok(());
     }
 
@@ -109,7 +153,9 @@ fn run_package_scripts(
         return Ok(());
     }
 
-    run_script_if_present(&name, pkg_root, scripts, "install")?;
+    for script_name in script_names {
+        run_script_if_present(&name, pkg_root, scripts, script_name)?;
+    }
 
     Ok(())
 }

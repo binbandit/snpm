@@ -12,6 +12,7 @@
     "catalog",
     "configuration",
     "lockfile",
+    "protocols",
     "---Deployment---",
     "ci-cd",
     "security",

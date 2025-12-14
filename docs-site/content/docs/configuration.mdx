@@ -265,6 +265,23 @@ ignoredBuiltDependencies:
   - 'node-sass'
 ```
 
+## Bundled Dependencies
+
+snpm supports `bundledDependencies` (or `bundleDependencies`) in `package.json`.
+
+```json
+{
+  "bundledDependencies": [
+    "fsevents",
+    "node-gyp"
+  ]
+}
+```
+
+Dependencies listed here are bundled with the package when published. When installing a package with bundled dependencies:
+1. snpm respects the bundled versions for that package.
+2. It prevents "store pollution" by ensuring these specific bundled versions don't leak into the global store or other parts of the dependency graph inappropriately.
+
 ## Catalog Configuration
 
 Dependency versions are managed via `snpm-catalog.yaml`:

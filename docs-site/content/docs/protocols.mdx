@@ -1,0 +1,71 @@
+---
+title: Protocols
+description: Supported dependency protocols in snpm
+---
+
+snpm supports various protocols for defining dependencies in your `package.json`.
+
+## Supported Protocols
+
+### npm:
+
+The standard protocol for fetching packages from a registry (default or configured).
+
+```json
+{
+  "dependencies": {
+    "react": "npm:^18.2.0",
+    "lodash": "^4.17.21" // Implicitly uses npm: protocol
+  }
+}
+```
+
+### file:
+
+Local file system dependencies. Useful for local development or monorepos without workspaces.
+
+```json
+{
+  "dependencies": {
+    "my-lib": "file:../my-lib",
+    "local-pkg": "file:/absolute/path/to/pkg"
+  }
+}
+```
+
+- Paths can be relative (to `package.json`) or absolute.
+- The target directory must contain a valid `package.json`.
+
+### git:
+
+Dependencies from Git repositories.
+
+```json
+{
+  "dependencies": {
+    "my-lib": "git+https://github.com/my-org/my-lib.git",
+    "another-lib": "git+ssh://git@github.com:my-org/another-lib.git#v1.0.0"
+  }
+}
+```
+
+Supported formats:
+- `git+https://`
+- `git+ssh://`
+- `git://`
+
+You can specify a commit hash, tag, or branch using the `#` fragment.
+
+### jsr:
+
+Support for the [JSR](https://jsr.io) registry.
+
+```json
+{
+  "dependencies": {
+    "@std/json": "jsr:@std/json^1.0.0"
+  }
+}
+```
+
+snpm natively handles JSR dependencies, mapping them to the appropriate registry requests.

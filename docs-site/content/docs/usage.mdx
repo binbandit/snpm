@@ -77,6 +77,39 @@ snpm run build
 snpm run test -- --watch
 ```
 
+## Lifecycle Scripts
+
+snpm supports standard lifecycle scripts that run during installation.
+
+```json
+{
+  "scripts": {
+    "preinstall": "echo 'Running before install'",
+    "install": "node-gyp rebuild",
+    "postinstall": "echo 'Running after install'",
+    "prepare": "npm run build"
+  }
+}
+```
+
+- **preinstall**: Runs before dependencies are installed.
+- **install** / **postinstall**: Runs after dependencies are installed.
+- **prepare**: Runs after install and before publish (also runs on local `snpm install` without arguments).
+
+<Callout type="warn">
+  By default, snpm blocks install scripts for security. You must explicitly allow packages to run scripts via `SNPM_ALLOW_SCRIPTS="pkg1,pkg2"` or by configuring `onlyBuiltDependencies` in `snpm-workspace.yaml`.
+</Callout>
+
+## Performance
+
+snpm is designed for speed.
+
+### Warm Path Optimization
+If your `node_modules` is up to date with `package.json` and `snpm-lock.yaml`, `snpm install` finishes in milliseconds (50-100ms typ.). It performs an "early exit" check to avoid unnecessary work.
+
+### Lockfile-less Install
+Even without a lockfile, snpm uses aggressive caching and parallelization to resolve and install dependencies rapidly.
+
 ## Upgrading Packages
 
 ```bash

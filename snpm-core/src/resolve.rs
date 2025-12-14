@@ -1,64 +1,26 @@
-use crate::registry::{RegistryPackage, RegistryProtocol, RegistryVersion, fetch_package};
+pub mod peers;
+pub mod query;
+pub mod types;
+
+use crate::registry::{RegistryPackage, RegistryProtocol};
 use crate::{Result, SnpmConfig, SnpmError, console};
 use async_recursion::async_recursion;
 use futures::future::{join, join_all};
 use futures::lock::Mutex;
+use query::build_dep_request;
 use reqwest::Client;
-use snpm_semver::{RangeSet, Version};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use time::OffsetDateTime;
-use time::format_description::well_known::Rfc3339;
 use tokio::sync::Semaphore;
 use tokio::task::yield_now;
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct PackageId {
-    pub name: String,
-    pub version: String,
-}
-
-use crate::registry::BundledDependencies;
-
-#[derive(Clone, Debug)]
-pub struct ResolvedPackage {
-    pub id: PackageId,
-    pub tarball: String,
-    pub integrity: Option<String>,
-    pub dependencies: BTreeMap<String, PackageId>,
-    pub peer_dependencies: BTreeMap<String, String>,
-    pub bundled_dependencies: Option<BundledDependencies>,
-    pub has_bin: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct RootDependency {
-    pub requested: String,
-    pub resolved: PackageId,
-}
-
-#[derive(Clone, Debug)]
-pub struct ResolutionRoot {
-    pub dependencies: BTreeMap<String, RootDependency>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ResolutionGraph {
-    pub root: ResolutionRoot,
-    pub packages: BTreeMap<PackageId, ResolvedPackage>,
-}
+pub use peers::validate_peers;
+pub use types::*;
 
 pub trait Prefetcher: Send + Sync {
     fn prefetch(&self, package: &ResolvedPackage);
-}
-
-#[derive(Clone, Debug)]
-struct DepRequest {
-    source: String,
-    range: String,
-    protocol: RegistryProtocol,
 }
 
 type PackageMap = BTreeMap<PackageId, ResolvedPackage>;
@@ -253,7 +215,9 @@ async fn resolve_package(
             pkg
         } else {
             let _permit = registry_semaphore.acquire().await.unwrap();
-            let fetched = fetch_package(config, client, &request.source, &request.protocol).await?;
+            let fetched =
+                crate::registry::fetch_package(config, client, &request.source, &request.protocol)
+                    .await?;
             drop(_permit);
 
             let mut cache = package_cache.lock().await;
@@ -262,7 +226,7 @@ async fn resolve_package(
         }
     };
 
-    let version_meta = select_version(
+    let version_meta = crate::version::select_version(
         &request.source,
         &request.range,
         &package,
@@ -270,7 +234,7 @@ async fn resolve_package(
         force,
     )?;
 
-    if !is_compatible(&version_meta.os, &version_meta.cpu) {
+    if !crate::platform::is_compatible(&version_meta.os, &version_meta.cpu) {
         return Err(SnpmError::ResolutionFailed {
             name: name.to_string(),
             range: range.to_string(),
@@ -433,10 +397,8 @@ async fn resolve_package(
 
     let opt_results = join_all(opt_futures).await;
 
-    for item in opt_results {
-        if let Some((name, id)) = item {
-            dependencies.insert(name, id);
-        }
+    for (name, id) in opt_results.into_iter().flatten() {
+        dependencies.insert(name, id);
     }
 
     {
@@ -447,279 +409,6 @@ async fn resolve_package(
     }
 
     Ok(id)
-}
-
-fn version_age_days(package: &RegistryPackage, version: &str, now: OffsetDateTime) -> Option<i64> {
-    let time_val = package.time.get(version)?;
-    let time_str = time_val.as_str()?;
-    let published = OffsetDateTime::parse(time_str, &Rfc3339).ok()?;
-    let age = now - published;
-    Some(age.whole_days())
-}
-
-fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
-    let mut versions_by_name = BTreeMap::new();
-
-    for package in graph.packages.values() {
-        if let Ok(ver) = Version::parse(&package.id.version) {
-            versions_by_name
-                .entry(package.id.name.clone())
-                .or_insert_with(Vec::new)
-                .push(ver);
-        }
-    }
-
-    for package in graph.packages.values() {
-        if package.peer_dependencies.is_empty() {
-            continue;
-        }
-
-        for (peer_name, peer_range) in package.peer_dependencies.iter() {
-            let range_set = parse_range_set(peer_name, peer_range)?;
-
-            let candidates = match versions_by_name.get(peer_name) {
-                Some(list) => list,
-                None => {
-                    return Err(SnpmError::ResolutionFailed {
-                        name: package.id.name.clone(),
-                        range: peer_range.clone(),
-                        reason: format!("missing peer dependency {peer_name}"),
-                    });
-                }
-            };
-
-            let mut satisfied = false;
-
-            for ver in candidates {
-                if range_set.matches(ver) {
-                    satisfied = true;
-                    break;
-                }
-            }
-
-            if !satisfied {
-                let installed = candidates
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                return Err(SnpmError::ResolutionFailed {
-                    name: package.id.name.clone(),
-                    range: peer_range.clone(),
-                    reason: format!(
-                        "peer dependency {peer_name}@{peer_range} is not satisfied; installed versions: {installed}"
-                    ),
-                });
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn select_version(
-    name: &str,
-    range: &str,
-    package: &RegistryPackage,
-    min_age_days: Option<u32>,
-    force: bool,
-) -> Result<RegistryVersion> {
-    let trimmed = range.trim();
-
-    if trimmed == "latest" {
-        if let Some(tag_version) = package.dist_tags.get("latest") {
-            if let Some(meta) = package.versions.get(tag_version) {
-                let now = OffsetDateTime::now_utc();
-
-                if let Some(min_days) = min_age_days {
-                    if !force {
-                        if let Some(age_days) = version_age_days(package, &meta.version, now) {
-                            if age_days < min_days as i64 {
-                                return Err(SnpmError::ResolutionFailed {
-                                    name: name.to_string(),
-                                    range: range.to_string(),
-                                    reason: format!(
-                                        "latest dist-tag points to version {} which is only {} days old, less than the configured minimum of {} days",
-                                        meta.version, age_days, min_days
-                                    ),
-                                });
-                            }
-                        }
-                    }
-                }
-
-                return Ok(meta.clone());
-            }
-        }
-    }
-
-    let ranges = parse_range_set(name, range)?;
-    let mut selected: Option<(Version, RegistryVersion)> = None;
-    let now = OffsetDateTime::now_utc();
-    let mut youngest_rejected: Option<(String, i64)> = None;
-
-    for (version_str, meta) in package.versions.iter() {
-        let parsed = Version::parse(version_str);
-        if let Ok(ver) = parsed {
-            if !ranges.matches(&ver) {
-                continue;
-            }
-
-            if let Some(min_days) = min_age_days {
-                if !force {
-                    if let Some(age_days) = version_age_days(package, version_str, now) {
-                        if age_days < min_days as i64 {
-                            if youngest_rejected.is_none() {
-                                youngest_rejected = Some((version_str.clone(), age_days));
-                            }
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            match &selected {
-                Some((best, _)) if ver <= *best => {}
-                _ => selected = Some((ver, meta.clone())),
-            }
-        }
-    }
-
-    if let Some((_, meta)) = selected {
-        Ok(meta)
-    } else {
-        if let Some(min_days) = min_age_days {
-            if !force {
-                if let Some((ver_str, age_days)) = youngest_rejected {
-                    return Err(SnpmError::ResolutionFailed {
-                        name: name.to_string(),
-                        range: range.to_string(),
-                        reason: format!(
-                            "latest matching version {ver_str} is only {age_days} days old, which is less than the configured minimum of {min_days} days"
-                        ),
-                    });
-                }
-            }
-        }
-
-        Err(SnpmError::ResolutionFailed {
-            name: name.to_string(),
-            range: range.to_string(),
-            reason: "Version not found matching range".to_string(),
-        })
-    }
-}
-
-fn parse_range_set(name: &str, original: &str) -> Result<RangeSet> {
-    RangeSet::parse(original).map_err(|err| SnpmError::Semver {
-        value: format!("{}@{}", name, original),
-        reason: err.to_string(),
-    })
-}
-
-fn is_compatible(os: &[String], cpu: &[String]) -> bool {
-    matches_os(os) && matches_cpu(cpu)
-}
-
-fn matches_os(list: &[String]) -> bool {
-    if list.is_empty() {
-        return true;
-    }
-
-    let current = current_os();
-    let mut has_positive = false;
-    let mut allowed = false;
-
-    for entry in list {
-        if let Some(negated) = entry.strip_prefix('!') {
-            if negated == current {
-                return false;
-            }
-        } else {
-            has_positive = true;
-            if entry == current {
-                allowed = true;
-            }
-        }
-    }
-
-    if has_positive { allowed } else { true }
-}
-
-fn matches_cpu(list: &[String]) -> bool {
-    if list.is_empty() {
-        return true;
-    }
-
-    let current = current_cpu();
-    let mut has_positive = false;
-    let mut allowed = false;
-
-    for entry in list {
-        if let Some(negated) = entry.strip_prefix('!') {
-            if negated == current {
-                return false;
-            }
-        } else {
-            has_positive = true;
-            if entry == current {
-                allowed = true;
-            }
-        }
-    }
-
-    if has_positive { allowed } else { true }
-}
-
-fn current_os() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "darwin",
-        "windows" => "win32",
-        other => other,
-    }
-}
-
-fn current_cpu() -> &'static str {
-    match std::env::consts::ARCH {
-        "x86_64" => "x64",
-        "x86" => "ia32",
-        "aarch64" => "arm64",
-        "arm" => "arm",
-        other => other,
-    }
-}
-
-fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, String)> {
-    let colon = spec.find(':')?;
-    let (prefix, rest) = spec.split_at(colon);
-    let rest = &rest[1..];
-
-    let protocol = match prefix {
-        "npm" => RegistryProtocol::npm(),
-        "jsr" => RegistryProtocol::jsr(),
-        other => RegistryProtocol::custom(other),
-    };
-
-    if rest.is_empty() {
-        return None;
-    }
-
-    let mut source = rest.to_string();
-    let mut range = "latest".to_string();
-
-    if let Some(at) = rest.rfind('@') {
-        let (name, ver_part) = rest.split_at(at);
-        if !name.is_empty() {
-            source = name.to_string();
-        }
-        let ver = ver_part.trim_start_matches('@');
-        if !ver.is_empty() {
-            range = ver.to_string()
-        }
-    }
-
-    Some((protocol, source, range))
 }
 
 fn resolve_relative_path(base: &Path, rel: &str) -> PathBuf {
@@ -741,42 +430,4 @@ fn resolve_relative_path(base: &Path, rel: &str) -> PathBuf {
     }
 
     components
-}
-
-fn build_dep_request(
-    name: &str,
-    range: &str,
-    protocol: &RegistryProtocol,
-    overrides: Option<&BTreeMap<String, String>>,
-) -> DepRequest {
-    let overridden = overrides
-        .and_then(|map| map.get(name))
-        .map(|s| s.as_str())
-        .unwrap_or(range);
-
-    if let Some((proto, source, semver_range)) = split_protocol_spec(overridden) {
-        DepRequest {
-            source,
-            range: semver_range,
-            protocol: proto,
-        }
-    } else {
-        DepRequest {
-            source: name.to_string(),
-            range: overridden.to_string(),
-            protocol: protocol.clone(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_and_matches_simple_range() {
-        let ranges = parse_range_set("pkg", ">= 4.21.0").unwrap();
-        let v = Version::parse("4.21.0").unwrap();
-        assert!(ranges.matches(&v));
-    }
 }

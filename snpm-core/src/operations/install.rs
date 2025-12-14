@@ -519,7 +519,10 @@ pub async fn install(
         console::verbose("skipping install scripts (early exit - node_modules is fresh)");
         Vec::new()
     } else if can_any_scripts_run(config, workspace.as_ref()) {
-        lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?
+        let blocked = lifecycle::run_install_scripts(config, workspace.as_ref(), &project.root)?;
+        lifecycle::run_project_scripts(config, workspace.as_ref(), &project.root)?;
+
+        blocked
     } else {
         console::verbose("skipping install scripts (no scripts can run based on config)");
         Vec::new()

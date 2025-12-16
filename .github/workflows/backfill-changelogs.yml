@@ -6,7 +6,7 @@ on:
       dry_run:
         description: 'Run without making changes'
         required: false
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -54,8 +54,11 @@ jobs:
             # But "don't have any" implies checking content.
             BODY=$(gh release view "$TAG" --json body -q .body)
 
+            # Trim whitespace
+            BODY=$(echo "$BODY" | xargs)
+
             if [ -n "$BODY" ]; then
-               echo "  Release notes already exist for $TAG. Skipping."
+               echo "  Release notes already exist for $TAG (content length: ${#BODY}). Skipping."
                PREV_TAG="$TAG"
                continue
             fi

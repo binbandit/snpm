@@ -1,0 +1,46 @@
+---
+title: Roadmap
+description: The future of snpm, tracked.
+---
+
+# Roadmap
+
+This page lists the features we expect snpm to have, ordered by priority. We are building a pnpm killer, so we aim to match their feature set before surpassing them.
+
+## Implemented
+
+Features that are already available in the current version of snpm.
+
+- [x] **Basic CLI** (`install`, `add`, `remove`, `run`)
+- [x] **Production installs** (`--production` flag)
+- [x] **Global Store** with parallel downloads
+- [x] **Lockfile** (`snpm-lock.yaml`) read/write and reuse
+- [x] **Semver support** (including `latest` and `||` ranges)
+- [x] **`node_modules` linking** with `.bin` support
+- [x] **Initial workspace support** (detection and multi-project install)
+
+## Planned
+
+Upcoming features and improvements, ordered by priority.
+
+### Refine Store & Linking
+- [ ] Reduce disk usage by symlinking from the store where safe
+- [ ] Optionally move toward a virtual store layout
+
+### First-class Workspaces
+- [ ] Resolve local packages before going to the registry
+- [ ] Single lockfile for the entire workspace
+- [ ] Commands like `snpm add -w <pkg>` to target specific workspace packages
+
+### Lockfile Modes
+- [ ] `--frozen-lockfile` / `--immutable` for CI
+- [ ] Clear errors when the manifest does not match the lockfile
+
+### Quality of Life
+- [ ] `snpm init` to bootstrap projects
+- [ ] `snpm outdated` / `snpm upgrade`
+- [ ] Better error messages and suggestions
+
+### Performance Tuning
+- [ ] Throttling concurrent downloads for huge dependency trees
+- [ ] Smarter reuse of resolution graphs within a workspace

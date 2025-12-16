@@ -415,6 +415,7 @@ jobs:
     name: Publish to npm
     needs: [prepare, release]
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       contents: read
       id-token: write

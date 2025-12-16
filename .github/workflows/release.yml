@@ -338,15 +338,26 @@ jobs:
             fi
           fi
 
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --verbose --latest --strip header
+        env:
+          OUTPUT: RELEASE_NOTES.md
+          GITHUB_REPO: ${{ github.repository }}
+
       - name: Create Release
         if: env.DRY_RUN != 'true'
         uses: softprops/action-gh-release@v2
         with:
+          body_path: RELEASE_NOTES.md
           tag_name: ${{ needs.prepare.outputs.version }}
           name: Release ${{ needs.prepare.outputs.version }}
           draft: false
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
-          generate_release_notes: true
+          generate_release_notes: false
           fail_on_unmatched_files: false
           files: |
             ./artifacts/**/*.tar.gz
@@ -381,6 +392,14 @@ jobs:
         with:
           components: rustfmt
 
+      - name: Generate Changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --verbose --output CHANGELOG.md
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+
       - name: Update and commit version changes
         run: |
           set -euo pipefail
@@ -397,15 +416,15 @@ jobs:
           cargo update --workspace
 
           # Check if there are changes to commit
-          if git diff --quiet snpm-cli/Cargo.toml Cargo.lock; then
-            echo "ℹ️ Version already up to date, no changes needed"
+          if git diff --quiet snpm-cli/Cargo.toml Cargo.lock CHANGELOG.md; then
+            echo "ℹ️ Version and changelog already up to date, no changes needed"
             exit 0
           fi
 
           # Stage and commit the changes
-          git add snpm-cli/Cargo.toml Cargo.lock
+          git add snpm-cli/Cargo.toml Cargo.lock CHANGELOG.md
           git commit -m "chore(release): bump version to ${VERSION_NO_V} [skip ci]" \
-                     -m "Automated version bump for release ${VERSION}"
+                     -m "Automated version bump and changelog update for release ${VERSION}"
           
           # Push the changes
           git push origin "HEAD:${RELEASE_BRANCH}"

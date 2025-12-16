@@ -167,6 +167,32 @@ snpm outdated
 
 Shows a table of packages with newer versions available.
 
+## dlx
+
+Download and execute a package binary without installing it.
+
+```bash
+snpm dlx <package> [args...]
+```
+
+**Alias:** `spx` is available as a shorthand (e.g., `spx cowsay`).
+
+**Examples:**
+
+```bash
+# Run cowsay
+snpm dlx cowsay "Hello World"
+
+# Run specific version
+snpm dlx cowsay@latest "Hello World"
+
+# Construct specific commands
+snpm dlx create-react-app my-app
+
+# Use the spx alias
+spx cowsay "Moo"
+```
+
 ## init
 
 Initialize a new `package.json`.

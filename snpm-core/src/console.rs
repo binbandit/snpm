@@ -87,9 +87,9 @@ pub fn verbose(message: &str) {
     log_prefixed("DEBUG", message);
 }
 
-pub fn header(command: &str) {
+pub fn header(command: &str, version: &str) {
     START_TIME.get_or_init(Instant::now);
-    let msg = format!("snpm {} v{}", command, env!("CARGO_PKG_VERSION"));
+    let msg = format!("snpm {} v{}", command, version);
     eprintln!("{}", dim(&msg));
     eprintln!();
     log_prefixed("INFO", &msg);

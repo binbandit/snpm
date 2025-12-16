@@ -54,7 +54,7 @@ async fn run() -> Result<()> {
             force,
             workspace: target,
         } => {
-            console::header("install");
+            console::header("install", env!("CARGO_PKG_VERSION"));
 
             let cwd = env::current_dir()?;
 
@@ -116,7 +116,7 @@ async fn run() -> Result<()> {
             packages,
             force,
         } => {
-            console::header("add");
+            console::header("add", env!("CARGO_PKG_VERSION"));
 
             let cwd = env::current_dir()?;
 
@@ -156,7 +156,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Remove { packages } => {
-            console::header("remove");
+            console::header("remove", env!("CARGO_PKG_VERSION"));
 
             let cwd = env::current_dir()?;
             let mut project = Project::discover(&cwd)?;
@@ -164,7 +164,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Dlx { package, args } => {
-            console::header(&format!("dlx {}", package));
+            console::header(&format!("dlx {}", package), env!("CARGO_PKG_VERSION"));
             operations::dlx(&config, package, args).await?;
         }
 
@@ -174,7 +174,7 @@ async fn run() -> Result<()> {
             recursive,
             filter,
         } => {
-            console::header(&format!("run {}", script));
+            console::header(&format!("run {}", script), env!("CARGO_PKG_VERSION"));
 
             let cwd = env::current_dir()?;
 
@@ -190,7 +190,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Init => {
-            console::header("init");
+            console::header("init", env!("CARGO_PKG_VERSION"));
 
             let cwd = env::current_dir()?;
             operations::init(&cwd)?;
@@ -201,7 +201,7 @@ async fn run() -> Result<()> {
             force,
             packages,
         } => {
-            console::header("upgrade");
+            console::header("upgrade", env!("CARGO_PKG_VERSION"));
 
             let cwd = env::current_dir()?;
 
@@ -251,7 +251,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Outdated { production } => {
-            console::header("outdated");
+            console::header("outdated", env!("CARGO_PKG_VERSION"));
 
             let cwd = env::current_dir()?;
 
@@ -302,7 +302,7 @@ async fn run() -> Result<()> {
             scope,
             web,
         } => {
-            console::header("login");
+            console::header("login", env!("CARGO_PKG_VERSION"));
 
             let registry_url = registry
                 .as_deref()
@@ -326,7 +326,7 @@ async fn run() -> Result<()> {
         }
 
         Command::Logout { registry, scope } => {
-            console::header("logout");
+            console::header("logout", env!("CARGO_PKG_VERSION"));
 
             operations::logout(&config, registry.as_deref(), scope.as_deref())?;
 

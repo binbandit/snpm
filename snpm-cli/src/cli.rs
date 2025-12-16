@@ -50,6 +50,13 @@ pub enum Command {
         args: Vec<String>,
     },
     Init,
+    Dlx {
+        /// Package to download and run (e.g. "cowsay" or "cowsay@latest")
+        package: String,
+        /// Arguments to pass to the package's binary
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
     Upgrade {
         #[arg(long)]
         production: bool,

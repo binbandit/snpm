@@ -163,6 +163,11 @@ async fn run() -> Result<()> {
             operations::remove(&config, &mut project, packages).await?;
         }
 
+        Command::Dlx { package, args } => {
+            console::header(&format!("dlx {}", package));
+            operations::dlx(&config, package, args).await?;
+        }
+
         Command::Run {
             script,
             args,

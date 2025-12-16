@@ -1,9 +1,10 @@
 {
   "name": "snpm",
-  "version": "0.1.0",
+  "version": "2025.12.14",
   "description": "Speedy Node Package Manager - A fast, Rust-based package manager",
   "bin": {
-    "snpm": "bin/snpm.js"
+    "snpm": "bin/snpm.js",
+    "spx": "bin/spx.js"
   },
   "scripts": {
     "postinstall": "node scripts/install.js",

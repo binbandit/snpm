@@ -76,7 +76,15 @@ jobs:
             
             # Generate changelog for this specific range
             # We strip the header because connection to next tag isn't relevant for single release notes
-            git cliff --config cliff.toml --strip header "$RANGE" > RELEASE_NOTES_TMP.md
+            if git cliff --config cliff.toml --strip header "$RANGE" > RELEASE_NOTES_TMP.md; then
+              echo "  Generated $(wc -l < RELEASE_NOTES_TMP.md) lines of release notes."
+              echo "  --- CONTENT START ---"
+              cat RELEASE_NOTES_TMP.md
+              echo "  --- CONTENT END ---"
+            else
+              echo "  Error generating changelog with git-cliff"
+              exit 1
+            fi
 
             if [ "$DRY_RUN" = "true" ]; then
               echo "  [DRY RUN] Would update release $TAG with content:"

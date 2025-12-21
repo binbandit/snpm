@@ -1,6 +1,6 @@
 [package]
 name = "snpm-cli"
-version = "2025.12.20"
+version = "2025.12.21"
 edition = "2024"
 license.workspace = true
 repository.workspace = true

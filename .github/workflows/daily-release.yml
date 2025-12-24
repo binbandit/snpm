@@ -50,10 +50,16 @@ jobs:
             exit 0
           fi
 
-          if git diff --quiet "$LAST_TAG"..HEAD; then
-            echo "No new commits since ${LAST_TAG}. Skipping release."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Check for meaningful changes (ignoring chore commits)
+          COMMITS=$(git log "$LAST_TAG"..HEAD --pretty=format:"%s")
+          
+          # Filter out chore commits related to release or deps
+          MEANINGFUL_COMMITS=$(echo "$COMMITS" | grep -vE "^chore\(release\):|^chore\(deps\):" || true)
+
+          if [[ -z "$MEANINGFUL_COMMITS" ]]; then
+             echo "No meaningful changes since ${LAST_TAG} (only chore commits). Skipping release."
+             echo "should_release=false" >> "$GITHUB_OUTPUT"
+             exit 0
           fi
 
           if [[ "$LAST_TAG" == "$TODAY" ]]; then

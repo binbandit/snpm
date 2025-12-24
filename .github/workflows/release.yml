@@ -343,7 +343,7 @@ jobs:
         id: git-cliff
         with:
           config: cliff.toml
-          args: --verbose --latest --strip header
+          args: --verbose --latest --strip header --tag ${{ needs.prepare.outputs.version }}
         env:
           OUTPUT: RELEASE_NOTES.md
           GITHUB_REPO: ${{ github.repository }}

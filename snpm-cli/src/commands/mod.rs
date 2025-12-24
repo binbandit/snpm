@@ -1,0 +1,10 @@
+pub mod add;
+pub mod dlx;
+pub mod init;
+pub mod install;
+pub mod login;
+pub mod logout;
+pub mod outdated;
+pub mod remove;
+pub mod run;
+pub mod upgrade;

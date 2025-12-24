@@ -53,8 +53,8 @@ jobs:
           # Check for meaningful changes (ignoring chore commits)
           COMMITS=$(git log "$LAST_TAG"..HEAD --pretty=format:"%s")
           
-          # Filter out chore commits related to release or deps
-          MEANINGFUL_COMMITS=$(echo "$COMMITS" | grep -vE "^chore\(release\):|^chore\(deps\):" || true)
+          # Filter out release commits and ci commits
+          MEANINGFUL_COMMITS=$(echo "$COMMITS" | grep -vE "^chore\(release\):|^ci:" || true)
 
           if [[ -z "$MEANINGFUL_COMMITS" ]]; then
              echo "No meaningful changes since ${LAST_TAG} (only chore commits). Skipping release."

@@ -2,7 +2,80 @@
 
 All notable changes to this project will be documented in this file.
 
-## [unreleased]
+## [2025.12.24] - 2025-12-24
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- *(release)* Correct changelog generation and skip empty daily releases ([f3abd90](https://github.com/binbandit/snpm/commit/f3abd90d4278c5bb603e80c77bc72e26abc24e79))
+- *(release)* Fix changelog generation and skip daily releases on ci commits ([3e46b3b](https://github.com/binbandit/snpm/commit/3e46b3bfbcba8bb4c269f07d0b0bdb93229e864e))
+
+### <!-- 2 -->♻️ Refactor
+
+- *(cli)* Restructure into modular commands ([f30b6d5](https://github.com/binbandit/snpm/commit/f30b6d57b16dae1eae57987eba97f8d3c86e96ff))
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Bump version to 2025.12.23 [skip ci] ([a00437f](https://github.com/binbandit/snpm/commit/a00437fac36d03e69d45b453bbdad30f53e32cfd))
+
+## [2025.12.23] - 2025-12-22
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Bump version to 2025.12.22 [skip ci] ([e7c69c1](https://github.com/binbandit/snpm/commit/e7c69c13ed2ce222bd459754f84a1fcaad60e3c6))
+
+## [2025.12.22] - 2025-12-21
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Bump version to 2025.12.21 [skip ci] ([8c947ff](https://github.com/binbandit/snpm/commit/8c947ffa201a8a601ce881863f3224ff8b28b2d6))
+
+## [2025.12.21] - 2025-12-20
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Bump version to 2025.12.20 [skip ci] ([356d375](https://github.com/binbandit/snpm/commit/356d375785115c388e4d57b2372c2b62a0f23642))
+
+## [2025.12.20] - 2025-12-19
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Bump version to 2025.12.19 [skip ci] ([d4520f3](https://github.com/binbandit/snpm/commit/d4520f3e94ae2f6f977e9f702958d2fe97c19176))
+
+## [2025.12.19] - 2025-12-19
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(ci)* Remove backfill changelog workflow ([d443c16](https://github.com/binbandit/snpm/commit/d443c16902a8a6ba8f03fb584af22778faf293d8))
+
+## [2025.12.17] - 2025-12-16
+
+### <!-- 2 -->♻️ Refactor
+
+- *(cli)* Pass version into console header ([08821ab](https://github.com/binbandit/snpm/commit/08821abfe50f8b5925356cc5805d9e56e59e93cf))
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Use git-cliff for changelog generation ([32e4775](https://github.com/binbandit/snpm/commit/32e47753e67e4131f72936b0472b3690df26823e))
+- *(releases)* Add workflow to backfill changelogs ([74f5838](https://github.com/binbandit/snpm/commit/74f583874cf613f7c4827f3ab0899190831c33d9))
+- *(ci)* Disable dry-run and trim release body ([65df485](https://github.com/binbandit/snpm/commit/65df485ddfb7142f3c17ddcead25e322f4ad28f8))
+- *(backfill-changelogs)* Add logging and fail on cliff errors ([58cf324](https://github.com/binbandit/snpm/commit/58cf324397d390c699ab89e2681cc4c5a8608c31))
+
+## [2025.12.16] - 2025-12-16
+
+### <!-- 0 -->🚀 Features
+
+- *(cli)* Add dlx command and spx npm shim ([5dab200](https://github.com/binbandit/snpm/commit/5dab200e7ffcf51966d051485375df1022a62185))
+
+### <!-- 3 -->📚 Documentation
+
+- *(cli)* Document snpm dlx command and spx alias ([945cc9f](https://github.com/binbandit/snpm/commit/945cc9f6241c8396a42946e64939b188d8b3f506))
+- *(roadmap)* Add roadmap page and nav entry ([6165b4a](https://github.com/binbandit/snpm/commit/6165b4a0c96d0218eed36f54cf8a325b44f235f0))
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(ci)* Allow npm publish job to continue ([58ca1c7](https://github.com/binbandit/snpm/commit/58ca1c701754aea8db70ad5c7d9f56ee428c208b))
+
+## [2025.12.15] - 2025-12-14
 
 ### <!-- 0 -->🚀 Features
 
@@ -69,7 +142,6 @@ All notable changes to this project will be documented in this file.
 - *(protocols)* Add file, git, and jsr resolvers ([64b40b7](https://github.com/binbandit/snpm/commit/64b40b7bb904e8b2f92ea379f9adafba9a2f3d84))
 - *(cache)* Add registry metadata caching ([4afa047](https://github.com/binbandit/snpm/commit/4afa047cc526e41c5961ae45d9556f2f3d888d44))
 - *(lifecycle)* Run full script lifecycle on install ([3d6964c](https://github.com/binbandit/snpm/commit/3d6964c54aa9d52ee5313fb9eee044d68a8e4766))
-- *(cli)* Add dlx command and spx npm shim ([5dab200](https://github.com/binbandit/snpm/commit/5dab200e7ffcf51966d051485375df1022a62185))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -125,7 +197,6 @@ All notable changes to this project will be documented in this file.
 - *(core)* Decompose linker module into bins, hoist, and fs submodules ([0801a8e](https://github.com/binbandit/snpm/commit/0801a8eca71bd102a91df704f704ec3f65b7279e))
 - *(core)* Decompose workspace module into types and discovery ([cafd313](https://github.com/binbandit/snpm/commit/cafd31341662c73cab6f9efcbe8e3b5ea219dfd0))
 - *(core)* Normalize let-chain formatting ([7adfb48](https://github.com/binbandit/snpm/commit/7adfb487a0e9be8922daeb73c1598c1acdecaa29))
-- *(cli)* Pass version into console header ([08821ab](https://github.com/binbandit/snpm/commit/08821abfe50f8b5925356cc5805d9e56e59e93cf))
 
 ### <!-- 3 -->📚 Documentation
 
@@ -139,8 +210,6 @@ All notable changes to this project will be documented in this file.
 - *(core)* Document Bearer/Basic auth schemes and registry URL normalization ([0eb4cd7](https://github.com/binbandit/snpm/commit/0eb4cd724262a2c6fbd25a29f73a1855a7b12da0))
 - *(agents)* Add architecture and agent guide ([2da12c6](https://github.com/binbandit/snpm/commit/2da12c6da07abb50901cff9498d171a5508e2434))
 - Document protocols, lifecycle and bundled deps ([fedf2d1](https://github.com/binbandit/snpm/commit/fedf2d1ec6241d3adc8d68a419832b786a46dbda))
-- *(cli)* Document snpm dlx command and spx alias ([945cc9f](https://github.com/binbandit/snpm/commit/945cc9f6241c8396a42946e64939b188d8b3f506))
-- *(roadmap)* Add roadmap page and nav entry ([6165b4a](https://github.com/binbandit/snpm/commit/6165b4a0c96d0218eed36f54cf8a325b44f235f0))
 
 ### <!-- 4 -->⚡ Performance
 
@@ -178,15 +247,5 @@ All notable changes to this project will be documented in this file.
 - *(gitignore)* Exclude e2e2 test directory ([485f023](https://github.com/binbandit/snpm/commit/485f0232bcd50504d8f1655a227092003bb210ab))
 - *(release)* Enable npm provenance for publishes ([33dc45b](https://github.com/binbandit/snpm/commit/33dc45b216e60dacd9a1a10b8cc80ed80527dc0b))
 - *(taskrunner)* Add just recipes for build/install ([8df3db7](https://github.com/binbandit/snpm/commit/8df3db77dd2cb878981f842465d7f32069620c4a))
-- *(ci)* Allow npm publish job to continue ([58ca1c7](https://github.com/binbandit/snpm/commit/58ca1c701754aea8db70ad5c7d9f56ee428c208b))
-- *(release)* Use git-cliff for changelog generation ([32e4775](https://github.com/binbandit/snpm/commit/32e47753e67e4131f72936b0472b3690df26823e))
-- *(releases)* Add workflow to backfill changelogs ([74f5838](https://github.com/binbandit/snpm/commit/74f583874cf613f7c4827f3ab0899190831c33d9))
-- *(ci)* Disable dry-run and trim release body ([65df485](https://github.com/binbandit/snpm/commit/65df485ddfb7142f3c17ddcead25e322f4ad28f8))
-- *(backfill-changelogs)* Add logging and fail on cliff errors ([58cf324](https://github.com/binbandit/snpm/commit/58cf324397d390c699ab89e2681cc4c5a8608c31))
-- *(ci)* Remove backfill changelog workflow ([d443c16](https://github.com/binbandit/snpm/commit/d443c16902a8a6ba8f03fb584af22778faf293d8))
-- *(release)* Bump version to 2025.12.19 [skip ci] ([d4520f3](https://github.com/binbandit/snpm/commit/d4520f3e94ae2f6f977e9f702958d2fe97c19176))
-- *(release)* Bump version to 2025.12.20 [skip ci] ([356d375](https://github.com/binbandit/snpm/commit/356d375785115c388e4d57b2372c2b62a0f23642))
-- *(release)* Bump version to 2025.12.21 [skip ci] ([8c947ff](https://github.com/binbandit/snpm/commit/8c947ffa201a8a601ce881863f3224ff8b28b2d6))
-- *(release)* Bump version to 2025.12.22 [skip ci] ([e7c69c1](https://github.com/binbandit/snpm/commit/e7c69c13ed2ce222bd459754f84a1fcaad60e3c6))
 
 <!-- generated by git-cliff -->

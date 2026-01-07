@@ -9,11 +9,19 @@ pub fn matches_cpu(list: &[String]) -> bool {
 }
 
 pub fn current_os() -> &'static str {
-    env::consts::OS
+    match env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        other => other,
+    }
 }
 
 pub fn current_cpu() -> &'static str {
-    env::consts::ARCH
+    match env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => other,
+    }
 }
 
 pub fn is_compatible(os: &[String], cpu: &[String]) -> bool {

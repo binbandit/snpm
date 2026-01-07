@@ -14,7 +14,10 @@ pub async fn run(_args: ConfigArgs, config: &SnpmConfig) -> Result<()> {
     console::info("paths");
     console::info(&format!("  cache dir: {}", config.cache_dir.display()));
     console::info(&format!("  data dir: {}", config.data_dir.display()));
-    console::info(&format!("  packages dir: {}", config.packages_dir().display()));
+    console::info(&format!(
+        "  packages dir: {}",
+        config.packages_dir().display()
+    ));
     console::info(&format!(
         "  metadata dir: {}",
         config.metadata_dir().display()

@@ -2,13 +2,15 @@ pub mod bins;
 pub mod fs;
 pub mod hoist;
 
-use crate::resolve::{PackageId, ResolutionGraph};
-use crate::{HoistingMode, lifecycle};
+use crate::HoistingMode;
+use crate::resolve::{PackageId, ResolutionGraph, ResolvedPackage, RootDependency};
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
-use std::collections::{BTreeMap, BTreeSet};
+use rayon::prelude::*;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use bins::{link_bins, link_bundled_bins_recursive};
+use bins::link_bins;
 use fs::{copy_dir, link_dir, symlink_dir_entry};
 use hoist::{effective_hoisting, hoist_packages};
 
@@ -27,176 +29,183 @@ pub fn link(
         source,
     })?;
 
-    let deps = &project.manifest.dependencies;
-    let dev_deps = &project.manifest.dev_dependencies;
-    let hoisting = effective_hoisting(config, workspace);
+    let virtual_store_paths =
+        populate_virtual_store(&root_node_modules, graph, store_paths, config)?;
 
-    let mut linked: BTreeMap<PackageId, PathBuf> = BTreeMap::new();
-    let mut root_bin_targets: BTreeMap<String, PathBuf> = BTreeMap::new();
+    link_virtual_dependencies(&virtual_store_paths, graph)?;
 
-    for (name, dep) in graph.root.dependencies.iter() {
-        if !deps.contains_key(name) && !dev_deps.contains_key(name) {
-            continue;
-        }
+    let root_deps_to_link = filter_root_dependencies(project, graph, include_dev);
 
-        let only_dev = dev_deps.contains_key(name) && !deps.contains_key(name);
-        if !include_dev && only_dev {
-            continue;
-        }
+    link_root_dependencies(&root_deps_to_link, &virtual_store_paths, &root_node_modules)?;
 
-        let id = &dep.resolved;
-        let dest = root_node_modules.join(name);
-        let mut stack = BTreeSet::new();
+    link_root_bins(&root_deps_to_link, &root_node_modules)?;
 
-        link_package(
-            config,
-            workspace,
-            id,
-            &dest,
-            graph,
-            store_paths,
-            &mut stack,
-            &mut linked,
-        )?;
-
-        root_bin_targets
-            .entry(id.name.clone())
-            .or_insert(dest.clone());
+    if let HoistingMode::None = effective_hoisting(config, workspace) {
+        return Ok(());
     }
 
-    for (pkg_name, pkg_dest) in root_bin_targets.iter() {
-        link_bins(pkg_dest, &root_node_modules, pkg_name)?;
-    }
-
-    link_bundled_bins_recursive(graph, &linked)?;
-
-    if !matches!(hoisting, HoistingMode::None) {
-        hoist_packages(config, workspace, project, graph, store_paths, hoisting)?;
-    }
-
-    Ok(())
+    hoist_packages(
+        config,
+        workspace,
+        project,
+        graph,
+        store_paths,
+        effective_hoisting(config, workspace),
+    )
 }
 
-fn link_package(
-    config: &SnpmConfig,
-    workspace: Option<&Workspace>,
-    id: &PackageId,
-    dest: &Path,
+fn populate_virtual_store(
+    root_node_modules: &Path,
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
-    stack: &mut BTreeSet<PackageId>,
-    linked: &mut BTreeMap<PackageId, PathBuf>,
+    config: &SnpmConfig,
+) -> Result<Arc<BTreeMap<PackageId, PathBuf>>> {
+    let virtual_store_dir = root_node_modules.join(".snpm");
+    let virtual_store_paths = Arc::new(Mutex::new(BTreeMap::new()));
+    let packages: Vec<_> = graph.packages.iter().collect();
+
+    packages
+        .par_iter()
+        .try_for_each(|(id, _package)| -> Result<()> {
+            let safe_name = id.name.replace('/', "+");
+            let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
+            let package_location = virtual_id_dir.join("node_modules").join(&id.name);
+
+            let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
+                name: id.name.clone(),
+                version: id.version.clone(),
+            })?;
+
+            if package_location.exists() {
+                std::fs::remove_dir_all(&package_location).map_err(|source| {
+                    SnpmError::WriteFile {
+                        path: package_location.to_path_buf(),
+                        source,
+                    }
+                })?;
+            }
+
+            if let Some(parent) = package_location.parent() {
+                std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
+
+            link_dir(config, store_path, &package_location)?;
+
+            {
+                let mut paths = virtual_store_paths.lock().unwrap();
+                paths.insert((*id).clone(), package_location);
+            }
+
+            Ok(())
+        })?;
+
+    let result = virtual_store_paths.lock().unwrap().clone();
+    Ok(Arc::new(result))
+}
+
+fn link_virtual_dependencies(
+    virtual_store_paths: &Arc<BTreeMap<PackageId, PathBuf>>,
+    graph: &ResolutionGraph,
 ) -> Result<()> {
-    if let Some(existing) = linked.get(id) {
-        if dest.exists() {
-            std::fs::remove_dir_all(dest).map_err(|source| SnpmError::WriteFile {
-                path: dest.to_path_buf(),
-                source,
-            })?;
-        }
+    let packages: Vec<_> = graph.packages.iter().collect();
 
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
+    packages
+        .par_iter()
+        .try_for_each(|(id, package)| -> Result<()> {
+            let package_location = virtual_store_paths.get(id).unwrap();
+            let package_node_modules = package_location.parent().unwrap();
 
-        if let Err(_err) = symlink_dir_entry(existing, dest) {
-            copy_dir(existing, dest)?;
-        }
+            for (dep_name, dep_id) in &package.dependencies {
+                let dep_target = virtual_store_paths.get(dep_id).unwrap();
+                let dep_link = package_node_modules.join(dep_name);
 
-        return Ok(());
-    }
+                if let Some(parent) = dep_link.parent() {
+                    std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                        path: parent.to_path_buf(),
+                        source,
+                    })?;
+                }
 
-    if stack.contains(id) {
-        let store_root = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
-            name: id.name.clone(),
-            version: id.version.clone(),
-        })?;
+                symlink_dir_entry(dep_target, &dep_link)
+                    .or_else(|_| copy_dir(dep_target, &dep_link))?;
+            }
+            Ok(())
+        })
+}
 
-        if dest.exists() {
-            std::fs::remove_dir_all(dest).map_err(|source| SnpmError::WriteFile {
-                path: dest.to_path_buf(),
-                source,
-            })?;
-        }
+fn filter_root_dependencies<'a>(
+    project: &Project,
+    graph: &'a ResolutionGraph,
+    include_dev: bool,
+) -> Vec<(&'a String, &'a RootDependency)> {
+    let deps = &project.manifest.dependencies;
+    let dev_deps = &project.manifest.dev_dependencies;
 
-        let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
+    graph
+        .root
+        .dependencies
+        .iter()
+        .filter(|(name, _dep)| {
+            if !deps.contains_key(*name) && !dev_deps.contains_key(*name) {
+                return false;
+            }
+            let only_dev = dev_deps.contains_key(*name) && !deps.contains_key(*name);
+            if !include_dev && only_dev {
+                return false;
+            }
+            true
+        })
+        .collect()
+}
 
-        if scripts_allowed {
-            copy_dir(store_root, dest)?;
-        } else {
-            link_dir(config, store_root, dest)?;
-        }
+fn link_root_dependencies(
+    root_deps: &[(&String, &RootDependency)],
+    virtual_store_paths: &Arc<BTreeMap<PackageId, PathBuf>>,
+    root_node_modules: &Path,
+) -> Result<()> {
+    root_deps
+        .par_iter()
+        .try_for_each(|(name, dep)| -> Result<()> {
+            let id = &dep.resolved;
+            let target = virtual_store_paths
+                .get(id)
+                .ok_or_else(|| SnpmError::GraphMissing {
+                    name: id.name.clone(),
+                    version: id.version.clone(),
+                })?;
 
-        return Ok(());
-    }
+            let dest = root_node_modules.join(name);
 
-    stack.insert(id.clone());
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
 
-    if dest.exists() {
-        std::fs::remove_dir_all(dest).map_err(|source| SnpmError::WriteFile {
-            path: dest.to_path_buf(),
-            source,
-        })?;
-    }
+            if dest.exists() {
+                if dest.is_dir() {
+                    std::fs::remove_dir_all(&dest).ok();
+                } else {
+                    std::fs::remove_file(&dest).ok();
+                }
+            }
 
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+            symlink_dir_entry(target, &dest).or_else(|_| copy_dir(target, &dest))?;
+            Ok(())
+        })
+}
 
-    let store_root = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
-        name: id.name.clone(),
-        version: id.version.clone(),
-    })?;
-
-    let package = graph
-        .packages
-        .get(id)
-        .ok_or_else(|| SnpmError::GraphMissing {
-            name: id.name.clone(),
-            version: id.version.clone(),
-        })?;
-
-    let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
-    let has_nested_deps = !package.dependencies.is_empty();
-
-    if scripts_allowed || has_nested_deps {
-        if scripts_allowed {
-            copy_dir(store_root, dest)?;
-        } else {
-            link_dir(config, store_root, dest)?;
-        }
-    } else if symlink_dir_entry(store_root, dest).is_err() {
-        link_dir(config, store_root, dest)?;
-    }
-
-    for (dep_name, dep_id) in package.dependencies.iter() {
-        let node_modules = dest.join("node_modules");
-        std::fs::create_dir_all(&node_modules).map_err(|source| SnpmError::WriteFile {
-            path: node_modules.clone(),
-            source,
-        })?;
-        let child_dest = node_modules.join(dep_name);
-
-        link_package(
-            config,
-            workspace,
-            dep_id,
-            &child_dest,
-            graph,
-            store_paths,
-            stack,
-            linked,
-        )?;
-    }
-
-    stack.remove(id);
-    linked.insert(id.clone(), dest.to_path_buf());
-
+fn link_root_bins(
+    root_deps: &[(&String, &RootDependency)],
+    root_node_modules: &Path,
+) -> Result<()> {
+    root_deps.iter().for_each(|(name, _dep)| {
+        let dest = root_node_modules.join(name);
+        let _ = link_bins(&dest, root_node_modules, name);
+    });
     Ok(())
 }

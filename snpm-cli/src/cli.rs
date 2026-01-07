@@ -23,4 +23,5 @@ pub enum Command {
     Outdated(commands::outdated::OutdatedArgs),
     Login(commands::login::LoginArgs),
     Logout(commands::logout::LogoutArgs),
+    Config(commands::config::ConfigArgs),
 }

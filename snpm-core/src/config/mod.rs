@@ -33,6 +33,7 @@ pub struct SnpmConfig {
     pub registry_concurrency: usize,
     pub verbose: bool,
     pub log_file: Option<PathBuf>,
+    pub update_notifier: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +118,7 @@ impl SnpmConfig {
         let mut default_registry_auth_scheme = AuthScheme::Bearer;
         // Honor always-auth default (can be overridden by env below)
         let mut always_auth = false;
+        let mut update_notifier = false;
 
         if let Ok(value) =
             env::var("NPM_CONFIG_REGISTRY").or_else(|_| env::var("npm_config_registry"))
@@ -213,6 +215,16 @@ impl SnpmConfig {
             .filter(|v| !v.is_empty())
             .map(PathBuf::from);
 
+        if let Ok(value) = env::var("SNPM_UPDATE_NOTIFIER") {
+            let on = match value.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "y" | "on" => true,
+                _ => false,
+            };
+            if on {
+                update_notifier = true;
+            }
+        };
+
         SnpmConfig {
             cache_dir,
             data_dir,
@@ -238,6 +250,7 @@ impl SnpmConfig {
             registry_concurrency,
             verbose,
             log_file,
+            update_notifier,
         }
     }
 

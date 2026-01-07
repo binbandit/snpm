@@ -260,3 +260,19 @@ snpm logout --registry https://npm.mycompany.com
 # Logout from scoped registry
 snpm logout --scope @myorg
 ```
+
+## config
+
+Show the resolved configuration and runtime paths.
+
+```bash
+snpm config
+```
+
+This prints cache/data locations, registry/auth info, install settings (hoisting, link backend, strict peers, frozen lockfile default, min package age, registry concurrency), script allowlist, and logging status.
+
+**Examples:**
+
+```bash
+snpm config
+```

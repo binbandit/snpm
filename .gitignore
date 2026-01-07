@@ -5,6 +5,7 @@
 
 e2e/
 e2e2/
+e2e3/
 pnpm/
 bun/
 package-manager-benchmarks/

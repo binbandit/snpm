@@ -12,7 +12,7 @@ const docsOptions: BaseLayoutProps = {
         </div>
         <span className="text-lg text-gray-900 dark:text-[#f5f1e8]">snpm</span>
         <span className="text-xs text-gray-600 dark:text-[#c9b89a] bg-[#e8dcc8] dark:bg-[#3a2d1d] px-2.5 py-1 rounded-full">
-          v2025.12.3
+          v2026.1.7
         </span>
       </div>
     ),

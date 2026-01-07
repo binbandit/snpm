@@ -45,7 +45,7 @@ const acronyms = [
 function HeroSection() {
   const [copied, setCopied] = useState(false);
   const [acronym, setAcronym] = useState('Suddenly Not Panicking Manager');
-  const version = '2025.12.3';
+  const version = '2026.1.7';
 
   useEffect(() => {
     // Pick a random acronym on mount
@@ -456,7 +456,7 @@ function CTA() {
 }
 
 function Footer() {
-  const version = '2025.12.3';
+  const version = '2026.1.7';
 
   return (
     <footer className="bg-[#f5f1e8] dark:bg-[#1a1512] border-t border-[#d4c5b0]/50 dark:border-[#4a3828]/50">

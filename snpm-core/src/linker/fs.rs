@@ -27,13 +27,7 @@ pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
         let to = dest.join(entry.file_name());
 
         if file_type.is_dir() {
-            let is_node_modules = entry.file_name() == "node_modules";
-
-            if is_node_modules {
-                link_dir(config, &from, &to)?;
-            } else if let Err(_err) = symlink_dir_entry(&from, &to) {
-                copy_dir(&from, &to)?;
-            }
+            link_dir(config, &from, &to)?;
         } else {
             link_file(config, &from, &to)?;
         }

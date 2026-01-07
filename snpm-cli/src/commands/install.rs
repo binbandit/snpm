@@ -17,42 +17,42 @@ pub struct InstallArgs {
     pub workspace: Option<String>,
 }
 
-pub async fn run(args: InstallArgs, config: &SnpmConfig) -> Result<()> {
+pub async fn run(arguments: InstallArgs, config: &SnpmConfig) -> Result<()> {
     console::header("install", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let current_directory = env::current_dir()?;
 
-    if let Some(workspace_name) = args.workspace {
-        let mut workspace = Workspace::discover(&cwd)?
+    if let Some(workspace_name) = arguments.workspace {
+        let mut workspace = Workspace::discover(&current_directory)?
             .ok_or_else(|| anyhow::anyhow!("snpm install -w used outside a workspace"))?;
 
         let project = workspace
             .projects
             .iter_mut()
-            .find(|p| p.manifest.name.as_deref() == Some(workspace_name.as_str()))
+            .find(|project| project.manifest.name.as_deref() == Some(workspace_name.as_str()))
             .ok_or_else(|| {
                 anyhow::anyhow!(format!("workspace project {workspace_name} not found"))
             })?;
 
         let options = operations::InstallOptions {
-            requested: args.packages,
+            requested: arguments.packages,
             dev: false,
-            include_dev: !args.production,
-            frozen_lockfile: args.frozen_lockfile,
-            force: args.force,
+            include_dev: !arguments.production,
+            frozen_lockfile: arguments.frozen_lockfile,
+            force: arguments.force,
             silent_summary: false,
         };
         operations::install(config, project, options).await?;
     } else {
-        if args.packages.is_empty() {
-            if let Some(mut workspace) = Workspace::discover(&cwd)? {
-                if workspace.root == cwd {
+        if arguments.packages.is_empty() {
+            if let Some(mut workspace) = Workspace::discover(&current_directory)? {
+                if workspace.root == current_directory {
                     operations::install_workspace(
                         config,
                         &mut workspace,
-                        !args.production,
-                        args.frozen_lockfile,
-                        args.force,
+                        !arguments.production,
+                        arguments.frozen_lockfile,
+                        arguments.force,
                     )
                     .await?;
 
@@ -61,13 +61,13 @@ pub async fn run(args: InstallArgs, config: &SnpmConfig) -> Result<()> {
             }
         }
 
-        let mut project = Project::discover(&cwd)?;
+        let mut project = Project::discover(&current_directory)?;
         let options = operations::InstallOptions {
-            requested: args.packages,
+            requested: arguments.packages,
             dev: false,
-            include_dev: !args.production,
-            frozen_lockfile: args.frozen_lockfile,
-            force: args.force,
+            include_dev: !arguments.production,
+            frozen_lockfile: arguments.frozen_lockfile,
+            force: arguments.force,
             silent_summary: false,
         };
         operations::install(config, &mut project, options).await?;

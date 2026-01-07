@@ -135,13 +135,13 @@ pub async fn install(
         }
     }
 
-    let ws_root = workspace
+    let workspace_root = workspace
         .as_ref()
         .map(|w| format!("{}", w.root.display()))
         .unwrap_or_else(|| "<none>".to_string());
     console::verbose(&format!(
         "workspace_root={} overrides={} catalog_local={}",
-        ws_root,
+        workspace_root,
         overrides.len(),
         catalog.as_ref().map(|c| c.catalog.len()).unwrap_or(0),
     ));
@@ -150,14 +150,14 @@ pub async fn install(
     let mut local_dev_deps = BTreeSet::new();
     let mut manifest_protocols = BTreeMap::new();
 
-    let deps = apply_specs(
+    let dependencies = apply_specs(
         &project.manifest.dependencies,
         workspace.as_ref(),
         catalog.as_ref(),
         &mut local_deps,
         Some(&mut manifest_protocols),
     )?;
-    let dev_deps = apply_specs(
+    let development_dependencies = apply_specs(
         &project.manifest.dev_dependencies,
         workspace.as_ref(),
         catalog.as_ref(),
@@ -165,38 +165,42 @@ pub async fn install(
         Some(&mut manifest_protocols),
     )?;
 
-    let manifest_root = if let Some(ws) = workspace.as_ref() {
-        collect_workspace_root_deps(ws, options.include_dev)?
+    let manifest_root = if let Some(workspace) = workspace.as_ref() {
+        collect_workspace_root_deps(workspace, options.include_dev)?
     } else {
-        build_project_manifest_root(&deps, &dev_deps, options.include_dev)
+        build_project_manifest_root(
+            &dependencies,
+            &development_dependencies,
+            options.include_dev,
+        )
     };
 
-    let mut root_deps = manifest_root.clone();
+    let mut root_dependencies = manifest_root.clone();
 
     for (name, range) in additions.iter() {
-        root_deps.insert(name.clone(), range.clone());
+        root_dependencies.insert(name.clone(), range.clone());
     }
 
     console::verbose(&format!(
         "manifest_root_deps={} root_deps={} additions={}",
         manifest_root.len(),
-        root_deps.len(),
+        root_dependencies.len(),
         additions.len()
     ));
 
     let mut root_protocols = BTreeMap::new();
 
     for name in manifest_root.keys() {
-        if let Some(proto) = manifest_protocols.get(name) {
-            root_protocols.insert(name.clone(), proto.clone());
+        if let Some(protocol) = manifest_protocols.get(name) {
+            root_protocols.insert(name.clone(), protocol.clone());
         } else {
             root_protocols.insert(name.clone(), RegistryProtocol::npm());
         }
     }
 
     for name in additions.keys() {
-        if let Some(proto) = requested_protocols.get(name) {
-            root_protocols.insert(name.clone(), proto.clone());
+        if let Some(protocol) = requested_protocols.get(name) {
+            root_protocols.insert(name.clone(), protocol.clone());
         } else {
             root_protocols
                 .entry(name.clone())
@@ -350,22 +354,22 @@ pub async fn install(
 
             let resolve_started = Instant::now();
             let paths = store_paths.clone();
-            let cfg = store_config.clone();
+            let config_clone = store_config.clone();
             let client = store_client.clone();
             let tasks = store_tasks.clone();
             let progress_count = Arc::new(AtomicUsize::new(0));
-            let progress_total = Arc::new(AtomicUsize::new(root_deps.len()));
+            let progress_total = Arc::new(AtomicUsize::new(root_dependencies.len()));
 
             let graph = resolve::resolve(
                 config,
                 &registry_client,
-                &root_deps,
+                &root_dependencies,
                 &root_protocols,
                 config.min_package_age_days,
                 options.force,
                 Some(&overrides),
                 move |package| {
-                    let cfg = cfg.clone();
+                    let config = config_clone.clone();
                     let client = client.clone();
                     let paths = paths.clone();
                     let tasks = tasks.clone();
@@ -385,7 +389,7 @@ pub async fn install(
                         let package_id = package.id.clone();
 
                         let handle = tokio::spawn(async move {
-                            let path = store::ensure_package(&cfg, &package, &client).await?;
+                            let path = store::ensure_package(&config, &package, &client).await?;
                             let mut map = paths.lock().await;
                             map.insert(package_id, path);
                             Ok::<(), SnpmError>(())
@@ -725,8 +729,8 @@ fn parse_requested_spec(spec: &str) -> ParsedSpec {
     let mut protocol = None;
     let mut rest = spec;
 
-    if let Some(idx) = spec.find(':') {
-        let (prefix, after) = spec.split_at(idx);
+    if let Some(index) = spec.find(':') {
+        let (prefix, after) = spec.split_at(index);
         if !prefix.is_empty() {
             protocol = Some(prefix.to_string());
             rest = &after[1..];
@@ -734,8 +738,8 @@ fn parse_requested_spec(spec: &str) -> ParsedSpec {
     }
 
     if let Some(without_at) = rest.strip_prefix('@') {
-        if let Some(idx) = without_at.rfind('@') {
-            let (scope_and_name, range) = without_at.split_at(idx);
+        if let Some(index) = without_at.rfind('@') {
+            let (scope_and_name, range) = without_at.split_at(index);
             let name = format!("@{}", scope_and_name);
             let requested = range.trim_start_matches('@').to_string();
             return ParsedSpec {
@@ -752,8 +756,8 @@ fn parse_requested_spec(spec: &str) -> ParsedSpec {
         }
     }
 
-    if let Some(idx) = rest.rfind('@') {
-        let (name, range) = rest.split_at(idx);
+    if let Some(index) = rest.rfind('@') {
+        let (name, range) = rest.split_at(index);
         ParsedSpec {
             name: name.to_string(),
             range: range.trim_start_matches('@').to_string(),
@@ -780,8 +784,8 @@ fn parse_spec(spec: &str) -> (String, String) {
         }
     }
 
-    if let Some(idx) = spec.rfind('@') {
-        let (name, range) = spec.split_at(idx);
+    if let Some(index) = spec.rfind('@') {
+        let (name, range) = spec.split_at(index);
         let requested = range.trim_start_matches('@').to_string();
         (name.to_string(), requested)
     } else {
@@ -1008,14 +1012,14 @@ fn write_manifest(
 }
 
 fn build_project_manifest_root(
-    deps: &BTreeMap<String, String>,
-    dev_deps: &BTreeMap<String, String>,
+    dependencies: &BTreeMap<String, String>,
+    development_dependencies: &BTreeMap<String, String>,
     include_dev: bool,
 ) -> BTreeMap<String, String> {
-    let mut root = deps.clone();
+    let mut root = dependencies.clone();
 
     if include_dev {
-        for (name, range) in dev_deps.iter() {
+        for (name, range) in development_dependencies.iter() {
             root.entry(name.clone()).or_insert(range.clone());
         }
     }
@@ -1111,9 +1115,9 @@ fn apply_specs(
         };
 
         if let Some(map) = &mut protocol_map
-            && let Some(proto) = detect_manifest_protocol(&resolved)
+            && let Some(protocol) = detect_manifest_protocol(&resolved)
         {
-            map.insert(name.clone(), proto);
+            map.insert(name.clone(), protocol);
         }
 
         result.insert(name.clone(), resolved);
@@ -1329,14 +1333,14 @@ pub async fn outdated(
     let mut local_dev_deps = BTreeSet::new();
     let mut manifest_protocols = BTreeMap::new();
 
-    let deps = apply_specs(
+    let dependencies = apply_specs(
         &project.manifest.dependencies,
         workspace.as_ref(),
         catalog.as_ref(),
         &mut local_deps,
         Some(&mut manifest_protocols),
     )?;
-    let dev_deps = apply_specs(
+    let development_dependencies = apply_specs(
         &project.manifest.dev_dependencies,
         workspace.as_ref(),
         catalog.as_ref(),
@@ -1344,16 +1348,16 @@ pub async fn outdated(
         Some(&mut manifest_protocols),
     )?;
 
-    let root_deps = if let Some(ws) = workspace.as_ref() {
+    let root_dependencies = if let Some(ws) = workspace.as_ref() {
         collect_workspace_root_deps(ws, include_dev)?
     } else {
-        build_project_manifest_root(&deps, &dev_deps, include_dev)
+        build_project_manifest_root(&dependencies, &development_dependencies, include_dev)
     };
 
     let mut root_protocols = BTreeMap::new();
-    for name in root_deps.keys() {
-        if let Some(proto) = manifest_protocols.get(name) {
-            root_protocols.insert(name.clone(), proto.clone());
+    for name in root_dependencies.keys() {
+        if let Some(protocol) = manifest_protocols.get(name) {
+            root_protocols.insert(name.clone(), protocol.clone());
         } else {
             root_protocols.insert(name.clone(), RegistryProtocol::npm());
         }
@@ -1361,7 +1365,7 @@ pub async fn outdated(
 
     console::verbose(&format!(
         "outdated: resolving {} root deps (include_dev={} force={})",
-        root_deps.len(),
+        root_dependencies.len(),
         include_dev,
         force
     ));
@@ -1370,7 +1374,7 @@ pub async fn outdated(
     let graph = resolve::resolve(
         config,
         &registry_client,
-        &root_deps,
+        &root_dependencies,
         &root_protocols,
         config.min_package_age_days,
         force,
@@ -1400,11 +1404,11 @@ pub async fn outdated(
     }
 
     let mut names = BTreeSet::new();
-    for name in deps.keys() {
+    for name in dependencies.keys() {
         names.insert(name.clone());
     }
     if include_dev {
-        for name in dev_deps.keys() {
+        for name in development_dependencies.keys() {
             names.insert(name.clone());
         }
     }
@@ -1446,8 +1450,8 @@ fn parse_requested_with_protocol(
         let parsed = parse_requested_spec(spec);
         ranges.insert(parsed.name.clone(), parsed.range.clone());
 
-        if let Some(proto) = parsed.protocol.as_deref() {
-            let protocol = match proto {
+        if let Some(protocol_str) = parsed.protocol.as_deref() {
+            let protocol = match protocol_str {
                 "npm" => RegistryProtocol::npm(),
                 "jsr" => RegistryProtocol::jsr(),
                 other => RegistryProtocol::custom(other),

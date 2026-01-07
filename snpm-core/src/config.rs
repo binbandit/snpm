@@ -97,17 +97,17 @@ impl SnpmConfig {
         let min_package_cache_age_days = read_min_package_cache_age_from_env();
 
         let (
-            rc_default_registry,
+            runtime_config_default_registry,
             scoped_registries,
             registry_auth,
-            rc_default_auth_token,
-            rc_hoisting,
-            rc_default_auth_basic,
+            runtime_config_default_auth_token,
+            runtime_config_hoisting,
+            runtime_config_default_auth_basic,
         ) = read_registry_config();
 
-        let mut default_registry = rc_default_registry;
-        let mut default_registry_auth_token = rc_default_auth_token;
-        let mut hoisting = rc_hoisting.unwrap_or(HoistingMode::SingleVersion);
+        let mut default_registry = runtime_config_default_registry;
+        let mut default_registry_auth_token = runtime_config_default_auth_token;
+        let mut hoisting = runtime_config_hoisting.unwrap_or(HoistingMode::SingleVersion);
         let mut link_backend = LinkBackend::Auto;
         let mut strict_peers = false;
         let mut frozen_lockfile_default = false;
@@ -124,10 +124,10 @@ impl SnpmConfig {
             if !trimmed.is_empty() {
                 let new_default = trimmed.to_string();
 
-                let rc_host = host_from_url(&default_registry);
+                let runtime_config_host = host_from_url(&default_registry);
                 let new_host = host_from_url(&new_default);
 
-                if rc_host != new_host {
+                if runtime_config_host != new_host {
                     default_registry_auth_token = None;
                 }
 
@@ -185,11 +185,11 @@ impl SnpmConfig {
             registry_concurrency = parsed;
         }
         // Respect always-auth across env configs (pnpm/npm compatible names)
-        if let Ok(v) = env::var("NPM_CONFIG_ALWAYS_AUTH")
+        if let Ok(value) = env::var("NPM_CONFIG_ALWAYS_AUTH")
             .or_else(|_| env::var("npm_config_always_auth"))
             .or_else(|_| env::var("SNPM_ALWAYS_AUTH"))
         {
-            let on = match v.trim().to_ascii_lowercase().as_str() {
+            let on = match value.trim().to_ascii_lowercase().as_str() {
                 "1" | "true" | "yes" | "y" | "on" => true,
                 _ => false,
             };
@@ -222,8 +222,8 @@ impl SnpmConfig {
             scoped_registries,
             registry_auth,
             default_registry_auth_token,
-            // If rc parsing indicated _auth, prefer Basic for default registry
-            default_registry_auth_scheme: if rc_default_auth_basic {
+            // If runtime config parsing indicated _auth, prefer Basic for default registry
+            default_registry_auth_scheme: if runtime_config_default_auth_basic {
                 AuthScheme::Basic
             } else {
                 default_registry_auth_scheme
@@ -440,8 +440,8 @@ fn read_registry_config() -> (
     let rc_files = [".snpmrc", ".npmrc", ".pnpmrc"];
 
     // Walk up parent directories to root to respect rc precedence across nested workspaces
-    let mut dir_opt = Some(cwd.clone());
-    while let Some(dir) = dir_opt {
+    let mut directory = Some(cwd.clone());
+    while let Some(dir) = directory {
         for rc_name in rc_files.iter() {
             let path = dir.join(rc_name);
 
@@ -456,8 +456,8 @@ fn read_registry_config() -> (
             );
         }
 
-        dir_opt = dir.parent().map(|p| p.to_path_buf());
-        if dir_opt.as_ref().map(|d| d == &dir).unwrap_or(true) {
+        directory = dir.parent().map(|p| p.to_path_buf());
+        if directory.as_ref().map(|d| d == &dir).unwrap_or(true) {
             break;
         }
     }
@@ -492,8 +492,8 @@ fn apply_rc_file(
                 continue;
             }
 
-            if let Some(eq_idx) = trimmed.find('=') {
-                let (key, value) = trimmed.split_at(eq_idx);
+            if let Some(equals_index) = trimmed.find('=') {
+                let (key, value) = trimmed.split_at(equals_index);
                 let key = key.trim();
                 let mut value = expand_env_vars(value[1..].trim());
 
@@ -535,10 +535,10 @@ fn apply_rc_file(
                         // - Lowercase
                         // - Strip default ports (:443, :80) to match PNPM behavior
                         let mut host = raw_host.to_ascii_lowercase();
-                        if let Some((h, p)) = host.split_once(':')
-                            && (p == "443" || p == "80")
+                        if let Some((split_host, split_port)) = host.split_once(':')
+                            && (split_port == "443" || split_port == "80")
                         {
-                            host = h.to_string();
+                            host = split_host.to_string();
                         }
 
                         if !host.is_empty() && !value.is_empty() {
@@ -556,8 +556,8 @@ fn apply_rc_file(
                         *default_auth_basic = true;
                     }
                 } else if key == "always-auth" || key == "always_auth" || key == "always.auth" {
-                    let v = value.trim().to_ascii_lowercase();
-                    let on = matches!(v.as_str(), "1" | "true" | "yes" | "y" | "on");
+                    let value = value.trim().to_ascii_lowercase();
+                    let on = matches!(value.as_str(), "1" | "true" | "yes" | "y" | "on");
                     if on {
                         // This flag is applied in from_env() defaults
                         // Kept here for symmetry with pnpm configs
@@ -590,11 +590,11 @@ pub(crate) fn host_from_url(url: &str) -> Option<String> {
 
     let mut host = hostport.to_ascii_lowercase();
 
-    if let Some((h, p)) = host.split_once(':') {
-        let default_https = is_https && p == "443";
-        let default_http = is_http && p == "80";
+    if let Some((split_host, split_port)) = host.split_once(':') {
+        let default_https = is_https && split_port == "443";
+        let default_http = is_http && split_port == "80";
         if default_https || default_http {
-            host = h.to_string();
+            host = split_host.to_string();
         }
     }
 

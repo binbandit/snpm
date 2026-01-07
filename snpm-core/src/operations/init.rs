@@ -28,10 +28,11 @@ pub fn init(root: &Path) -> Result<()> {
         workspaces: None,
     };
 
-    let data = serde_json::to_string_pretty(&manifest).map_err(|err| SnpmError::SerializeJson {
-        path: manifest_path.clone(),
-        reason: err.to_string(),
-    })?;
+    let data =
+        serde_json::to_string_pretty(&manifest).map_err(|error| SnpmError::SerializeJson {
+            path: manifest_path.clone(),
+            reason: error.to_string(),
+        })?;
 
     fs::write(&manifest_path, data).map_err(|source| SnpmError::WriteFile {
         path: manifest_path,

@@ -46,124 +46,24 @@ where
     let done = Arc::new(AtomicBool::new(false));
     let registry_semaphore = Arc::new(Semaphore::new(config.registry_concurrency));
 
-    let packages_for_resolver = packages.clone();
-    let package_cache_for_resolver = package_cache.clone();
-    let done_for_resolver = done.clone();
-    let semaphore_for_resolver = registry_semaphore.clone();
+    let resolver_task = run_resolver(
+        config,
+        client,
+        root_deps,
+        root_protocols,
+        min_age_days,
+        force,
+        overrides,
+        &default_protocol,
+        packages.clone(),
+        package_cache.clone(),
+        done.clone(),
+        registry_semaphore.clone(),
+    );
 
-    let resolver = async move {
-        let result: Result<ResolutionRoot> = async {
-            let mut tasks = Vec::new();
+    let prefetcher_task = run_prefetcher(packages.clone(), done.clone(), on_package);
 
-            for (name, range) in root_deps {
-                let protocol = root_protocols
-                    .get(name)
-                    .unwrap_or(&default_protocol)
-                    .clone();
-                let name = name.clone();
-                let range = range.clone();
-                let packages = packages_for_resolver.clone();
-                let package_cache = package_cache_for_resolver.clone();
-                let semaphore = semaphore_for_resolver.clone();
-
-                let task = async move {
-                    let id = resolve_package(
-                        config,
-                        client,
-                        &name,
-                        &range,
-                        &protocol,
-                        packages,
-                        package_cache,
-                        min_age_days,
-                        force,
-                        overrides,
-                        None,
-                        semaphore,
-                    )
-                    .await?;
-
-                    let root_dep = RootDependency {
-                        requested: range,
-                        resolved: id,
-                    };
-
-                    Ok::<(String, RootDependency), SnpmError>((name, root_dep))
-                };
-
-                tasks.push(task);
-            }
-
-            let results = join_all(tasks).await;
-
-            let mut root_dependencies = BTreeMap::new();
-
-            for result in results {
-                let (name, dep) = result?;
-                root_dependencies.insert(name, dep);
-            }
-
-            let root = ResolutionRoot {
-                dependencies: root_dependencies,
-            };
-
-            Ok(root)
-        }
-        .await;
-
-        done_for_resolver.store(true, Ordering::SeqCst);
-
-        result
-    };
-
-    let packages_for_prefetch = packages.clone();
-    let done_for_prefetch = done.clone();
-    let callback = on_package;
-
-    let prefetcher = async move {
-        let mut seen = BTreeSet::new();
-        let mut on_package = callback;
-
-        loop {
-            let snapshot: Vec<PackageId> = {
-                let guard = packages_for_prefetch.lock().await;
-                guard.keys().cloned().collect()
-            };
-
-            let mut new_ids = Vec::new();
-
-            for id in snapshot {
-                if !seen.contains(&id) {
-                    seen.insert(id.clone());
-                    new_ids.push(id);
-                }
-            }
-
-            if new_ids.is_empty() {
-                if done_for_prefetch.load(Ordering::SeqCst) {
-                    break;
-                }
-
-                yield_now().await;
-                continue;
-            }
-
-            for id in new_ids {
-                let pkg = {
-                    let guard = packages_for_prefetch.lock().await;
-                    guard.get(&id).cloned()
-                };
-
-                if let Some(pkg) = pkg {
-                    on_package(pkg).await?;
-                }
-            }
-        }
-
-        Ok::<(), SnpmError>(())
-    };
-
-    let (root_result, prefetch_result) = join(resolver, prefetcher).await;
+    let (root_result, prefetch_result) = join(resolver_task, prefetcher_task).await;
 
     let root = root_result?;
 
@@ -172,12 +72,12 @@ where
 
     let graph = ResolutionGraph { root, packages };
 
-    if let Err(err) = validate_peers(&graph) {
+    if let Err(error) = validate_peers(&graph) {
         if config.strict_peers {
-            return Err(err);
+            return Err(error);
         } else {
             console::warn(&format!(
-                "peer dependency issues detected (non‑fatal): {err}"
+                "peer dependency issues detected (non‑fatal): {error}"
             ));
         }
     }
@@ -185,6 +85,124 @@ where
     prefetch_result?;
 
     Ok(graph)
+}
+
+async fn run_resolver(
+    config: &SnpmConfig,
+    client: &Client,
+    root_deps: &BTreeMap<String, String>,
+    root_protocols: &BTreeMap<String, RegistryProtocol>,
+    min_age_days: Option<u32>,
+    force: bool,
+    overrides: Option<&BTreeMap<String, String>>,
+    default_protocol: &RegistryProtocol,
+    packages: Arc<Mutex<PackageMap>>,
+    package_cache: Arc<Mutex<PackageCache>>,
+    done: Arc<AtomicBool>,
+    semaphore: Arc<Semaphore>,
+) -> Result<ResolutionRoot> {
+    let mut tasks = Vec::new();
+
+    for (name, range) in root_deps {
+        let protocol = root_protocols.get(name).unwrap_or(default_protocol).clone();
+        let name = name.clone();
+        let range = range.clone();
+        let packages = packages.clone();
+        let package_cache = package_cache.clone();
+        let semaphore = semaphore.clone();
+
+        let task = async move {
+            let id = resolve_package(
+                config,
+                client,
+                &name,
+                &range,
+                &protocol,
+                packages,
+                package_cache,
+                min_age_days,
+                force,
+                overrides,
+                None,
+                semaphore,
+            )
+            .await?;
+
+            let root_dep = RootDependency {
+                requested: range,
+                resolved: id,
+            };
+
+            Ok::<(String, RootDependency), SnpmError>((name, root_dep))
+        };
+
+        tasks.push(task);
+    }
+
+    let results = join_all(tasks).await;
+
+    let mut root_dependencies = BTreeMap::new();
+
+    for result in results {
+        let (name, dep) = result?;
+        root_dependencies.insert(name, dep);
+    }
+
+    done.store(true, Ordering::SeqCst);
+
+    Ok(ResolutionRoot {
+        dependencies: root_dependencies,
+    })
+}
+
+async fn run_prefetcher<F, Fut>(
+    packages: Arc<Mutex<PackageMap>>,
+    done: Arc<AtomicBool>,
+    mut on_package: F,
+) -> Result<()>
+where
+    F: FnMut(ResolvedPackage) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<()>> + Send,
+{
+    let mut seen = BTreeSet::new();
+
+    loop {
+        let snapshot: Vec<PackageId> = {
+            let guard = packages.lock().await;
+            guard.keys().cloned().collect()
+        };
+
+        let mut new_ids = Vec::new();
+
+        for id in snapshot {
+            if !seen.contains(&id) {
+                seen.insert(id.clone());
+                new_ids.push(id);
+            }
+        }
+
+        if new_ids.is_empty() {
+            if done.load(Ordering::SeqCst) {
+                break;
+            }
+
+            yield_now().await;
+            continue;
+        }
+
+        for id in new_ids {
+            let package = {
+                let guard = packages.lock().await;
+                guard.get(&id).cloned()
+            };
+
+            if let Some(package) = package {
+                on_package(package).await?;
+            }
+        }
+    }
+
+    Ok::<(), SnpmError>(())
 }
 
 #[async_recursion]
@@ -211,8 +229,8 @@ async fn resolve_package(
             cache.get(&cache_key).cloned()
         };
 
-        if let Some(pkg) = cached {
-            pkg
+        if let Some(package) = cached {
+            package
         } else {
             let _permit = registry_semaphore.acquire().await.unwrap();
             let fetched =
@@ -271,7 +289,7 @@ async fn resolve_package(
     let bundled_deps = version_meta.get_bundled_dependencies().cloned();
     let bundled_set = bundled_deps
         .as_ref()
-        .map(|bd| bd.to_set(&version_meta.dependencies))
+        .map(|bundled_dependency| bundled_dependency.to_set(&version_meta.dependencies))
         .unwrap_or_default();
 
     let placeholder = ResolvedPackage {
@@ -289,13 +307,13 @@ async fn resolve_package(
         packages_guard.insert(id.clone(), placeholder.clone());
     }
 
-    if let Some(p) = prefetch {
-        p.prefetch(&placeholder);
+    if let Some(prefetch) = prefetch {
+        prefetch.prefetch(&placeholder);
     }
 
     let mut dependencies = BTreeMap::new();
 
-    let mut dep_futures = Vec::new();
+    let mut dependency_futures = Vec::new();
 
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
         if bundled_set.contains(dep_name) {
@@ -309,8 +327,8 @@ async fn resolve_package(
                 let base_pkg_path =
                     Path::new(version_meta.dist.tarball.strip_prefix("file://").unwrap());
 
-                if let Some(rel_path) = dep_range.strip_prefix("file:") {
-                    let resolved = resolve_relative_path(base_pkg_path, rel_path);
+                if let Some(relative_path) = dep_range.strip_prefix("file:") {
+                    let resolved = resolve_relative_path(base_pkg_path, relative_path);
                     format!("file:{}", resolved.display())
                 } else {
                     dep_range.clone()
@@ -325,7 +343,7 @@ async fn resolve_package(
         let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
 
-        let fut = async move {
+        let future = async move {
             let id = resolve_package(
                 config,
                 client,
@@ -344,17 +362,17 @@ async fn resolve_package(
             Ok::<(String, PackageId), SnpmError>((name, id))
         };
 
-        dep_futures.push(fut);
+        dependency_futures.push(future);
     }
 
-    let dep_results = join_all(dep_futures).await;
+    let dep_results = join_all(dependency_futures).await;
 
     for result in dep_results {
         let (name, id) = result?;
         dependencies.insert(name, id);
     }
 
-    let mut opt_futures = Vec::new();
+    let mut optional_dependency_futures = Vec::new();
 
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
         if bundled_set.contains(dep_name) {
@@ -369,7 +387,7 @@ async fn resolve_package(
         let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
 
-        let fut = async move {
+        let future = async move {
             let result = resolve_package(
                 config,
                 client,
@@ -392,12 +410,12 @@ async fn resolve_package(
             }
         };
 
-        opt_futures.push(fut);
+        optional_dependency_futures.push(future);
     }
 
-    let opt_results = join_all(opt_futures).await;
+    let optional_results = join_all(optional_dependency_futures).await;
 
-    for (name, id) in opt_results.into_iter().flatten() {
+    for (name, id) in optional_results.into_iter().flatten() {
         dependencies.insert(name, id);
     }
 
@@ -411,10 +429,10 @@ async fn resolve_package(
     Ok(id)
 }
 
-fn resolve_relative_path(base: &Path, rel: &str) -> PathBuf {
+fn resolve_relative_path(base: &Path, relative: &str) -> PathBuf {
     let mut components = base.to_path_buf();
 
-    for part in Path::new(rel).components() {
+    for part in Path::new(relative).components() {
         use std::path::Component;
         match part {
             Component::CurDir => {}

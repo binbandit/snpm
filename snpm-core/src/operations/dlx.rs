@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::TempDir;
 use tokio::task::JoinHandle;
 
-pub async fn dlx(config: &SnpmConfig, package_spec: String, args: Vec<String>) -> Result<()> {
+pub async fn dlx(config: &SnpmConfig, package_spec: String, arguments: Vec<String>) -> Result<()> {
     let temp_dir = TempDir::new().map_err(|e| SnpmError::Io {
         path: PathBuf::from("temp_dlx"),
         source: e,
@@ -51,7 +51,8 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, args: Vec<String>) -
     // Note: store resolution uses the original config (store_config) correctly below.
     // Actually, ensure_package needs correct config too for cache/store location.
     // But LinkBackend is only used in linker. Store location is same.
-    let cfg = store_config.clone();
+    // But LinkBackend is only used in linker. Store location is same.
+    let store_config_clone = store_config.clone();
 
     let progress_count = Arc::new(AtomicUsize::new(0));
     let progress_total = Arc::new(AtomicUsize::new(1));
@@ -67,7 +68,7 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, args: Vec<String>) -
         true,
         None,
         move |package| {
-            let cfg = cfg.clone();
+            let config = store_config_clone.clone();
             let client = client.clone();
             let paths = paths.clone();
             let tasks = tasks.clone();
@@ -87,7 +88,7 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, args: Vec<String>) -
                 let package_id = package.id.clone();
 
                 let handle = tokio::spawn(async move {
-                    let path = store::ensure_package(&cfg, &package, &client).await?;
+                    let path = store::ensure_package(&config, &package, &client).await?;
                     let mut map = paths.lock().await;
                     map.insert(package_id, path);
                     Ok::<(), SnpmError>(())
@@ -142,8 +143,8 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, args: Vec<String>) -
 
     linker::link(config, None, &project, &graph, &store_paths_map, false)?;
 
-    let bin_name = if let Some(idx) = name.rfind('/') {
-        &name[idx + 1..]
+    let bin_name = if let Some(index) = name.rfind('/') {
+        &name[index + 1..]
     } else {
         &name
     };
@@ -161,7 +162,7 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, args: Vec<String>) -
                         bin_name,
                         path.display()
                     ));
-                    return run_bin(&path, args);
+                    return run_bin(&path, arguments);
                 }
             }
         }
@@ -172,20 +173,20 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, args: Vec<String>) -
         });
     }
 
-    run_bin(&bin_path, args)
+    run_bin(&bin_path, arguments)
 }
 
-fn run_bin(bin_path: &PathBuf, args: Vec<String>) -> Result<()> {
+fn run_bin(bin_path: &PathBuf, arguments: Vec<String>) -> Result<()> {
     console::step(&format!("Running {}", bin_path.display()));
 
-    let mut cmd = Command::new(bin_path);
-    cmd.args(args);
+    let mut command = Command::new(bin_path);
+    command.args(arguments);
 
-    cmd.stdin(std::process::Stdio::inherit());
-    cmd.stdout(std::process::Stdio::inherit());
-    cmd.stderr(std::process::Stdio::inherit());
+    command.stdin(std::process::Stdio::inherit());
+    command.stdout(std::process::Stdio::inherit());
+    command.stderr(std::process::Stdio::inherit());
 
-    let status = cmd.status().map_err(|e| SnpmError::ScriptRun {
+    let status = command.status().map_err(|e| SnpmError::ScriptRun {
         name: bin_path.to_string_lossy().to_string(),
         reason: e.to_string(),
     })?;
@@ -202,8 +203,8 @@ fn run_bin(bin_path: &PathBuf, args: Vec<String>) -> Result<()> {
 
 fn parse_spec(spec: &str) -> (String, String) {
     if let Some(without_at) = spec.strip_prefix('@') {
-        if let Some(idx) = without_at.rfind('@') {
-            let (scope_and_name, range) = without_at.split_at(idx);
+        if let Some(index) = without_at.rfind('@') {
+            let (scope_and_name, range) = without_at.split_at(index);
             let name = format!("@{}", scope_and_name);
             let requested = range.trim_start_matches('@').to_string();
             return (name, requested);
@@ -212,8 +213,8 @@ fn parse_spec(spec: &str) -> (String, String) {
         }
     }
 
-    if let Some(idx) = spec.rfind('@') {
-        let (name, range) = spec.split_at(idx);
+    if let Some(index) = spec.rfind('@') {
+        let (name, range) = spec.split_at(index);
         let requested = range.trim_start_matches('@').to_string();
         (name.to_string(), requested)
     } else {

@@ -10,12 +10,12 @@ serde = { version = "1.0", features = ["derive"] }
 directories = "6.0.0"
 serde_json = "1.0.145"
 thiserror.workspace = true
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13.1", default-features = false, features = [
     "json",
     "gzip",
     "brotli",
     "deflate",
-    "rustls-tls",
+    "rustls",
     "http2",
 ] }
 tar = "0.4"

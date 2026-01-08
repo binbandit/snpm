@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.1.8] - 2026-01-07
+
+### <!-- 3 -->📚 Documentation
+
+- *(homepage)* Remove outdated homepage update notes ([b36b294](https://github.com/binbandit/snpm/commit/b36b29468bcf8e35e73f7d295805e7c2f0327f9d))
+- *(cli)* Document snpm config command and output ([24893ae](https://github.com/binbandit/snpm/commit/24893aee609968d27c41e4dc3632d869438f8421))
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(repo)* Update ignore list and license year ([264a2bb](https://github.com/binbandit/snpm/commit/264a2bb2b24166924040920670b561cbf780b375))
+- *(license)* Update Apache copyright year ([4225108](https://github.com/binbandit/snpm/commit/422510834b2fdd7c44f388a083f7e4e8ca853f2c))
+- *(release)* Bump snpm npm package version ([a2b80ab](https://github.com/binbandit/snpm/commit/a2b80abb03a307523f649fe243b32d46da5e8d74))
+- *(docs-site)* Bump displayed version to 2026.1.7 ([4610552](https://github.com/binbandit/snpm/commit/4610552659b8fde137b3286678e8f277e6bdf4e7))
+
+## [2026.1.7] - 2026-01-07
+
+### <!-- 0 -->🚀 Features
+
+- *(cli-config)* Add command to display config (#1) ([6a3137a](https://github.com/binbandit/snpm/commit/6a3137af948ae5ce0720c1e903d7c121358838ab))
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- *(linker)* Always link nested directories ([8bec62f](https://github.com/binbandit/snpm/commit/8bec62f909cf80e494d0689ac59ee3abcc12a171))
+- *(platform)* Normalize OS and CPU identifiers ([b6fcf7c](https://github.com/binbandit/snpm/commit/b6fcf7c844342502fe69346f9dc66b7762bbea78))
+
+### <!-- 2 -->♻️ Refactor
+
+- *(config)* Clarify variable naming for rc parsing ([284b156](https://github.com/binbandit/snpm/commit/284b156a6758ab617ba99d2c942a5ec266b33634))
+- *(config)* Remove unused runtime config module ([a0f5214](https://github.com/binbandit/snpm/commit/a0f52146f6e32a0ff2d18e61f054760557f31b8c))
+- *(linker)* Introduce virtual store layout ([7257ea3](https://github.com/binbandit/snpm/commit/7257ea341a0a6d3f1fe103b4a6104a028a0987c8))
+
+### <!-- 5 -->🎨 Styling
+
+- *(cli-config)* Wrap long packages dir logging line ([a75a03f](https://github.com/binbandit/snpm/commit/a75a03faf29d4f013513d7c327f6b42b3f6c418a))
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Bump version to 2025.12.24 [skip ci] ([c8934e8](https://github.com/binbandit/snpm/commit/c8934e86c49ec51b49f837cd338470dfe5a99d8f))
+
 ## [2025.12.24] - 2025-12-24
 
 ### <!-- 1 -->🐛 Bug Fixes

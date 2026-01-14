@@ -6,10 +6,13 @@ use std::fs;
 
 #[derive(Args, Debug)]
 pub struct UpgradeArgs {
+    /// Skip devDependencies
     #[arg(long)]
     pub production: bool,
+    /// Ignore cached state and force a full resolve
     #[arg(short = 'f', long = "force")]
     pub force: bool,
+    /// Packages to upgrade (omit to refresh the lockfile and reinstall)
     pub packages: Vec<String>,
 }
 

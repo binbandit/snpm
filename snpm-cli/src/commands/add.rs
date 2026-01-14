@@ -5,11 +5,15 @@ use std::env;
 
 #[derive(Args, Debug)]
 pub struct AddArgs {
+    /// Save to devDependencies instead of dependencies
     #[arg(short = 'D', long = "dev")]
     pub dev: bool,
+    /// Ignore cached state and force a full install
     #[arg(short = 'f', long = "force")]
     pub force: bool,
+    /// Packages to add to package.json
     pub packages: Vec<String>,
+    /// Target a specific workspace project by its package name
     #[arg(short = 'w', long = "workspace")]
     pub workspace: Option<String>,
 }

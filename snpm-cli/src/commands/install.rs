@@ -5,12 +5,16 @@ use std::env;
 
 #[derive(Args, Debug)]
 pub struct InstallArgs {
+    /// Skip devDependencies
     #[arg(long)]
     pub production: bool,
+    /// Fail if the lockfile is missing or out of date
     #[arg(long = "frozen-lockfile", alias = "immutable")]
     pub frozen_lockfile: bool,
+    /// Ignore cached state and force a full install
     #[arg(short = 'f', long = "force")]
     pub force: bool,
+    /// Packages to install (also updates package.json)
     pub packages: Vec<String>,
     /// Target a specific workspace project by its package name
     #[arg(short = 'w', long = "workspace")]

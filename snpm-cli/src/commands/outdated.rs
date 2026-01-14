@@ -5,6 +5,7 @@ use std::env;
 
 #[derive(Args, Debug)]
 pub struct OutdatedArgs {
+    /// Skip devDependencies
     #[arg(long)]
     pub production: bool,
 }

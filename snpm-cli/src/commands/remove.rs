@@ -5,6 +5,7 @@ use std::env;
 
 #[derive(Args, Debug)]
 pub struct RemoveArgs {
+    /// Packages to remove from package.json
     pub packages: Vec<String>,
 }
 

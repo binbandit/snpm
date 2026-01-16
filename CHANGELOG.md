@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.1.16] - 2026-01-16
+
+### <!-- 0 -->🚀 Features
+
+- *(resolution)* Add git protocol support for deps ([4b1fa5a](https://github.com/binbandit/snpm/commit/4b1fa5a4155ae9c55ff4ca0ba13cf9e4da2e94d5))
+
+### <!-- 5 -->🎨 Styling
+
+- *(core)* Condense git helpers for clarity ([31955c3](https://github.com/binbandit/snpm/commit/31955c33d0aef2b823563561ab7e3dfef170293e))
+
+## [2026.1.14] - 2026-01-14
+
+### <!-- 3 -->📚 Documentation
+
+- *(cli)* Document commands and enable color output ([5c9e64a](https://github.com/binbandit/snpm/commit/5c9e64aedf0df276a16399d4c9688bdf3f8ee2c2))
+- *(cli)* Clarify command argument help text ([eb58dd0](https://github.com/binbandit/snpm/commit/eb58dd06ab00ce2f6529235463da7d528ab08e72))
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- *(release)* Bump version to 2026.1.8 [skip ci] ([918d4d3](https://github.com/binbandit/snpm/commit/918d4d3a01e24010402027133274ad7bc58d4eca))
+
 ## [2026.1.8] - 2026-01-07
 
 ### <!-- 3 -->📚 Documentation

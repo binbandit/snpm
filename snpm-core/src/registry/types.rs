@@ -88,6 +88,12 @@ impl RegistryProtocol {
         }
     }
 
+    pub fn git() -> Self {
+        RegistryProtocol {
+            name: "git".to_string(),
+        }
+    }
+
     pub fn jsr() -> Self {
         RegistryProtocol {
             name: "jsr".to_string(),

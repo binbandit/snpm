@@ -276,9 +276,5 @@ async fn default_remote_head(repo_dir: &Path) -> Option<String> {
     }
 
     let head = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if head.is_empty() {
-        None
-    } else {
-        Some(head)
-    }
+    if head.is_empty() { None } else { Some(head) }
 }

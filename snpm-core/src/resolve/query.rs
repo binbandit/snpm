@@ -74,13 +74,6 @@ pub fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, Stri
 fn is_git_protocol_prefix(prefix: &str) -> bool {
     matches!(
         prefix,
-        "git"
-            | "git+http"
-            | "git+https"
-            | "git+rsync"
-            | "git+ftp"
-            | "git+file"
-            | "git+ssh"
-            | "ssh"
+        "git" | "git+http" | "git+https" | "git+rsync" | "git+ftp" | "git+file" | "git+ssh" | "ssh"
     )
 }

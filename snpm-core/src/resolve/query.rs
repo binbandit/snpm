@@ -39,15 +39,20 @@ pub fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, Stri
     let (prefix, rest) = spec.split_at(colon);
     let rest = &rest[1..];
 
+    if prefix.is_empty() || rest.is_empty() {
+        return None;
+    }
+
+    if is_git_protocol_prefix(prefix) {
+        let source = format!("{prefix}:{rest}");
+        return Some((RegistryProtocol::git(), source, "latest".to_string()));
+    }
+
     let protocol = match prefix {
         "npm" => RegistryProtocol::npm(),
         "jsr" => RegistryProtocol::jsr(),
         other => RegistryProtocol::custom(other),
     };
-
-    if rest.is_empty() {
-        return None;
-    }
 
     let mut source = rest.to_string();
     let mut range = "latest".to_string();
@@ -64,4 +69,18 @@ pub fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, Stri
     }
 
     Some((protocol, source, range))
+}
+
+fn is_git_protocol_prefix(prefix: &str) -> bool {
+    matches!(
+        prefix,
+        "git"
+            | "git+http"
+            | "git+https"
+            | "git+rsync"
+            | "git+ftp"
+            | "git+file"
+            | "git+ssh"
+            | "ssh"
+    )
 }

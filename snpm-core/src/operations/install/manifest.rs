@@ -171,6 +171,8 @@ pub fn resolve_catalog_spec(
 pub fn detect_manifest_protocol(spec: &str) -> Option<RegistryProtocol> {
     if spec.starts_with("npm:") {
         Some(RegistryProtocol::npm())
+    } else if is_git_spec(spec) {
+        Some(RegistryProtocol::git())
     } else if spec.starts_with("jsr:") {
         Some(RegistryProtocol::jsr())
     } else {
@@ -182,7 +184,12 @@ pub fn is_special_protocol_spec(spec: &str) -> bool {
     spec.starts_with("catalog:")
         || spec.starts_with("workspace:")
         || spec.starts_with("npm:")
+        || is_git_spec(spec)
         || spec.starts_with("jsr:")
+}
+
+fn is_git_spec(spec: &str) -> bool {
+    spec.starts_with("git:") || spec.starts_with("git+")
 }
 
 pub fn parse_requested_with_protocol(
@@ -198,7 +205,9 @@ pub fn parse_requested_with_protocol(
         if let Some(protocol_str) = parsed.protocol.as_deref() {
             let protocol = match protocol_str {
                 "npm" => RegistryProtocol::npm(),
+                "git" => RegistryProtocol::git(),
                 "jsr" => RegistryProtocol::jsr(),
+                other if other.starts_with("git+") => RegistryProtocol::git(),
                 other => RegistryProtocol::custom(other),
             };
             protocols.insert(parsed.name.clone(), protocol);

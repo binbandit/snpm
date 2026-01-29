@@ -21,13 +21,13 @@ pub async fn fetch_package(config: &SnpmConfig, url: &str) -> Result<RegistryPac
     let repo_dir = cache_dir.join("repo");
 
     if repo_dir.exists() {
-        let status = Command::new("git")
+        let output = Command::new("git")
             .current_dir(&repo_dir)
             .arg("fetch")
             .arg("--all")
             .arg("--tags")
             .arg("--prune")
-            .status()
+            .output()
             .await
             .map_err(|e| SnpmError::ResolutionFailed {
                 name: url.to_string(),
@@ -35,22 +35,23 @@ pub async fn fetch_package(config: &SnpmConfig, url: &str) -> Result<RegistryPac
                 reason: format!("Failed to run git fetch: {}", e),
             })?;
 
-        if !status.success() {
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(SnpmError::ResolutionFailed {
                 name: url.to_string(),
                 range: "latest".to_string(),
-                reason: "git fetch failed".to_string(),
+                reason: format!("git fetch failed: {}", stderr.trim()),
             });
         }
 
         checkout_repo(&repo_dir, git_spec.committish.as_deref(), url).await?;
     } else {
-        let status = Command::new("git")
+        let output = Command::new("git")
             .current_dir(&cache_dir)
             .arg("clone")
             .arg(&git_spec.repo)
             .arg("repo")
-            .status()
+            .output()
             .await
             .map_err(|e| SnpmError::ResolutionFailed {
                 name: url.to_string(),
@@ -58,11 +59,12 @@ pub async fn fetch_package(config: &SnpmConfig, url: &str) -> Result<RegistryPac
                 reason: format!("Failed to run git clone: {}", e),
             })?;
 
-        if !status.success() {
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(SnpmError::ResolutionFailed {
                 name: url.to_string(),
                 range: "latest".to_string(),
-                reason: "git clone failed".to_string(),
+                reason: format!("git clone failed: {}", stderr.trim()),
             });
         }
 
@@ -236,12 +238,12 @@ async fn checkout_repo(repo_dir: &Path, committish: Option<&str>, raw: &str) -> 
             .unwrap_or_else(|| "HEAD".to_string())
     };
 
-    let status = Command::new("git")
+    let output = Command::new("git")
         .current_dir(repo_dir)
         .arg("checkout")
         .arg("--force")
         .arg(&target)
-        .status()
+        .output()
         .await
         .map_err(|e| SnpmError::ResolutionFailed {
             name: raw.to_string(),
@@ -249,11 +251,12 @@ async fn checkout_repo(repo_dir: &Path, committish: Option<&str>, raw: &str) -> 
             reason: format!("Failed to run git checkout: {}", e),
         })?;
 
-    if !status.success() {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(SnpmError::ResolutionFailed {
             name: raw.to_string(),
             range: target,
-            reason: "git checkout failed".to_string(),
+            reason: format!("git checkout failed: {}", stderr.trim()),
         });
     }
 

@@ -7,6 +7,9 @@ use std::env;
 pub struct ExecArgs {
     /// Command to execute
     pub command: String,
+    /// Run command through shell (enables pipes, redirects, etc.)
+    #[arg(short = 'c', long = "shell-mode")]
+    pub shell_mode: bool,
     /// Run in all workspace projects
     #[arg(short = 'r', long = "recursive")]
     pub recursive: bool,
@@ -23,14 +26,20 @@ pub async fn run(args: ExecArgs) -> Result<()> {
 
     let cwd = env::current_dir()?;
 
+    let options = operations::ExecOptions {
+        command: &args.command,
+        args: &args.args,
+        shell_mode: args.shell_mode,
+    };
+
     if args.recursive || !args.filter.is_empty() {
         let workspace = Workspace::discover(&cwd)?
             .ok_or_else(|| anyhow!("snpm exec -r/--filter used outside a workspace"))?;
 
-        operations::exec_workspace_command(&workspace, &args.command, &args.filter, &args.args)?;
+        operations::exec_workspace_command(&workspace, &options, &args.filter)?;
     } else {
         let project = Project::discover(&cwd)?;
-        operations::exec_command(&project, &args.command, &args.args)?;
+        operations::exec_command(&project, &options)?;
     }
 
     Ok(())

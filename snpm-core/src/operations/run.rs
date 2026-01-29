@@ -172,24 +172,42 @@ fn project_label(project: &Project) -> String {
     }
 }
 
-pub fn exec_command(project: &Project, command: &str, args: &[String]) -> Result<()> {
-    let bin_dir = project.root.join("node_modules").join(".bin");
-    let path_value = build_path(bin_dir, command)?;
+pub struct ExecOptions<'a> {
+    pub command: &'a str,
+    pub args: &'a [String],
+    pub shell_mode: bool,
+}
 
-    let full_command = if args.is_empty() {
-        command.to_string()
+pub fn exec_command(project: &Project, options: &ExecOptions) -> Result<()> {
+    let bin_dir = project.root.join("node_modules").join(".bin");
+    let path_value = build_path(bin_dir, options.command)?;
+
+    let package_name = project
+        .manifest
+        .name
+        .as_deref()
+        .unwrap_or_default();
+
+    let full_command = if options.args.is_empty() {
+        options.command.to_string()
     } else {
-        format!("{} {}", command, join_args(args))
+        format!("{} {}", options.command, join_args(options.args))
     };
 
     console::info(&full_command);
 
-    let mut process = make_command(&full_command);
+    let mut process = if options.shell_mode {
+        make_command(&full_command)
+    } else {
+        make_direct_command(options.command, options.args)
+    };
+
     process.current_dir(&project.root);
     process.env("PATH", path_value);
+    process.env("SNPM_PACKAGE_NAME", package_name);
 
     let status = process.status().map_err(|error| SnpmError::ScriptRun {
-        name: command.to_string(),
+        name: options.command.to_string(),
         reason: error.to_string(),
     })?;
 
@@ -197,7 +215,7 @@ pub fn exec_command(project: &Project, command: &str, args: &[String]) -> Result
         Ok(())
     } else {
         Err(SnpmError::ScriptFailed {
-            name: command.to_string(),
+            name: options.command.to_string(),
             code: status.code().unwrap_or(1),
         })
     }
@@ -205,9 +223,8 @@ pub fn exec_command(project: &Project, command: &str, args: &[String]) -> Result
 
 pub fn exec_workspace_command(
     workspace: &Workspace,
-    command: &str,
+    options: &ExecOptions,
     filters: &[String],
-    args: &[String],
 ) -> Result<()> {
     for project in &workspace.projects {
         let name = project_label(project);
@@ -217,10 +234,16 @@ pub fn exec_workspace_command(
         }
 
         println!("\n{}", name);
-        exec_command(project, command, args)?;
+        exec_command(project, options)?;
     }
 
     Ok(())
+}
+
+fn make_direct_command(command: &str, args: &[String]) -> Command {
+    let mut process = Command::new(command);
+    process.args(args);
+    process
 }
 
 #[cfg(unix)]

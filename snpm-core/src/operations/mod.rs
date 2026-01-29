@@ -13,4 +13,4 @@ pub use install::{
     InstallOptions, InstallResult, OutdatedEntry, install, install_workspace, outdated, remove,
     upgrade,
 };
-pub use run::{exec_command, exec_workspace_command, run_script, run_workspace_scripts};
+pub use run::{ExecOptions, exec_command, exec_workspace_command, run_script, run_workspace_scripts};

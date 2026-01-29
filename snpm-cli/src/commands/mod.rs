@@ -1,6 +1,7 @@
 pub mod add;
 pub mod config;
 pub mod dlx;
+pub mod exec;
 pub mod init;
 pub mod install;
 pub mod login;

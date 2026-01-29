@@ -26,6 +26,8 @@ pub enum Command {
     Remove(commands::remove::RemoveArgs),
     /// Run a package.json script
     Run(commands::run::RunArgs),
+    /// Execute a command with node_modules/.bin in PATH
+    Exec(commands::exec::ExecArgs),
     /// Create a new package.json
     Init(commands::init::InitArgs),
     /// Download and run a package without installing

@@ -45,6 +45,7 @@ async fn run() -> Result<()> {
         Command::Add(args) => commands::add::run(args, &config).await?,
         Command::Remove(args) => commands::remove::run(args, &config).await?,
         Command::Run(args) => commands::run::run(args).await?,
+        Command::Exec(args) => commands::exec::run(args).await?,
         Command::Init(args) => commands::init::run(args).await?,
         Command::Dlx(args) => commands::dlx::run(args, &config).await?,
         Command::Upgrade(args) => commands::upgrade::run(args, &config).await?,

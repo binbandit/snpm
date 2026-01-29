@@ -172,6 +172,57 @@ fn project_label(project: &Project) -> String {
     }
 }
 
+pub fn exec_command(project: &Project, command: &str, args: &[String]) -> Result<()> {
+    let bin_dir = project.root.join("node_modules").join(".bin");
+    let path_value = build_path(bin_dir, command)?;
+
+    let full_command = if args.is_empty() {
+        command.to_string()
+    } else {
+        format!("{} {}", command, join_args(args))
+    };
+
+    console::info(&full_command);
+
+    let mut process = make_command(&full_command);
+    process.current_dir(&project.root);
+    process.env("PATH", path_value);
+
+    let status = process.status().map_err(|error| SnpmError::ScriptRun {
+        name: command.to_string(),
+        reason: error.to_string(),
+    })?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(SnpmError::ScriptFailed {
+            name: command.to_string(),
+            code: status.code().unwrap_or(1),
+        })
+    }
+}
+
+pub fn exec_workspace_command(
+    workspace: &Workspace,
+    command: &str,
+    filters: &[String],
+    args: &[String],
+) -> Result<()> {
+    for project in &workspace.projects {
+        let name = project_label(project);
+
+        if !matches_filters(&name, filters) {
+            continue;
+        }
+
+        println!("\n{}", name);
+        exec_command(project, command, args)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(unix)]
 fn make_command(script: &str) -> Command {
     let mut command = Command::new("sh");

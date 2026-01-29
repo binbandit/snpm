@@ -3,7 +3,7 @@ pub mod fs;
 pub mod hoist;
 
 use crate::HoistingMode;
-use crate::resolve::{PackageId, ResolutionGraph, ResolvedPackage, RootDependency};
+use crate::resolve::{PackageId, ResolutionGraph, RootDependency};
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 use rayon::prelude::*;
 use std::collections::BTreeMap;

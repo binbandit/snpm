@@ -36,6 +36,8 @@ pub enum Command {
     Upgrade(commands::upgrade::UpgradeArgs),
     /// Check for outdated dependencies
     Outdated(commands::outdated::OutdatedArgs),
+    /// List installed packages
+    List(commands::list::ListArgs),
     /// Store registry credentials
     Login(commands::login::LoginArgs),
     /// Remove registry credentials

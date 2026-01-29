@@ -50,6 +50,7 @@ async fn run() -> Result<()> {
         Command::Dlx(args) => commands::dlx::run(args, &config).await?,
         Command::Upgrade(args) => commands::upgrade::run(args, &config).await?,
         Command::Outdated(args) => commands::outdated::run(args, &config).await?,
+        Command::List(args) => commands::list::run(args, &config).await?,
         Command::Login(args) => commands::login::run(args, &config).await?,
         Command::Logout(args) => commands::logout::run(args, &config).await?,
         Command::Config(args) => commands::config::run(args, &config).await?,

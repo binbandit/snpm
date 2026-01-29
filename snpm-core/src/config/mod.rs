@@ -249,6 +249,14 @@ impl SnpmConfig {
         self.data_dir.join("metadata")
     }
 
+    pub fn global_dir(&self) -> PathBuf {
+        self.data_dir.join("global")
+    }
+
+    pub fn global_bin_dir(&self) -> PathBuf {
+        self.data_dir.join("bin")
+    }
+
     pub fn auth_token_for_url(&self, url: &str) -> Option<&str> {
         let host = host_from_url(url)?;
 

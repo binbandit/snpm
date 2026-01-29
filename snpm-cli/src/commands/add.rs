@@ -8,10 +8,13 @@ pub struct AddArgs {
     /// Save to devDependencies instead of dependencies
     #[arg(short = 'D', long = "dev")]
     pub dev: bool,
+    /// Install globally
+    #[arg(short = 'g', long = "global")]
+    pub global: bool,
     /// Ignore cached state and force a full install
     #[arg(short = 'f', long = "force")]
     pub force: bool,
-    /// Packages to add to package.json
+    /// Packages to add
     pub packages: Vec<String>,
     /// Target a specific workspace project by its package name
     #[arg(short = 'w', long = "workspace")]
@@ -19,6 +22,12 @@ pub struct AddArgs {
 }
 
 pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
+    if args.global {
+        console::header("add --global", env!("CARGO_PKG_VERSION"));
+        operations::install_global(config, args.packages).await?;
+        return Ok(());
+    }
+
     console::header("add", env!("CARGO_PKG_VERSION"));
 
     let cwd = env::current_dir()?;

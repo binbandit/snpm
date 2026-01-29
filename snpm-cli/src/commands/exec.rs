@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use clap::Args;
-use snpm_core::{Project, Workspace, console, operations};
+use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::env;
 
 #[derive(Args, Debug)]
@@ -16,12 +16,15 @@ pub struct ExecArgs {
     /// Filter workspace projects by name
     #[arg(long = "filter")]
     pub filter: Vec<String>,
+    /// Skip the automatic install check before executing
+    #[arg(long = "skip-install")]
+    pub skip_install: bool,
     /// Arguments passed to the command
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
 }
 
-pub async fn run(args: ExecArgs) -> Result<()> {
+pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
     console::header(&format!("exec {}", args.command), env!("CARGO_PKG_VERSION"));
 
     let cwd = env::current_dir()?;
@@ -36,9 +39,24 @@ pub async fn run(args: ExecArgs) -> Result<()> {
         let workspace = Workspace::discover(&cwd)?
             .ok_or_else(|| anyhow!("snpm exec -r/--filter used outside a workspace"))?;
 
+        if !args.skip_install {
+            for project in &workspace.projects {
+                if operations::is_stale(project) {
+                    let mut project_clone = project.clone();
+                    operations::lazy_install(config, &mut project_clone).await?;
+                    break;
+                }
+            }
+        }
+
         operations::exec_workspace_command(&workspace, &options, &args.filter)?;
     } else {
-        let project = Project::discover(&cwd)?;
+        let mut project = Project::discover(&cwd)?;
+
+        if !args.skip_install && operations::is_stale(&project) {
+            operations::lazy_install(config, &mut project).await?;
+        }
+
         operations::exec_command(&project, &options)?;
     }
 

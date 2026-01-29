@@ -53,7 +53,7 @@ pub struct ManifestSnpm {
     pub overrides: BTreeMap<String, String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     pub root: PathBuf,
     pub manifest_path: PathBuf,

@@ -55,6 +55,7 @@ async fn run() -> Result<()> {
         Command::Logout(args) => commands::logout::run(args, &config).await?,
         Command::Config(args) => commands::config::run(args, &config).await?,
         Command::Patch(args) => commands::patch::run(args, &config).await?,
+        Command::Clean(args) => commands::clean::run(args, &config).await?,
     }
 
     Ok(())

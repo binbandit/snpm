@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod clean;
 pub mod dlx;
 pub mod global;
 pub mod init;
@@ -8,6 +9,9 @@ pub mod patch;
 pub mod run;
 
 pub use auth::{login, logout};
+pub use clean::{
+    CleanOptions, CleanSummary, analyze as clean_analyze, execute as clean_execute, format_bytes,
+};
 pub use dlx::dlx;
 pub use global::{install_global, remove_global};
 pub use init::init;

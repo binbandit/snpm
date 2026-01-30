@@ -46,4 +46,6 @@ pub enum Command {
     Config(commands::config::ConfigArgs),
     /// Patch packages to fix bugs or customize behavior
     Patch(commands::patch::PatchArgs),
+    /// Remove cached packages and metadata to free disk space
+    Clean(commands::clean::CleanArgs),
 }

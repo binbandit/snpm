@@ -44,4 +44,6 @@ pub enum Command {
     Logout(commands::logout::LogoutArgs),
     /// Show the resolved configuration
     Config(commands::config::ConfigArgs),
+    /// Patch packages to fix bugs or customize behavior
+    Patch(commands::patch::PatchArgs),
 }

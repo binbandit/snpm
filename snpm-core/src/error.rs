@@ -102,4 +102,22 @@ pub enum SnpmError {
         path: PathBuf,
         source: std::io::Error,
     },
+
+    #[error("Package {name}@{version} not found in project dependencies")]
+    PackageNotInstalled { name: String, version: String },
+
+    #[error("Patch not found for {name}: {reason}")]
+    PatchNotFound { name: String, reason: String },
+
+    #[error("Failed to create patch for {name}: {reason}")]
+    PatchCreate { name: String, reason: String },
+
+    #[error("Failed to apply patch for {name}: {reason}")]
+    PatchApply { name: String, reason: String },
+
+    #[error("No active patch session found at {path:?}")]
+    PatchSessionNotFound { path: PathBuf },
+
+    #[error("Invalid patch file at {path:?}: {reason}")]
+    PatchInvalid { path: PathBuf, reason: String },
 }

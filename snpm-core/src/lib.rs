@@ -6,6 +6,7 @@ pub mod lifecycle;
 pub mod linker;
 pub mod lockfile;
 pub mod operations;
+pub mod patch;
 pub mod platform;
 pub mod project;
 pub mod protocols;

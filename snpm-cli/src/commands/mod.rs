@@ -8,6 +8,7 @@ pub mod list;
 pub mod login;
 pub mod logout;
 pub mod outdated;
+pub mod patch;
 pub mod remove;
 pub mod run;
 pub mod upgrade;

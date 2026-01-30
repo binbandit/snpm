@@ -4,6 +4,7 @@ pub mod global;
 pub mod init;
 pub mod install;
 pub mod lazy;
+pub mod patch;
 pub mod run;
 
 pub use auth::{login, logout};
@@ -15,6 +16,10 @@ pub use install::{
     upgrade,
 };
 pub use lazy::{is_stale, lazy_install};
+pub use patch::{
+    PatchCommitResult, PatchStartResult, commit_patch, get_patches_to_apply, list_project_patches,
+    remove_package_patch, start_patch,
+};
 pub use run::{
     ExecOptions, exec_command, exec_workspace_command, run_script, run_workspace_scripts,
 };

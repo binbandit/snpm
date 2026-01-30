@@ -2,6 +2,7 @@ use crate::console;
 use crate::lifecycle;
 use crate::linker;
 use crate::lockfile;
+use crate::patch;
 use crate::registry::RegistryProtocol;
 use crate::resolve;
 use crate::store;
@@ -468,6 +469,11 @@ pub async fn install(
             options.include_dev,
         )?;
 
+        let patches_applied = apply_patches(project)?;
+        if patches_applied > 0 {
+            console::verbose(&format!("applied {} patches", patches_applied));
+        }
+
         let lockfile_hash = compute_lockfile_hash(&graph);
         write_integrity_file(project, &lockfile_hash)?;
 
@@ -832,4 +838,49 @@ pub async fn upgrade(
 
     install(config, project, options).await?;
     Ok(())
+}
+
+fn apply_patches(project: &Project) -> Result<usize> {
+    let patches = super::patch::get_patches_to_apply(project)?;
+
+    if patches.is_empty() {
+        return Ok(0);
+    }
+
+    let node_modules = project.root.join("node_modules");
+    let mut applied = 0;
+
+    for (name, version, patch_path) in &patches {
+        let package_dir = node_modules.join(name);
+
+        if !package_dir.exists() {
+            console::warn(&format!(
+                "Patch for {}@{} skipped: package not installed",
+                name, version
+            ));
+            continue;
+        }
+
+        console::verbose(&format!(
+            "applying patch for {}@{} from {}",
+            name,
+            version,
+            patch_path.display()
+        ));
+
+        match patch::apply_patch(&package_dir, patch_path) {
+            Ok(()) => {
+                console::step(&format!("Applied patch for {}@{}", name, version));
+                applied += 1;
+            }
+            Err(e) => {
+                console::warn(&format!(
+                    "Failed to apply patch for {}@{}: {}",
+                    name, version, e
+                ));
+            }
+        }
+    }
+
+    Ok(applied)
 }

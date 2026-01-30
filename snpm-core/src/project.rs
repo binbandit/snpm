@@ -44,6 +44,8 @@ pub struct Manifest {
 pub struct ManifestPnpm {
     #[serde(default)]
     pub overrides: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patched_dependencies: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -51,6 +53,8 @@ pub struct ManifestPnpm {
 pub struct ManifestSnpm {
     #[serde(default)]
     pub overrides: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patched_dependencies: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone)]

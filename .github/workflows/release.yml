@@ -51,8 +51,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      version_no_v: ${{ steps.version_commit.outputs.version_no_v }}
       branch: ${{ steps.release_branch.outputs.branch }}
       checkout_ref: ${{ steps.release_branch.outputs.checkout_ref }}
+      release_branch: ${{ steps.version_commit.outputs.release_branch }}
       dry_run: ${{ steps.release_branch.outputs.dry_run }}
     env:
       WORKFLOW_CALL_BRANCH: ${{ github.event_name == 'workflow_call' && inputs.branch || '' }}
@@ -88,7 +90,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Update version files
+      - name: Update version files and commit
+        id: version_commit
+        env:
+          DRY_RUN: ${{ env.DRY_RUN }}
         run: |
           set -euo pipefail
 
@@ -103,6 +108,32 @@ jobs:
 
           echo "Version files updated to ${VERSION_NO_V}"
 
+          # Commit the version change so builds use the correct version
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          RELEASE_BRANCH="release-${VERSION_NO_V}"
+
+          if ! git diff --quiet snpm-cli/Cargo.toml Cargo.lock; then
+            git add snpm-cli/Cargo.toml Cargo.lock
+            git commit -m "chore(release): bump version to ${VERSION_NO_V} [skip ci]"
+            
+            if [ "${DRY_RUN}" != "true" ]; then
+              # Push to a temporary release branch to avoid direct main push during build
+              git push origin "HEAD:refs/heads/${RELEASE_BRANCH}" --force
+            fi
+            
+            echo "version_committed=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version already up to date"
+            echo "version_committed=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Output the new commit SHA and release branch for builds to use
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "version_no_v=${VERSION_NO_V}" >> $GITHUB_OUTPUT
+          echo "release_branch=${RELEASE_BRANCH}" >> $GITHUB_OUTPUT
+
       - name: Run pre-release checks
         run: |
           cargo fmt --all -- --check
@@ -114,6 +145,7 @@ jobs:
         env:
           WORKFLOW_CALL_BRANCH: ${{ env.WORKFLOW_CALL_BRANCH }}
           WORKFLOW_DISPATCH_BRANCH: ${{ env.WORKFLOW_DISPATCH_BRANCH }}
+          VERSION_COMMIT_SHA: ${{ steps.version_commit.outputs.commit_sha }}
         run: |
           TARGET_BRANCH="$WORKFLOW_CALL_BRANCH"
           if [ -z "$TARGET_BRANCH" ]; then
@@ -128,9 +160,9 @@ jobs:
 
           echo "Using release branch: ${TARGET_BRANCH}"
 
-          COMMIT_SHA=$(git rev-parse HEAD)
+          # Use the commit SHA from after version update (so builds have correct version)
           echo "branch=${TARGET_BRANCH}" >> "$GITHUB_OUTPUT"
-          echo "checkout_ref=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=${VERSION_COMMIT_SHA}" >> "$GITHUB_OUTPUT"
           if [ "${DRY_RUN}" = "true" ]; then
             echo "dry_run=true" >> "$GITHUB_OUTPUT"
           else
@@ -176,7 +208,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.prepare.outputs.checkout_ref }}
+          # In dry run, use commit SHA (branch not pushed); otherwise use release branch
+          ref: ${{ needs.prepare.outputs.dry_run == 'true' && needs.prepare.outputs.checkout_ref || needs.prepare.outputs.release_branch }}
+
+      - name: Verify version is correct
+        shell: bash
+        run: |
+          EXPECTED_VERSION="${{ needs.prepare.outputs.version_no_v }}"
+          ACTUAL_VERSION=$(grep '^version' snpm-cli/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "Expected version: ${EXPECTED_VERSION}"
+          echo "Actual version in Cargo.toml: ${ACTUAL_VERSION}"
+          if [ "${EXPECTED_VERSION}" != "${ACTUAL_VERSION}" ]; then
+            echo "ERROR: Version mismatch! Build would have wrong version."
+            exit 1
+          fi
+          echo "Version verified successfully"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -290,7 +336,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.prepare.outputs.checkout_ref }}
+          # In dry run, use commit SHA (branch not pushed); otherwise use release branch
+          ref: ${{ needs.prepare.outputs.dry_run == 'true' && needs.prepare.outputs.checkout_ref || needs.prepare.outputs.release_branch }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -324,18 +371,16 @@ jobs:
             gh release delete "${VERSION}" --yes
           fi
 
-          # For manual dispatch, handle tag creation/update
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            # Check if tag exists
-            if git ls-remote --tags origin | grep -q "refs/tags/${VERSION}$"; then
-              echo "Tag ${VERSION} already exists. Force updating it..."
-              git tag -fa "${VERSION}" -m "Release ${VERSION}"
-              git push --force origin "${VERSION}"
-            else
-              echo "Creating new tag ${VERSION}"
-              git tag -a "${VERSION}" -m "Release ${VERSION}"
-              git push origin "${VERSION}"
-            fi
+          # Always create/update tag to point to this commit (which has the correct version)
+          # This ensures the tag points to the commit with the updated Cargo.toml
+          if git ls-remote --tags origin | grep -q "refs/tags/${VERSION}$"; then
+            echo "Tag ${VERSION} already exists. Force updating to release branch commit..."
+            git tag -fa "${VERSION}" -m "Release ${VERSION}"
+            git push --force origin "${VERSION}"
+          else
+            echo "Creating new tag ${VERSION} at release branch commit"
+            git tag -a "${VERSION}" -m "Release ${VERSION}"
+            git push origin "${VERSION}"
           fi
 
       - name: Generate release notes
@@ -377,9 +422,14 @@ jobs:
     name: Finalize Release
     needs: [prepare, release]
     runs-on: ubuntu-latest
-    if: needs.prepare.outputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' || inputs.version != '') && always() && needs.release.result == 'success'
+    if: |
+      always() &&
+      needs.prepare.outputs.dry_run != 'true' &&
+      (startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' || inputs.version != '') &&
+      needs.release.result == 'success'
     env:
-      RELEASE_BRANCH: ${{ needs.prepare.outputs.branch }}
+      TARGET_BRANCH: ${{ needs.prepare.outputs.branch }}
+      RELEASE_BRANCH: ${{ needs.prepare.outputs.release_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -400,7 +450,7 @@ jobs:
         env:
           GITHUB_REPO: ${{ github.repository }}
 
-      - name: Update and commit version changes
+      - name: Commit changelog and merge to main
         run: |
           set -euo pipefail
 
@@ -411,70 +461,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Update version files
-          sed -i "s/^version[[:space:]]*=[[:space:]]*\".*\"/version = \"${VERSION_NO_V}\"/" snpm-cli/Cargo.toml
-          cargo update --workspace
-
-          # Check if there are changes to commit
-          if git diff --quiet snpm-cli/Cargo.toml Cargo.lock CHANGELOG.md; then
-            echo "ℹ️ Version and changelog already up to date, no changes needed"
-            exit 0
+          # Add changelog if it changed
+          if ! git diff --quiet CHANGELOG.md; then
+            git add CHANGELOG.md
+            git commit --amend --no-edit
+            git push origin "HEAD:${RELEASE_BRANCH}" --force
           fi
 
-          # Stage and commit the changes
-          git add snpm-cli/Cargo.toml Cargo.lock CHANGELOG.md
-          git commit -m "chore(release): bump version to ${VERSION_NO_V} [skip ci]" \
-                     -m "Automated version bump and changelog update for release ${VERSION}"
-          
-          # Push the changes
-          git push origin "HEAD:${RELEASE_BRANCH}"
-          echo "✅ Version ${VERSION_NO_V} committed and pushed to ${RELEASE_BRANCH}"
+          # Merge release branch to target branch (main)
+          git fetch origin "${TARGET_BRANCH}"
+          git checkout "${TARGET_BRANCH}"
+          git merge "${RELEASE_BRANCH}" --no-ff -m "chore(release): merge ${VERSION} release [skip ci]"
+          git push origin "${TARGET_BRANCH}"
 
-  publish-npm:
-    name: Publish to npm
-    needs: [prepare, release]
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    permissions:
-      contents: read
-      id-token: write
-    if: needs.prepare.outputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' || inputs.version != '') && needs.release.result == 'success'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.prepare.outputs.checkout_ref }}
+          echo "✅ Version ${VERSION_NO_V} merged to ${TARGET_BRANCH}"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Update npm package version
+      - name: Cleanup release branch
+        if: always()
+        continue-on-error: true
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          VERSION_NO_V="${VERSION#v}"
-          
-          cd npm-package
-          npm version "${VERSION_NO_V}" --no-git-tag-version
+          git push origin --delete "${RELEASE_BRANCH}" || echo "Release branch already deleted or doesn't exist"
 
-      - name: Install dependencies
-        run: |
-          cd npm-package
-          npm install
-
-      - name: Publish to npm
-        run: |
-          cd npm-package
-          
-          VERSION="${{ needs.prepare.outputs.version }}"
-          
-          # Check if this is a prerelease (date-based version)
-          if [[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-            echo "Publishing as latest tag"
-            npm publish --access public --provenance
-          else
-            echo "Publishing as next tag (prerelease)"
-            npm publish --access public --tag next --provenance
-          fi

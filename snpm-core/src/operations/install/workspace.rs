@@ -64,13 +64,8 @@ pub async fn install_workspace(
         }
     }
 
-    let (scenario, existing_lockfile) = detect_workspace_scenario(
-        workspace,
-        &lockfile_path,
-        &root_dependencies,
-        config,
-        force,
-    );
+    let (scenario, existing_lockfile) =
+        detect_workspace_scenario(workspace, &lockfile_path, &root_dependencies, config, force);
 
     let mut store_paths_map: BTreeMap<PackageId, PathBuf> = BTreeMap::new();
 
@@ -147,7 +142,13 @@ pub async fn install_workspace(
     link_store_dependencies(&virtual_store_paths, &graph)?;
 
     workspace.projects.par_iter().try_for_each(|project| {
-        link_project_dependencies(project, workspace, &graph, &virtual_store_paths, include_dev)
+        link_project_dependencies(
+            project,
+            workspace,
+            &graph,
+            &virtual_store_paths,
+            include_dev,
+        )
     })?;
 
     let lockfile_hash = compute_lockfile_hash(&graph);
@@ -309,38 +310,36 @@ fn populate_virtual_store(
     let virtual_store_paths = Arc::new(Mutex::new(BTreeMap::new()));
     let packages: Vec<_> = graph.packages.iter().collect();
 
-    packages
-        .par_iter()
-        .try_for_each(|(id, _)| -> Result<()> {
-            let safe_name = id.name.replace('/', "+");
-            let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
-            let package_location = virtual_id_dir.join("node_modules").join(&id.name);
+    packages.par_iter().try_for_each(|(id, _)| -> Result<()> {
+        let safe_name = id.name.replace('/', "+");
+        let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
+        let package_location = virtual_id_dir.join("node_modules").join(&id.name);
 
-            let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
-                name: id.name.clone(),
-                version: id.version.clone(),
-            })?;
-
-            if package_location.exists() {
-                fs::remove_dir_all(&package_location).ok();
-            }
-
-            if let Some(parent) = package_location.parent() {
-                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
-
-            crate::linker::fs::link_dir(config, store_path, &package_location)?;
-
-            virtual_store_paths
-                .lock()
-                .unwrap()
-                .insert((*id).clone(), package_location);
-
-            Ok(())
+        let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
+            name: id.name.clone(),
+            version: id.version.clone(),
         })?;
+
+        if package_location.exists() {
+            fs::remove_dir_all(&package_location).ok();
+        }
+
+        if let Some(parent) = package_location.parent() {
+            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+
+        crate::linker::fs::link_dir(config, store_path, &package_location)?;
+
+        virtual_store_paths
+            .lock()
+            .unwrap()
+            .insert((*id).clone(), package_location);
+
+        Ok(())
+    })?;
 
     Ok(Arc::try_unwrap(virtual_store_paths)
         .unwrap()

@@ -16,7 +16,10 @@ pub fn ensure_version(version: &str) -> anyhow::Result<PathBuf> {
     download_version(version, &version_dir)?;
 
     if !binary_path.is_file() {
-        anyhow::bail!("Downloaded snpm {} but binary not found at expected path", version);
+        anyhow::bail!(
+            "Downloaded snpm {} but binary not found at expected path",
+            version
+        );
     }
 
     Ok(binary_path)

@@ -46,24 +46,26 @@ pub async fn install_global(config: &SnpmConfig, packages: Vec<String>) -> Resul
         )
         .await?;
 
-        let root_dep = graph
-            .root
-            .dependencies
-            .get(&name)
-            .ok_or_else(|| SnpmError::ResolutionFailed {
-                name: name.clone(),
-                range: range.clone(),
-                reason: "package not found in resolution".into(),
-            })?;
+        let root_dep =
+            graph
+                .root
+                .dependencies
+                .get(&name)
+                .ok_or_else(|| SnpmError::ResolutionFailed {
+                    name: name.clone(),
+                    range: range.clone(),
+                    reason: "package not found in resolution".into(),
+                })?;
 
-        let package = graph
-            .packages
-            .get(&root_dep.resolved)
-            .ok_or_else(|| SnpmError::ResolutionFailed {
-                name: name.clone(),
-                range: range.clone(),
-                reason: "resolved package missing from graph".into(),
-            })?;
+        let package =
+            graph
+                .packages
+                .get(&root_dep.resolved)
+                .ok_or_else(|| SnpmError::ResolutionFailed {
+                    name: name.clone(),
+                    range: range.clone(),
+                    reason: "resolved package missing from graph".into(),
+                })?;
 
         let store_path = store::ensure_package(config, package, &client).await?;
 

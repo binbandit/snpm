@@ -182,11 +182,7 @@ pub fn exec_command(project: &Project, options: &ExecOptions) -> Result<()> {
     let bin_dir = project.root.join("node_modules").join(".bin");
     let path_value = build_path(bin_dir, options.command)?;
 
-    let package_name = project
-        .manifest
-        .name
-        .as_deref()
-        .unwrap_or_default();
+    let package_name = project.manifest.name.as_deref().unwrap_or_default();
 
     let full_command = if options.args.is_empty() {
         options.command.to_string()

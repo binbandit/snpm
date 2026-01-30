@@ -2,65 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.1.16] - 2026-01-16
+## [2026.1.30] - 2026-01-30
 
 ### <!-- 0 -->🚀 Features
 
-- *(resolution)* Add git protocol support for deps ([4b1fa5a](https://github.com/binbandit/snpm/commit/4b1fa5a4155ae9c55ff4ca0ba13cf9e4da2e94d5))
-
-### <!-- 5 -->🎨 Styling
-
-- *(core)* Condense git helpers for clarity ([31955c3](https://github.com/binbandit/snpm/commit/31955c33d0aef2b823563561ab7e3dfef170293e))
-
-## [2026.1.14] - 2026-01-14
-
-### <!-- 3 -->📚 Documentation
-
-- *(cli)* Document commands and enable color output ([5c9e64a](https://github.com/binbandit/snpm/commit/5c9e64aedf0df276a16399d4c9688bdf3f8ee2c2))
-- *(cli)* Clarify command argument help text ([eb58dd0](https://github.com/binbandit/snpm/commit/eb58dd06ab00ce2f6529235463da7d528ab08e72))
-
-### <!-- 7 -->⚙️ Miscellaneous Tasks
-
-- *(release)* Bump version to 2026.1.8 [skip ci] ([918d4d3](https://github.com/binbandit/snpm/commit/918d4d3a01e24010402027133274ad7bc58d4eca))
-
-## [2026.1.8] - 2026-01-07
-
-### <!-- 3 -->📚 Documentation
-
-- *(homepage)* Remove outdated homepage update notes ([b36b294](https://github.com/binbandit/snpm/commit/b36b29468bcf8e35e73f7d295805e7c2f0327f9d))
-- *(cli)* Document snpm config command and output ([24893ae](https://github.com/binbandit/snpm/commit/24893aee609968d27c41e4dc3632d869438f8421))
-
-### <!-- 7 -->⚙️ Miscellaneous Tasks
-
-- *(repo)* Update ignore list and license year ([264a2bb](https://github.com/binbandit/snpm/commit/264a2bb2b24166924040920670b561cbf780b375))
-- *(license)* Update Apache copyright year ([4225108](https://github.com/binbandit/snpm/commit/422510834b2fdd7c44f388a083f7e4e8ca853f2c))
-- *(release)* Bump snpm npm package version ([a2b80ab](https://github.com/binbandit/snpm/commit/a2b80abb03a307523f649fe243b32d46da5e8d74))
-- *(docs-site)* Bump displayed version to 2026.1.7 ([4610552](https://github.com/binbandit/snpm/commit/4610552659b8fde137b3286678e8f277e6bdf4e7))
-
-## [2026.1.7] - 2026-01-07
-
-### <!-- 0 -->🚀 Features
-
-- *(cli-config)* Add command to display config (#1) ([6a3137a](https://github.com/binbandit/snpm/commit/6a3137af948ae5ce0720c1e903d7c121358838ab))
+- *(cli-config)* Add command to display config (#1) ([27b9c3b](https://github.com/binbandit/snpm/commit/27b9c3b2f5911bc3bb6e36a7d40e4539d7e88584))
+- *(resolution)* Add git protocol support for deps ([dad1ed5](https://github.com/binbandit/snpm/commit/dad1ed51affcbe854eecf44c7ade205322058800))
+- *(cli)* Add exec command for running binaries with node_modules/.bin in PATH ([15e88ab](https://github.com/binbandit/snpm/commit/15e88ab60f7f6441ede8f3c5888f9803d8498503))
+- *(cli)* Add global install support with -g flag ([540cf0b](https://github.com/binbandit/snpm/commit/540cf0bf6c34992915a2a0c165911ee0d0ae3f26))
+- *(exec)* Add shell mode (-c) and SNPM_PACKAGE_NAME env var ([60597de](https://github.com/binbandit/snpm/commit/60597de6f231b6a7863b88965f4dafed74ec570e))
+- *(cli)* Add list command with global package support ([9bb04f9](https://github.com/binbandit/snpm/commit/9bb04f948db1db5f2181dc690d6b5687f2b4af93))
+- *(global)* Add shell-specific PATH setup hints ([394a26e](https://github.com/binbandit/snpm/commit/394a26e64fc6f53e48ce1b2c01a655c23d31d6ba))
+- *(core)* Add lazy-install staleness detection ([53e076b](https://github.com/binbandit/snpm/commit/53e076b9a84fe8221d07c0688d22fcd9d5f47402))
+- *(cli)* Integrate lazy-install into run and exec commands ([357df2c](https://github.com/binbandit/snpm/commit/357df2c1c691011b6c25c1342f0b58c128b04964))
+- Add snpm-switch version manager crate ([677ea92](https://github.com/binbandit/snpm/commit/677ea929bc4b2865c9fddb2b1a9b50e4754a2e4c))
+- *(cli)* Add patch command for modifying installed packages ([35effe6](https://github.com/binbandit/snpm/commit/35effe6a7ea9296d0c42e39065cfb22d16dfde86))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
 - *(linker)* Always link nested directories ([8bec62f](https://github.com/binbandit/snpm/commit/8bec62f909cf80e494d0689ac59ee3abcc12a171))
 - *(platform)* Normalize OS and CPU identifiers ([b6fcf7c](https://github.com/binbandit/snpm/commit/b6fcf7c844342502fe69346f9dc66b7762bbea78))
+- *(git)* Include stderr in git command error messages ([ca18007](https://github.com/binbandit/snpm/commit/ca180075878dbfe2eba2e00cdb860d82b4e74b30))
+- *(workspace)* Properly link all project dependencies from shared virtual store ([c4e36e0](https://github.com/binbandit/snpm/commit/c4e36e0b78bbfd4151f15981e653a5d810d99bfd))
+- *(ci)* Ensure CLI version is updated in release binaries ([8fed25f](https://github.com/binbandit/snpm/commit/8fed25f416b6275de6deab2a82235cf6138dce9b))
 
 ### <!-- 2 -->♻️ Refactor
 
 - *(config)* Clarify variable naming for rc parsing ([284b156](https://github.com/binbandit/snpm/commit/284b156a6758ab617ba99d2c942a5ec266b33634))
 - *(config)* Remove unused runtime config module ([a0f5214](https://github.com/binbandit/snpm/commit/a0f52146f6e32a0ff2d18e61f054760557f31b8c))
 - *(linker)* Introduce virtual store layout ([7257ea3](https://github.com/binbandit/snpm/commit/7257ea341a0a6d3f1fe103b4a6104a028a0987c8))
+- *(linker)* Remove unused import ([41fe443](https://github.com/binbandit/snpm/commit/41fe443e618001c41c112cc0cf4c285a89206071))
+
+### <!-- 3 -->📚 Documentation
+
+- *(homepage)* Remove outdated homepage update notes ([eb9ccd5](https://github.com/binbandit/snpm/commit/eb9ccd5ca53f61f2ba35cf5c696cd9be8a522f37))
+- *(cli)* Document snpm config command and output ([f9f0937](https://github.com/binbandit/snpm/commit/f9f0937893b6ad5f4f0863aca52dbde054b2a298))
+- *(cli)* Document commands and enable color output ([3ced2d8](https://github.com/binbandit/snpm/commit/3ced2d8a0ee9c66ee692241ffac0ea63fd3f35be))
+- *(cli)* Clarify command argument help text ([437785f](https://github.com/binbandit/snpm/commit/437785f8d07b44b2c7c414d401e97a7565620e65))
 
 ### <!-- 5 -->🎨 Styling
 
-- *(cli-config)* Wrap long packages dir logging line ([a75a03f](https://github.com/binbandit/snpm/commit/a75a03faf29d4f013513d7c327f6b42b3f6c418a))
+- *(cli-config)* Wrap long packages dir logging line ([c0418df](https://github.com/binbandit/snpm/commit/c0418dffb7a1fb9aa44b458d374b5b800c17d961))
+- *(core)* Condense git helpers for clarity ([9c36418](https://github.com/binbandit/snpm/commit/9c3641875b5a4f681d508f669e9a9a0ab7775cdc))
+- Format code with cargo fmt ([8853bb2](https://github.com/binbandit/snpm/commit/8853bb2ff473175b5ef9100cd3be9a791cd3c571))
 
 ### <!-- 7 -->⚙️ Miscellaneous Tasks
 
 - *(release)* Bump version to 2025.12.24 [skip ci] ([c8934e8](https://github.com/binbandit/snpm/commit/c8934e86c49ec51b49f837cd338470dfe5a99d8f))
+- *(repo)* Update ignore list and license year ([51ec113](https://github.com/binbandit/snpm/commit/51ec1130ab5499bc83a80edfdd949a492b89a341))
+- *(license)* Update Apache copyright year ([9919f37](https://github.com/binbandit/snpm/commit/9919f37d74678697956d7fffc38dbadd594dc8f2))
+- *(release)* Bump snpm npm package version ([34a505b](https://github.com/binbandit/snpm/commit/34a505b1e35777705bb79a5c086ba9680991bbb9))
+- *(docs-site)* Bump displayed version to 2026.1.7 ([72d217b](https://github.com/binbandit/snpm/commit/72d217b6a133e671ed7cecb7bd5556755320a460))
+- *(release)* Bump version to 2026.1.8 [skip ci] ([b4c7c2a](https://github.com/binbandit/snpm/commit/b4c7c2a28c8a95890a794f308abe1cd22c9f7bd2))
+- *(release)* Bump version to 2026.1.16 [skip ci] ([cee1b26](https://github.com/binbandit/snpm/commit/cee1b26fb2eae46dbac9ce0e217e7c7edeabf63b))
+- *(release)* Bump version to 2026.1.30 [skip ci] ([5795d02](https://github.com/binbandit/snpm/commit/5795d022b89c8338caddd696e5915291c9b86f73))
 
 ## [2025.12.24] - 2025-12-24
 

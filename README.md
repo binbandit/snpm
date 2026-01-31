@@ -2,7 +2,7 @@
   <img src="docs/logo.png" alt="snpm logo" width="300" />
   
   <p>
-    <strong>A fast, secure, drop-in replacement for npm</strong>
+    <strong>A pnpm-compatible package manager, rewritten in Rust.</strong>
   </p>
 
   <p>
@@ -15,6 +15,24 @@
     <a href="https://snpm.io">Documentation</a> · <a href="https://github.com/binbandit/snpm/releases">Releases</a> · <a href="https://github.com/binbandit/snpm/issues">Issues</a>
   </p>
 </div>
+
+<br />
+
+> **Note:** snpm is under active development. Core features work well, but we're still building toward full pnpm compatibility. [Contributions are welcome!](#contributing)
+
+<br />
+
+## What is snpm?
+
+snpm is a drop-in replacement for pnpm, built from the ground up in Rust. Our goal is to match pnpm's functionality while delivering better performance and a cleaner developer experience.
+
+**Current status:**
+- ✅ Core commands working (`install`, `add`, `remove`, `run`, `exec`, `dlx`)
+- ✅ Workspaces and catalogs
+- ✅ Lockfile compatibility
+- ✅ Security features (install script blocking, min package age)
+- 🚧 Publishing (`snpm publish`)
+- 🚧 Full pnpm CLI parity
 
 <br />
 
@@ -31,40 +49,40 @@ Or download a binary from [GitHub Releases](https://github.com/binbandit/snpm/re
 ## Usage
 
 ```bash
-snpm install          # Install dependencies
-snpm add react        # Add a package
+snpm install           # Install dependencies
+snpm add react         # Add a package
 snpm add -D typescript # Add a dev dependency
-snpm run build        # Run a script
+snpm run build         # Run a script
 ```
 
-Same commands you already know. No new workflow to learn.
+If you're coming from pnpm, snpm reads your existing `pnpm-workspace.yaml` and `pnpm-lock.yaml`.
 
 <br />
 
 ## Why snpm?
 
-|  | snpm | npm | yarn | pnpm |
-|:--|:--:|:--:|:--:|:--:|
-| Global cache | ✅ | ❌ | ✅ | ✅ |
-| Parallel downloads | ✅ | ⚠️ | ✅ | ✅ |
-| Install script blocking | ✅ | ❌ | ❌ | ❌ |
-| Min package age | ✅ | ❌ | ❌ | ❌ |
-| Version catalogs | ✅ | ❌ | ❌ | ✅ |
-| Written in Rust | ✅ | ❌ | ❌ | ❌ |
+We love pnpm. We just think it can be faster and simpler.
+
+|  | snpm | pnpm |
+|:--|:--:|:--:|
+| Written in Rust | ✅ | ❌ |
+| Install script blocking | ✅ | ❌ |
+| Min package age protection | ✅ | ❌ |
+| Reads pnpm config | ✅ | ✅ |
+| Version catalogs | ✅ | ✅ |
+| Full CLI parity | 🚧 | ✅ |
 
 <br />
 
 ## Features
 
-**Security** — Install scripts are blocked by default. Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` to ignore packages published in the last week.
+**Security first** — Install scripts are blocked by default. Packages must be explicitly whitelisted. Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` to ignore recently published packages.
 
-**Workspaces** — First-class monorepo support. Drop in `snpm-workspace.yaml` or use your existing `pnpm-workspace.yaml`.
+**pnpm compatible** — Reads `pnpm-workspace.yaml`, `pnpm-lock.yaml`, and `.npmrc`. Migration is straightforward.
 
-**Catalogs** — Define versions once in `snpm-catalog.yaml`, reference them with `"react": "catalog:"`. No more version drift.
+**Workspaces & catalogs** — First-class monorepo support with version catalogs to eliminate drift.
 
-**Patching** — Run `snpm patch edit lodash`, make your fix, then `snpm patch commit`. Patches auto-apply on install.
-
-**Flexible** — Configurable hoisting modes and link backends. Use hardlinks, symlinks, or copies.
+**Patching** — `snpm patch edit lodash` → make changes → `snpm patch commit`. Patches auto-apply on install.
 
 <br />
 
@@ -78,28 +96,6 @@ SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install          # Ignore recently published pa
 
 <br />
 
-## Commands
-
-```
-install    Install dependencies from package.json
-add        Add packages to dependencies
-remove     Remove packages
-run        Run a script from package.json
-exec       Execute a command with node_modules/.bin in PATH
-dlx        Download and run a package (like npx)
-init       Create a new package.json
-upgrade    Update packages to latest versions
-outdated   Check for outdated packages
-list       List installed packages
-patch      Patch installed packages
-clean      Clear the package cache
-config     Show configuration
-login      Authenticate with a registry
-logout     Remove registry credentials
-```
-
-<br />
-
 ## Documentation
 
 **[snpm.io](https://snpm.io)**
@@ -108,13 +104,22 @@ logout     Remove registry credentials
 
 ## Contributing
 
+**We need your help!** snpm is actively looking for contributors. Whether it's bug reports, feature requests, documentation improvements, or code contributions — all are welcome.
+
 ```bash
 git clone https://github.com/binbandit/snpm.git
 cd snpm
 cargo build && cargo test
 ```
 
-snpm follows a "no cleverness" rule — code should be readable by any mid-level Rust developer.
+The codebase follows a strict "no cleverness" rule — code should be readable by any mid-level Rust developer. No complex macros, no unsafe code, no premature abstractions.
+
+**Areas we need help with:**
+- Publishing workflow (`snpm publish`)
+- Performance benchmarking
+- Edge cases in dependency resolution
+- Documentation and examples
+- Testing on different platforms
 
 <br />
 

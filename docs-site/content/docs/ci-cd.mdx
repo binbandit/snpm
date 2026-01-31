@@ -57,7 +57,7 @@ image: rust:latest
 
 cache:
   paths:
-    - ~/.snpm-store
+    - ~/.local/share/snpm
 
 stages:
   - build
@@ -122,7 +122,7 @@ This fails if the lockfile needs updates, catching cases where developers forgot
 
 ### Cache the Global Store
 
-Cache `~/.snpm-store` to speed up subsequent builds:
+Cache the snpm data directory to speed up subsequent builds:
 
 **GitHub Actions:**
 
@@ -130,7 +130,7 @@ Cache `~/.snpm-store` to speed up subsequent builds:
 - name: Cache snpm store
   uses: actions/cache@v3
   with:
-    path: ~/.snpm-store
+    path: ~/.local/share/snpm
     key: ${{ runner.os }}-snpm-${{ hashFiles('**/snpm-lock.yaml') }}
 ```
 
@@ -139,7 +139,7 @@ Cache `~/.snpm-store` to speed up subsequent builds:
 ```yaml
 cache:
   paths:
-    - ~/.snpm-store
+    - ~/.local/share/snpm
 ```
 
 ### Set Minimum Version Age
@@ -149,7 +149,7 @@ For production deployments, use minimum version age:
 ```yaml
 - name: Install dependencies
   env:
-    SNPM_MIN_VERSION_AGE_DAYS: 7
+    SNPM_MIN_PACKAGE_AGE_DAYS: 7
   run: snpm install --frozen-lockfile
 ```
 
@@ -216,11 +216,11 @@ export SNPM_REGISTRY=https://npm.mycompany.com
 # Set auth token
 export NPM_TOKEN=${{ secrets.NPM_TOKEN }}
 
-# Increase concurrent downloads
-export SNPM_MAX_CONCURRENT_DOWNLOADS=50
+# Increase concurrent registry requests
+export SNPM_REGISTRY_CONCURRENCY=128
 
 # Set minimum version age
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 ```
 
 ## Troubleshooting

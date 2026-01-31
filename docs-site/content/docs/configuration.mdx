@@ -35,7 +35,7 @@ export SNPM_HOME=/custom/snpm
 # Use custom registry
 export SNPM_REGISTRY=https://npm.mycompany.com
 
-# Set minimum version age (security feature)
+# Set minimum package age (security feature)
 export SNPM_MIN_PACKAGE_AGE_DAYS=7
 
 # Set metadata cache age
@@ -117,7 +117,7 @@ export SNPM_HOME=/custom/snpm
 Protect against zero-day malicious packages by ignoring recently published versions:
 
 ```bash
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 ```
 
 This makes snpm ignore any package version published within the last 7 days.
@@ -128,15 +128,15 @@ This makes snpm ignore any package version published within the last 7 days.
 
 ## Network Configuration
 
-### Concurrent Downloads
+### Registry Concurrency
 
-Control how many packages download simultaneously:
+Control how many concurrent registry requests are made:
 
 ```bash
-export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+export SNPM_REGISTRY_CONCURRENCY=128
 ```
 
-Higher values speed up installs but use more network bandwidth.
+Higher values speed up installs but use more network bandwidth. Default is 64.
 
 ## Common Configurations
 
@@ -145,8 +145,8 @@ Higher values speed up installs but use more network bandwidth.
 Fast installs, no restrictions:
 
 ```bash
-export SNPM_MIN_VERSION_AGE_DAYS=0
-export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+export SNPM_MIN_PACKAGE_AGE_DAYS=0
+export SNPM_REGISTRY_CONCURRENCY=128
 ```
 
 ### Production
@@ -154,7 +154,7 @@ export SNPM_MAX_CONCURRENT_DOWNLOADS=20
 Secure and deterministic:
 
 ```bash
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 ```
 
 Use `--frozen-lockfile` in CI:
@@ -168,7 +168,7 @@ snpm install --frozen-lockfile
 Fast and reproducible:
 
 ```bash
-export SNPM_MAX_CONCURRENT_DOWNLOADS=50
+export SNPM_REGISTRY_CONCURRENCY=128
 snpm install --frozen-lockfile
 ```
 

@@ -54,16 +54,21 @@ Restart your terminal.
 
 **Problem:** Permission errors when installing packages.
 
-**Solution:** Check that you have write access to the global store:
+**Solution:** Check that you have write access to the global store. The location is platform-specific:
+
+- **macOS**: `~/Library/Application Support/io.snpm.snpm`
+- **Linux**: `~/.local/share/snpm`
 
 ```bash
-ls -la ~/.snpm-store
+# Linux
+ls -la ~/.local/share/snpm
 ```
 
 If needed, fix permissions:
 
 ```bash
-sudo chown -R $USER ~/.snpm-store
+# Linux
+sudo chown -R $USER ~/.local/share/snpm
 ```
 
 ### Lockfile Out of Sync
@@ -102,10 +107,10 @@ snpm login --registry https://npm.mycompany.com
 **Solution:** 
 
 1. Check your network connection
-2. Increase concurrent downloads:
+2. Increase registry concurrency:
 
 ```bash
-export SNPM_MAX_CONCURRENT_DOWNLOADS=20
+export SNPM_REGISTRY_CONCURRENCY=128
 ```
 
 3. Ensure the global store isn't on a slow disk

@@ -14,7 +14,7 @@ A unique security feature that protects against zero-day malicious packages.
 Configure snpm to ignore package versions published within the last N days:
 
 ```bash
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 ```
 
 With this setting, snpm will only install package versions that are at least 7 days old.
@@ -31,13 +31,13 @@ With this setting, snpm will only install package versions that are at least 7 d
 
 ```bash
 # Wait 7 days (recommended for production)
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 
 # Wait 3 days (balanced approach)
-export SNPM_MIN_VERSION_AGE_DAYS=3
+export SNPM_MIN_PACKAGE_AGE_DAYS=3
 
 # No waiting (development)
-export SNPM_MIN_VERSION_AGE_DAYS=0
+export SNPM_MIN_PACKAGE_AGE_DAYS=0
 ```
 
 ### Trade-offs
@@ -151,7 +151,7 @@ Blocked 3 install scripts. Set SNPM_ALLOW_SCRIPTS to enable.
 
 ## Best Practices
 
-**Use Minimum Version Age in Production** - Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` for production projects.
+**Use Minimum Package Age in Production** - Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` for production projects.
 
 **Control Install Scripts** - Be selective about which packages can run install scripts:
 
@@ -178,7 +178,7 @@ snpm install --frozen-lockfile
 ### Recommended CI Configuration
 
 ```bash
-# Set minimum version age
+# Set minimum package age
 export SNPM_MIN_PACKAGE_AGE_DAYS=7
 
 # Control install scripts (whitelist only trusted packages)
@@ -197,7 +197,7 @@ snpm run test
 ```yaml
 - name: Install dependencies
   env:
-    SNPM_MIN_PACKAGE_AGE_DAYS: 7
+    SNPM_MIN_PACKAGE_AGE_DAYS: "7"
     SNPM_ALLOW_SCRIPTS: "puppeteer,esbuild"
   run: snpm install --frozen-lockfile
 ```

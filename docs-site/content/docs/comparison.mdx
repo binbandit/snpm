@@ -23,7 +23,7 @@ See how snpm compares to other package managers.
 
 Like pnpm, snpm uses a global store to cache packages. Download once, reuse everywhere.
 
-**Location:** `~/.snpm-store`
+**Location:** Platform-specific (e.g., `~/Library/Application Support/io.snpm.snpm/packages` on macOS). Override with `SNPM_HOME`.
 
 ### Lockfile
 
@@ -38,7 +38,7 @@ Define dependency versions once in `snpm-catalog.yaml` and reference them across
 Unique to snpm: configure it to ignore recently published package versions. This protects against zero-day malicious packages and broken releases.
 
 ```bash
-export SNPM_MIN_VERSION_AGE_DAYS=7
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 ```
 
 ### Written in Rust

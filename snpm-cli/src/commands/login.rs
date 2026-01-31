@@ -53,8 +53,15 @@ pub async fn run(args: LoginArgs, config: &SnpmConfig) -> Result<()> {
     )?;
 
     println!();
-    let user = auth_result.username.map(|u| format!(" as {u}")).unwrap_or_default();
-    let scope = args.scope.as_ref().map(|s| format!(" for scope {s}")).unwrap_or_default();
+    let user = auth_result
+        .username
+        .map(|u| format!(" as {u}"))
+        .unwrap_or_default();
+    let scope = args
+        .scope
+        .as_ref()
+        .map(|s| format!(" for scope {s}"))
+        .unwrap_or_default();
     console::info(&format!("Logged in{user}{scope} on {host}"));
 
     Ok(())
@@ -76,10 +83,12 @@ async fn authenticate(
                 return Ok(creds);
             }
 
-            let username = read_line("Username: ")
-                .map_err(|e| SnpmError::Auth { reason: e.to_string() })?;
-            let password = read_password("Password: ")
-                .map_err(|e| SnpmError::Auth { reason: e.to_string() })?;
+            let username = read_line("Username: ").map_err(|e| SnpmError::Auth {
+                reason: e.to_string(),
+            })?;
+            let password = read_password("Password: ").map_err(|e| SnpmError::Auth {
+                reason: e.to_string(),
+            })?;
 
             Ok(operations::Credentials {
                 username: Some(username),
@@ -87,14 +96,8 @@ async fn authenticate(
             })
         };
 
-        match operations::login_with_fallback(
-            registry,
-            auth_type,
-            opener,
-            prompt,
-            otp.as_deref(),
-        )
-        .await
+        match operations::login_with_fallback(registry, auth_type, opener, prompt, otp.as_deref())
+            .await
         {
             Ok(result) => return Ok(result),
 

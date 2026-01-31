@@ -2,7 +2,7 @@ use crate::config;
 use flate2::read::GzDecoder;
 use std::fs;
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tar::Archive;
 
 pub fn ensure_version(version: &str) -> anyhow::Result<PathBuf> {
@@ -43,10 +43,10 @@ pub fn list_cached_versions() -> anyhow::Result<Vec<String>> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.is_dir() {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                versions.push(name.to_string());
-            }
+        if path.is_dir()
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+        {
+            versions.push(name.to_string());
         }
     }
 
@@ -64,7 +64,7 @@ pub fn clear_cache() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn binary_path_for_version(version_dir: &PathBuf) -> PathBuf {
+fn binary_path_for_version(version_dir: &Path) -> PathBuf {
     let binary_name = if cfg!(windows) { "snpm.exe" } else { "snpm" };
     version_dir.join(binary_name)
 }
@@ -145,7 +145,7 @@ fn platform_info() -> (&'static str, &'static str, &'static str) {
     (os, arch, ext)
 }
 
-fn extract_tarball(data: &[u8], destination: &PathBuf) -> anyhow::Result<()> {
+fn extract_tarball(data: &[u8], destination: &Path) -> anyhow::Result<()> {
     let cursor = Cursor::new(data);
     let decoder = GzDecoder::new(cursor);
     let mut archive = Archive::new(decoder);
@@ -178,7 +178,7 @@ fn extract_tarball(data: &[u8], destination: &PathBuf) -> anyhow::Result<()> {
     anyhow::bail!("snpm binary not found in archive");
 }
 
-fn extract_zip(data: &[u8], destination: &PathBuf) -> anyhow::Result<()> {
+fn extract_zip(data: &[u8], destination: &Path) -> anyhow::Result<()> {
     let cursor = Cursor::new(data);
     let mut archive = zip::ZipArchive::new(cursor)?;
 

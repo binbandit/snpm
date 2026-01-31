@@ -133,23 +133,32 @@ async fn poll_for_token(client: &Client, done_url: &str) -> Result<AuthResult> {
     }
 
     for attempt in 1..=120 {
-        let response = client.get(done_url).send().await.map_err(|source| SnpmError::Http {
-            url: done_url.to_string(),
-            source,
-        })?;
+        let response = client
+            .get(done_url)
+            .send()
+            .await
+            .map_err(|source| SnpmError::Http {
+                url: done_url.to_string(),
+                source,
+            })?;
 
         match response.status() {
             StatusCode::OK => {
-                let data: TokenResponse = response.json().await.map_err(|source| SnpmError::Http {
-                    url: done_url.to_string(),
-                    source,
-                })?;
+                let data: TokenResponse =
+                    response.json().await.map_err(|source| SnpmError::Http {
+                        url: done_url.to_string(),
+                        source,
+                    })?;
 
-                return data.token.map(|token| AuthResult { token, username: None }).ok_or_else(|| {
-                    SnpmError::Auth {
+                return data
+                    .token
+                    .map(|token| AuthResult {
+                        token,
+                        username: None,
+                    })
+                    .ok_or_else(|| SnpmError::Auth {
                         reason: "no token in response".into(),
-                    }
-                });
+                    });
             }
             StatusCode::ACCEPTED => {
                 let wait_seconds = response
@@ -253,10 +262,14 @@ async fn couch_login_existing_user(
         });
     }
 
-    let user_data: serde_json::Value = get_response.json().await.map_err(|source| SnpmError::Http {
-        url: user_url.clone(),
-        source,
-    })?;
+    let user_data: serde_json::Value =
+        get_response
+            .json()
+            .await
+            .map_err(|source| SnpmError::Http {
+                url: user_url.clone(),
+                source,
+            })?;
 
     let revision = user_data
         .get("_rev")

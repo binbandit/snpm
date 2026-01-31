@@ -25,10 +25,10 @@ pub fn find_package_manager_from(start: &Path) -> anyhow::Result<Option<PackageM
     while let Some(dir) = current {
         let manifest_path = dir.join("package.json");
 
-        if manifest_path.is_file() {
-            if let Some(reference) = parse_package_manager(&manifest_path)? {
-                return Ok(Some(reference));
-            }
+        if manifest_path.is_file()
+            && let Some(reference) = parse_package_manager(&manifest_path)?
+        {
+            return Ok(Some(reference));
         }
 
         current = dir.parent();

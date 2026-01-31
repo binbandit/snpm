@@ -1,49 +1,46 @@
 <div align="center">
   <img src="docs/logo.png" alt="snpm logo" width="300" />
   <p><strong>Speedy Node Package Manager</strong></p>
+  <p>
+    <a href="https://www.npmjs.com/package/snpm"><img src="https://img.shields.io/npm/v/snpm?style=flat-square&color=blue" alt="npm version"></a>
+    <a href="https://github.com/binbandit/snpm/releases"><img src="https://img.shields.io/github/v/release/binbandit/snpm?style=flat-square&color=green" alt="GitHub release"></a>
+    <a href="https://github.com/binbandit/snpm/blob/main/LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square" alt="License"></a>
+  </p>
 </div>
 
-> **Status:** Production-ready. Fast, secure, and feature-complete for most workflows.
+A fast, secure, drop-in replacement for npm, yarn, and pnpm — written in Rust.
 
-`snpm` is a drop-in replacement for npm, yarn, and pnpm. It is written in Rust with a strict "no cleverness" rule.
+## Why snpm?
 
-We aren't trying to invent a new workflow. We just want the existing one—installing deps, working in monorepos, running scripts—to be faster, simpler, and easier to maintain.
+| | snpm | npm | yarn | pnpm |
+|---|:---:|:---:|:---:|:---:|
+| Global package cache | ✅ | ❌ | ✅ | ✅ |
+| Parallel downloads | ✅ | Limited | ✅ | ✅ |
+| Install script blocking | ✅ | ❌ | ❌ | ❌ |
+| Minimum package age | ✅ | ❌ | ❌ | ❌ |
+| Readable lockfile (YAML) | ✅ | ❌ | ✅ | ✅ |
+| Version catalogs | ✅ | ❌ | ❌ | ✅ |
+| Written in Rust | ✅ | ❌ | ❌ | ❌ |
 
-## The Vision
-
-We want a tool that:
-- **Feels Familiar**: `snpm install`, `snpm add`, `snpm run`. No new muscle memory required.
-- **Is Fast by Default**: Global caching, parallel downloads, and smart reuse.
-- **Is Deterministic**: A simple, readable lockfile (`snpm-lock.yaml`) that guarantees the same install everywhere.
-- **Is Secure**: Install scripts blocked by default, minimum package age protection against supply chain attacks.
-- **Is Readable**: The codebase is designed to be understood by mid-level Rust devs. No premature abstractions or complex type magic.
-
-## Features
-
-- **Full CLI**: `install`, `add`, `remove`, `run`, `init`, `upgrade`, `outdated`, `dlx`, `exec`, `list`, `patch`, `clean`, `config`, `login`, `logout`
-- **Global Store**: Download packages once to a global cache and reuse them across projects.
-- **Parallelism**: Network and disk operations happen in parallel where safe.
-- **Workspaces**: First-class monorepo support with `snpm-workspace.yaml` (or `pnpm-workspace.yaml`).
-- **Catalog Protocol**: Define versions in `snpm-catalog.yaml` and reference them across your workspace. No more version drift.
-- **Security Features**:
-  - Install scripts blocked by default (explicit whitelist required)
-  - Minimum package age protection (`SNPM_MIN_PACKAGE_AGE_DAYS`)
-  - Frozen lockfile support for CI (`--frozen-lockfile`)
-- **Flexible Linking**: Virtual store layout with configurable hoisting (none, single-version, all) and link backends (auto, hardlink, symlink, copy).
-- **Multiple Protocols**: npm, file, git, jsr, workspace, catalog.
-- **Package Patching**: `snpm patch` to modify installed packages and auto-apply patches on install.
+**Key differentiators:**
+- **Security-first**: Install scripts blocked by default, minimum package age protection against supply chain attacks
+- **Fast by default**: Global cache, parallel operations, smart lockfile reuse
+- **Familiar**: Same commands you already know — `install`, `add`, `run`
 
 ## Installation
 
 ```bash
-# Install via npm
+# Via npm (recommended)
 npm install -g snpm
 
-# Or build from source
+# Via GitHub releases (macOS, Linux, Windows)
+# Download from https://github.com/binbandit/snpm/releases
+
+# From source
 cargo install --path snpm-cli
 ```
 
-## Usage
+## Quick Start
 
 ```bash
 # Install dependencies
@@ -56,32 +53,55 @@ snpm add -D typescript
 # Run scripts
 snpm run build
 
-# Execute binaries
-snpm exec tsc --version
-
-# Upgrade dependencies
-snpm upgrade
-
-# Check for outdated packages
-snpm outdated
+# That's it. Same workflow, faster and more secure.
 ```
+
+## Features
+
+### Commands
+`install` · `add` · `remove` · `run` · `exec` · `dlx` · `init` · `upgrade` · `outdated` · `list` · `patch` · `clean` · `config` · `login` · `logout`
+
+### Workspaces
+First-class monorepo support with `snpm-workspace.yaml` (or `pnpm-workspace.yaml` for easy migration).
+
+### Catalog Protocol  
+Define versions once in `snpm-catalog.yaml`, reference with `"react": "catalog:"` — no more version drift.
+
+### Security
+- **Install scripts blocked by default** — whitelist trusted packages explicitly
+- **Minimum package age** — ignore packages published in the last N days
+- **Frozen lockfile** — fail CI if lockfile is out of sync
+
+### Flexible Linking
+Virtual store layout with configurable hoisting (`none`, `single-version`, `all`) and link backends (`auto`, `hardlink`, `symlink`, `copy`).
+
+### Package Patching
+`snpm patch edit lodash` → make changes → `snpm patch commit` — patches auto-apply on install.
 
 ## CI/CD
 
 ```bash
-# Use frozen lockfile (fail if out of sync)
-snpm install --frozen-lockfile
-
-# Production install (skip devDependencies)
-snpm install --production --frozen-lockfile
-
-# With security settings
+# Recommended CI setup
 SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install --frozen-lockfile
+
+# Production build
+snpm install --production --frozen-lockfile
 ```
 
 ## Documentation
 
-Visit [snpm.io](https://snpm.io) for full documentation.
+Full documentation at **[snpm.io](https://snpm.io)**
+
+## Contributing
+
+We welcome contributions! snpm is written in Rust with a strict "no cleverness" rule — the codebase is designed to be readable by mid-level Rust developers.
+
+```bash
+git clone https://github.com/binbandit/snpm.git
+cd snpm
+cargo build
+cargo test
+```
 
 ## License
 

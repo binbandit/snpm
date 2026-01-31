@@ -69,3 +69,42 @@ Support for the [JSR](https://jsr.io) registry.
 ```
 
 snpm natively handles JSR dependencies, mapping them to the appropriate registry requests.
+
+### workspace:
+
+Reference local packages within a monorepo.
+
+```json
+{
+  "dependencies": {
+    "@myorg/utils": "workspace:*",
+    "@myorg/ui": "workspace:^"
+  }
+}
+```
+
+**Supported versions:**
+- `workspace:*` - Any version (most common)
+- `workspace:^` - Caret range of the local package version
+- `workspace:~` - Tilde range of the local package version
+- `workspace:1.0.0` - Specific version
+
+See the [Workspaces](/docs/workspaces) documentation for more details.
+
+### catalog:
+
+Reference versions defined in `snpm-catalog.yaml`.
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:",
+    "vite": "catalog:build"
+  }
+}
+```
+
+- `catalog:` - Use the default catalog
+- `catalog:<name>` - Use a named catalog
+
+See the [Catalog](/docs/catalog) documentation for more details.

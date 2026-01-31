@@ -112,14 +112,7 @@ cd snpm
 cargo build && cargo test
 ```
 
-The codebase follows a strict "no cleverness" rule — code should be readable by any mid-level Rust developer. No complex macros, no unsafe code, no premature abstractions.
-
-**Areas we need help with:**
-- Publishing workflow (`snpm publish`)
-- Performance benchmarking
-- Edge cases in dependency resolution
-- Documentation and examples
-- Testing on different platforms
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for our development philosophy, code guidelines, and areas where we need help.
 
 <br />
 

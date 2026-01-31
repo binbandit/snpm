@@ -3,7 +3,7 @@
   <p><strong>Speedy Node Package Manager</strong></p>
 </div>
 
-> **Status:** functional WIP. It installs, it runs, it's fast. But it's still young.
+> **Status:** Production-ready. Fast, secure, and feature-complete for most workflows.
 
 `snpm` is a drop-in replacement for npm, yarn, and pnpm. It is written in Rust with a strict "no cleverness" rule.
 
@@ -15,41 +15,74 @@ We want a tool that:
 - **Feels Familiar**: `snpm install`, `snpm add`, `snpm run`. No new muscle memory required.
 - **Is Fast by Default**: Global caching, parallel downloads, and smart reuse.
 - **Is Deterministic**: A simple, readable lockfile (`snpm-lock.yaml`) that guarantees the same install everywhere.
+- **Is Secure**: Install scripts blocked by default, minimum package age protection against supply chain attacks.
 - **Is Readable**: The codebase is designed to be understood by mid-level Rust devs. No premature abstractions or complex type magic.
 
 ## Features
 
-Here is what works today:
-
-- **Core Commands**: `install`, `add`, `remove`, and `run` are fully functional.
-- **Global Store**: We download packages once to a global cache and reuse them across projects.
+- **Full CLI**: `install`, `add`, `remove`, `run`, `init`, `upgrade`, `outdated`, `dlx`, `exec`, `list`, `patch`, `clean`, `config`, `login`, `logout`
+- **Global Store**: Download packages once to a global cache and reuse them across projects.
 - **Parallelism**: Network and disk operations happen in parallel where safe.
-- **Workspaces**: First-class monorepo support. We detect `snpm-workspace.yaml` (or `pnpm-workspace.yaml`) and install dependencies for all projects in the workspace efficiently.
-- **Catalog Protocol**: Define versions in one place (`snpm-catalog.yaml`) and reference them across your workspace. No more version drift between packages.
-- **Minimum Version Age**: A unique safety feature. You can configure `snpm` to ignore versions published within the last $N$ days. This protects you from "zero-day" malicious packages or broken releases.
-- **Lockfile**: We read and write a clean YAML lockfile to keep your dependency tree stable.
+- **Workspaces**: First-class monorepo support with `snpm-workspace.yaml` (or `pnpm-workspace.yaml`).
+- **Catalog Protocol**: Define versions in `snpm-catalog.yaml` and reference them across your workspace. No more version drift.
+- **Security Features**:
+  - Install scripts blocked by default (explicit whitelist required)
+  - Minimum package age protection (`SNPM_MIN_PACKAGE_AGE_DAYS`)
+  - Frozen lockfile support for CI (`--frozen-lockfile`)
+- **Flexible Linking**: Virtual store layout with configurable hoisting (none, single-version, all) and link backends (auto, hardlink, symlink, copy).
+- **Multiple Protocols**: npm, file, git, jsr, workspace, catalog.
+- **Package Patching**: `snpm patch` to modify installed packages and auto-apply patches on install.
 
-## Usage
-
-To build and install from source:
+## Installation
 
 ```bash
+# Install via npm
+npm install -g snpm
+
+# Or build from source
 cargo install --path snpm-cli
 ```
 
-Then use it just like npm:
+## Usage
 
 ```bash
+# Install dependencies
 snpm install
+
+# Add packages
 snpm add react
+snpm add -D typescript
+
+# Run scripts
 snpm run build
+
+# Execute binaries
+snpm exec tsc --version
+
+# Upgrade dependencies
+snpm upgrade
+
+# Check for outdated packages
+snpm outdated
 ```
 
-## Roadmap
+## CI/CD
 
-We are actively working on:
-- **First-class Workspaces**: Better resolution for local packages within a monorepo.
-- **CI Support**: Frozen lockfiles and immutable installs.
-- **Optimizations**: Smarter linking strategies to save even more disk space.
+```bash
+# Use frozen lockfile (fail if out of sync)
+snpm install --frozen-lockfile
 
-This project is open for contribution. If you like Rust and hate waiting for `npm install`, take a look at the code.
+# Production install (skip devDependencies)
+snpm install --production --frozen-lockfile
+
+# With security settings
+SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install --frozen-lockfile
+```
+
+## Documentation
+
+Visit [snpm.io](https://snpm.io) for full documentation.
+
+## License
+
+MIT OR Apache-2.0

@@ -227,7 +227,7 @@ pub async fn install(
 
     let can_use_scenario_optimization = options.include_dev && additions.is_empty();
 
-    let (scenario, existing_lockfile) = if can_use_scenario_optimization {
+    let scenario_result = if can_use_scenario_optimization {
         detect_install_scenario(
             project,
             &lockfile_path,
@@ -236,8 +236,15 @@ pub async fn install(
             options.force,
         )
     } else {
-        (InstallScenario::Cold, None)
+        ScenarioResult {
+            scenario: InstallScenario::Cold,
+            lockfile: None,
+            cache_check: None,
+        }
     };
+    let scenario = scenario_result.scenario;
+    let existing_lockfile = scenario_result.lockfile;
+    let precomputed_cache = scenario_result.cache_check;
 
     let mut lockfile_reused_unchanged = false;
     let mut early_exit = false;
@@ -257,7 +264,8 @@ pub async fn install(
             let existing = existing_lockfile.expect("WarmLinkOnly scenario requires lockfile");
             let graph = lockfile::to_graph(&existing);
 
-            let cache_check = check_store_cache(config, &graph);
+            // Use precomputed cache from scenario detection (avoids double computation)
+            let cache_check = precomputed_cache.expect("WarmLinkOnly requires cache check");
             store_paths_map = cache_check.cached;
 
             console::verbose(&format!(
@@ -274,7 +282,8 @@ pub async fn install(
             let existing = existing_lockfile.expect("WarmPartialCache scenario requires lockfile");
             let graph = lockfile::to_graph(&existing);
 
-            let cache_check = check_store_cache(config, &graph);
+            // Use precomputed cache from scenario detection (avoids double computation)
+            let cache_check = precomputed_cache.expect("WarmPartialCache requires cache check");
             let cached_count = cache_check.cached.len();
             let missing_count = cache_check.missing.len();
 

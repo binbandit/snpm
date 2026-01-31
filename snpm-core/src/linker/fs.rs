@@ -2,6 +2,25 @@ use crate::{LinkBackend, Result, SnpmConfig, SnpmError};
 use std::fs;
 use std::path::Path;
 
+pub fn symlink_is_correct(link: &Path, expected_target: &Path) -> bool {
+    match fs::read_link(link) {
+        Ok(current_target) => current_target == expected_target,
+        Err(_) => false,
+    }
+}
+
+pub fn link_dir_fast(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
+    if matches!(
+        config.link_backend,
+        LinkBackend::Auto | LinkBackend::Symlink
+    ) && symlink_dir_entry(source, dest).is_ok()
+    {
+        return Ok(());
+    }
+
+    link_dir(config, source, dest)
+}
+
 pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
     fs::create_dir_all(dest).map_err(|source_err| SnpmError::WriteFile {
         path: dest.to_path_buf(),

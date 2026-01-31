@@ -1,5 +1,5 @@
 use super::fs::copy_dir;
-use super::fs::link_dir;
+use super::fs::link_dir_fast;
 use crate::resolve::{PackageId, ResolutionGraph};
 use crate::{HoistingMode, Project, Result, SnpmConfig, SnpmError, Workspace, lifecycle};
 use std::collections::BTreeMap;
@@ -70,7 +70,7 @@ fn link_shallow_package(
     if scripts_allowed {
         copy_dir(store_root, dest)?;
     } else {
-        link_dir(config, store_root, dest)?;
+        link_dir_fast(config, store_root, dest)?;
     }
 
     Ok(())

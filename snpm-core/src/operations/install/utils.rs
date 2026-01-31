@@ -57,23 +57,37 @@ pub struct ParsedSpec {
     pub protocol: Option<String>,
 }
 
+pub struct ScenarioResult {
+    pub scenario: InstallScenario,
+    pub lockfile: Option<lockfile::Lockfile>,
+    pub cache_check: Option<CacheCheckResult>,
+}
+
 pub fn detect_install_scenario(
     project: &Project,
     lockfile_path: &Path,
     manifest_root: &BTreeMap<String, String>,
     config: &SnpmConfig,
     force: bool,
-) -> (InstallScenario, Option<lockfile::Lockfile>) {
+) -> ScenarioResult {
     if !lockfile_path.is_file() {
         console::verbose("scenario: Cold (no lockfile)");
-        return (InstallScenario::Cold, None);
+        return ScenarioResult {
+            scenario: InstallScenario::Cold,
+            lockfile: None,
+            cache_check: None,
+        };
     }
 
     let existing = match lockfile::read(lockfile_path) {
         Ok(lockfile) => lockfile,
         Err(_) => {
             console::verbose("scenario: Cold (lockfile unreadable)");
-            return (InstallScenario::Cold, None);
+            return ScenarioResult {
+                scenario: InstallScenario::Cold,
+                lockfile: None,
+                cache_check: None,
+            };
         }
     };
 
@@ -84,7 +98,11 @@ pub fn detect_install_scenario(
 
     if lock_requested != *manifest_root {
         console::verbose("scenario: Cold (lockfile doesn't match manifest)");
-        return (InstallScenario::Cold, Some(existing));
+        return ScenarioResult {
+            scenario: InstallScenario::Cold,
+            lockfile: Some(existing),
+            cache_check: None,
+        };
     }
 
     let graph = lockfile::to_graph(&existing);
@@ -92,7 +110,11 @@ pub fn detect_install_scenario(
 
     if !force && check_integrity_file(project, &lockfile_hash) {
         console::verbose("scenario: Hot (lockfile + node_modules valid)");
-        return (InstallScenario::Hot, Some(existing));
+        return ScenarioResult {
+            scenario: InstallScenario::Hot,
+            lockfile: Some(existing),
+            cache_check: None,
+        };
     }
 
     let cache_check = check_store_cache(config, &graph);
@@ -104,7 +126,11 @@ pub fn detect_install_scenario(
             "scenario: WarmLinkOnly ({} packages all cached)",
             total_count
         ));
-        return (InstallScenario::WarmLinkOnly, Some(existing));
+        return ScenarioResult {
+            scenario: InstallScenario::WarmLinkOnly,
+            lockfile: Some(existing),
+            cache_check: Some(cache_check),
+        };
     }
 
     console::verbose(&format!(
@@ -113,7 +139,11 @@ pub fn detect_install_scenario(
         total_count,
         missing_count
     ));
-    (InstallScenario::WarmPartialCache, Some(existing))
+    ScenarioResult {
+        scenario: InstallScenario::WarmPartialCache,
+        lockfile: Some(existing),
+        cache_check: Some(cache_check),
+    }
 }
 
 pub fn check_store_cache(config: &SnpmConfig, graph: &ResolutionGraph) -> CacheCheckResult {

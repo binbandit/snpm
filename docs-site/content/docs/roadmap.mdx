@@ -5,42 +5,74 @@ description: The future of snpm, tracked.
 
 # Roadmap
 
-This page lists the features we expect snpm to have, ordered by priority. We are building a pnpm killer, so we aim to match their feature set before surpassing them.
+This page tracks snpm's feature development. We're building a fast, secure, and user-friendly package manager that matches and exceeds pnpm's feature set.
 
 ## Implemented
 
 Features that are already available in the current version of snpm.
 
-- [x] **Basic CLI** (`install`, `add`, `remove`, `run`)
+### Core CLI
+- [x] **Full command suite** (`install`, `add`, `remove`, `run`, `init`, `upgrade`, `outdated`)
 - [x] **Production installs** (`--production` flag)
+- [x] **Global package support** (`snpm add -g`, `snpm list -g`)
+- [x] **Script execution** (`run`, `exec`, `dlx`)
+- [x] **Package patching** (`snpm patch edit/commit/remove/list`)
+- [x] **Cache management** (`snpm clean`)
+- [x] **Configuration display** (`snpm config`)
+- [x] **Authentication** (`snpm login`, `snpm logout`)
+
+### Package Resolution
 - [x] **Global Store** with parallel downloads
 - [x] **Lockfile** (`snpm-lock.yaml`) read/write and reuse
-- [x] **Semver support** (including `latest` and `||` ranges)
-- [x] **`node_modules` linking** with `.bin` support
-- [x] **Initial workspace support** (detection and multi-project install)
+- [x] **Semver support** (including `latest`, `||` ranges, complex expressions)
+- [x] **Virtual store layout** (`.snpm/` directory)
+- [x] **Multiple link backends** (auto, hardlink, symlink, copy)
+- [x] **Configurable hoisting** (none, single-version, all)
+
+### Workspaces
+- [x] **First-class workspace support** (`snpm-workspace.yaml`, `pnpm-workspace.yaml`)
+- [x] **Local package resolution** (workspace protocol `workspace:*`)
+- [x] **Single lockfile** for the entire workspace
+- [x] **Targeted commands** (`snpm add -w <project>`, `snpm install -w <project>`)
+- [x] **Recursive scripts** (`snpm run build --recursive`, `--filter`)
+- [x] **Catalog protocol** (`snpm-catalog.yaml`)
+
+### CI/CD & Security
+- [x] **Frozen lockfile mode** (`--frozen-lockfile` / `--immutable`)
+- [x] **Minimum version age** protection against zero-day attacks
+- [x] **Install script blocking** with explicit whitelist
+- [x] **Registry authentication** (Bearer/Basic, scoped registries)
+
+### Protocols
+- [x] **npm:** registry packages
+- [x] **file:** local filesystem dependencies
+- [x] **git:** git repository dependencies
+- [x] **jsr:** JSR registry support
+- [x] **catalog:** version catalog references
+
+### Quality of Life
+- [x] **Lazy install** on `run`/`exec` if deps are stale
+- [x] **Verbose logging** (`--verbose`, `SNPM_VERBOSE`)
+- [x] **Overrides support** (`snpm-overrides.yaml`, `package.json`)
+- [x] **Peer dependency handling** with configurable strictness
 
 ## Planned
 
-Upcoming features and improvements, ordered by priority.
+Upcoming features and improvements.
 
-### Refine Store & Linking
-- [ ] Reduce disk usage by symlinking from the store where safe
-- [ ] Optionally move toward a virtual store layout
-
-### First-class Workspaces
-- [ ] Resolve local packages before going to the registry
-- [ ] Single lockfile for the entire workspace
-- [ ] Commands like `snpm add -w <pkg>` to target specific workspace packages
-
-### Lockfile Modes
-- [ ] `--frozen-lockfile` / `--immutable` for CI
-- [ ] Clear errors when the manifest does not match the lockfile
-
-### Quality of Life
-- [ ] `snpm init` to bootstrap projects
-- [ ] `snpm outdated` / `snpm upgrade`
-- [ ] Better error messages and suggestions
-
-### Performance Tuning
-- [ ] Throttling concurrent downloads for huge dependency trees
+### Performance
 - [ ] Smarter reuse of resolution graphs within a workspace
+- [ ] Incremental lockfile updates for faster `add`/`remove`
+
+### Developer Experience
+- [ ] `snpm why <package>` to explain dependency paths
+- [ ] `snpm prune` to remove extraneous packages
+- [ ] Interactive upgrade mode
+
+### Publishing
+- [ ] `snpm publish` with workspace support
+- [ ] `snpm pack` to create tarballs
+
+### Advanced Features
+- [ ] Side effects cache for install scripts
+- [ ] Pluggable lifecycle hooks

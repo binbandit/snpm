@@ -46,4 +46,4 @@ For more information, visit the [snpm repository](https://github.com/binbandit/s
 
 ## License
 
-MIT
+MIT OR Apache-2.0

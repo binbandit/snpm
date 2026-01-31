@@ -35,17 +35,22 @@ This file serves as the **primary context and instruction manual** for autonomou
 
 -   **`snpm-cli`**: CLI binary, argument parsing, wiring into core. Depends on `snpm-core`.
 -   **`snpm-core`**: All actual logic (Config, Registry, Resolution, Store, Linking, Operations).
+-   **`snpm-semver`**: Custom semver range parsing for npm-style ranges.
+-   **`snpm-switch`**: Version manager for project-specific snpm versions.
 
 ### Core Modules (`snpm-core`)
 
--   **`config`**: `SnpmConfig`, directory handling.
+-   **`config`**: `SnpmConfig`, directory handling, rc file parsing.
 -   **`project`**: `Manifest` (package.json) parsing, project discovery.
--   **`registry`**: NPM registry API interaction (`https://registry.npmjs.org`).
--   **`resolve`**: Dependency resolution (Semver parsing, deep recursion, graph building).
+-   **`workspace`**: Multi-project/monorepo support, catalog resolution.
+-   **`registry`**: NPM registry API interaction (supports npm, jsr, custom registries).
+-   **`resolve`**: Dependency resolution (Semver parsing, graph building, peer deps).
 -   **`store`**: Global package cache management. Downloads and unpacks tarballs.
 -   **`lockfile`**: `snpm-lock.yaml` reading/writing.
--   **`linker`**: Builds `node_modules` from the resolution graph and global store. Clears `node_modules` on each run.
--   **`operations`**: High-level commands (`install`, `add`, `remove`, `run`).
+-   **`linker`**: Builds `node_modules` via virtual store (`.snpm/`). Supports hoisting modes.
+-   **`operations`**: High-level commands (`install`, `add`, `remove`, `run`, `dlx`, `init`, `patch`, `clean`, etc.).
+-   **`protocols`**: Protocol handlers (npm, file, git, jsr).
+-   **`lifecycle`**: Install script execution with security controls.
 -   **`error`**: Centralized `SnpmError` enum.
 
 ## 4. Core Flows
@@ -98,18 +103,24 @@ Standard `package.json` structure.
 
 Agents should refer to this roadmap when selecting tasks or prioritizing work.
 
-### Completed / In-Progress
--   [x] Basic CLI (`install`, `add`, `remove`, `run`)
--   [x] Global store & Parallel downloads
--   [x] Lockfile read/write
--   [x] Semver support
--   [x] `node_modules` linking
+### Completed
+-   [x] Full CLI (`install`, `add`, `remove`, `run`, `init`, `upgrade`, `outdated`, `dlx`, `exec`, `list`, `patch`, `clean`, `config`, `login`, `logout`)
+-   [x] Global store with parallel downloads
+-   [x] Lockfile read/write with `--frozen-lockfile` support
+-   [x] Advanced semver support (including `||` ranges)
+-   [x] Virtual store layout (`.snpm/`) with configurable hoisting
+-   [x] First-class workspaces with catalog protocol
+-   [x] Multiple link backends (auto, hardlink, symlink, copy)
+-   [x] Protocol support (npm, file, git, jsr, workspace, catalog)
+-   [x] Install script security (blocked by default)
+-   [x] Minimum version age protection
+-   [x] Global package installation (`-g` flag)
+-   [x] Package patching (`snpm patch`)
 
 ### Next Steps (Priorities)
-1.  **Refine Store + Linking**: Reduce disk usage (symlinks vs copies).
-2.  **First-class Workspaces**: Resolve local packages before registry. Single lockfile per workspace.
-3.  **Lockfile Modes**: `-frozen-lockfile` (CI support).
-4.  **Quality of Life**: `snpm init`, `snpm outdated`.
+1.  **Publishing**: `snpm publish` with workspace support.
+2.  **Dependency Analysis**: `snpm why <package>` to explain dependency paths.
+3.  **Performance**: Smarter resolution graph reuse within workspaces.
 
 ## 8. Workflow Reminders
 

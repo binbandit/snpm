@@ -38,9 +38,9 @@ pub enum Command {
     Outdated(commands::outdated::OutdatedArgs),
     /// List installed packages
     List(commands::list::ListArgs),
-    /// Store registry credentials
+    /// Authenticate with a registry
     Login(commands::login::LoginArgs),
-    /// Remove registry credentials
+    /// Remove stored registry credentials
     Logout(commands::logout::LogoutArgs),
     /// Show the resolved configuration
     Config(commands::config::ConfigArgs),

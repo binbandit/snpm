@@ -8,7 +8,9 @@ pub mod lazy;
 pub mod patch;
 pub mod run;
 
-pub use auth::{login, logout};
+pub use auth::{
+    login, login_with_fallback, logout, save_credentials, AuthResult, AuthType, Credentials, OpenerFn,
+};
 pub use clean::{
     CleanOptions, CleanSummary, analyze as clean_analyze, execute as clean_execute, format_bytes,
 };

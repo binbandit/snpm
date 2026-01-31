@@ -44,6 +44,7 @@ Add packages to dependencies.
 
 **Options:**
 - `-D, --dev` - Add as dev dependency
+- `-g, --global` - Install globally
 - `-f, --force` - Force re-download
 - `-w, --workspace <name>` - Target specific workspace project
 
@@ -66,6 +67,7 @@ Run a script from `package.json`.
 **Options:**
 - `-r, --recursive` - Run in all workspace projects
 - `--filter <pattern>` - Run in filtered workspace projects (supports globs)
+- `--skip-install` - Skip automatic install check
 
 ### upgrade
 
@@ -97,6 +99,55 @@ snpm dlx <package> [args...]
 ```
 
 Download and execute a package binary. Alias: `spx`.
+
+### exec
+
+```bash
+snpm exec <command> [args...]
+```
+
+Execute a command with `node_modules/.bin` in PATH.
+
+**Options:**
+- `-c, --shell-mode` - Run through shell (pipes, redirects)
+- `-r, --recursive` - Run in all workspace projects
+- `--filter <pattern>` - Filter workspace projects
+- `--skip-install` - Skip automatic install check
+
+### list
+
+```bash
+snpm list
+```
+
+List installed packages.
+
+**Options:**
+- `-g, --global` - List globally installed packages
+
+### patch
+
+```bash
+snpm patch <subcommand>
+```
+
+Modify installed packages. Subcommands: `edit`, `commit`, `remove`, `list`.
+
+### clean
+
+```bash
+snpm clean
+```
+
+Remove cached packages and metadata.
+
+**Options:**
+- `-y, --yes` - Skip confirmation
+- `--dry-run` - Preview without deleting
+- `--packages` - Only clean packages
+- `--metadata` - Only clean metadata
+- `--global` - Also clean global installs
+- `--all` - Clean everything
 
 ### init
 
@@ -220,7 +271,7 @@ snpm install --frozen-lockfile
 snpm install --production --frozen-lockfile
 
 # With security settings
-SNPM_MIN_VERSION_AGE_DAYS=7 snpm install --frozen-lockfile
+SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install --frozen-lockfile
 ```
 
 ### Authentication

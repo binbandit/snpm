@@ -60,6 +60,7 @@ snpm add <packages...>
 
 **Options:**
 - `-D, --dev` - Add as dev dependency
+- `-g, --global` - Install globally
 - `-f, --force` - Force re-download
 - `-w, --workspace <name>` - Add to specific workspace project
 
@@ -111,6 +112,7 @@ snpm run <script> [-- <args>]
 **Options:**
 - `-r, --recursive` - Run in all workspace projects
 - `--filter <pattern>` - Run in filtered workspace projects (supports globs)
+- `--skip-install` - Skip automatic install check before running
 
 **Examples:**
 
@@ -259,6 +261,148 @@ snpm logout --registry https://npm.mycompany.com
 
 # Logout from scoped registry
 snpm logout --scope @myorg
+```
+
+## exec
+
+Execute a command with `node_modules/.bin` in PATH.
+
+```bash
+snpm exec <command> [args...]
+```
+
+**Options:**
+- `-c, --shell-mode` - Run command through shell (enables pipes, redirects, etc.)
+- `-r, --recursive` - Run in all workspace projects
+- `--filter <pattern>` - Filter workspace projects by name
+- `--skip-install` - Skip automatic install check before executing
+
+**Examples:**
+
+```bash
+# Run a binary from node_modules
+snpm exec tsc --version
+
+# Run with shell features
+snpm exec -c "eslint src/**/*.ts | head -20"
+
+# Run in all workspaces
+snpm exec --recursive tsc --build
+```
+
+## list
+
+List installed packages.
+
+```bash
+snpm list
+```
+
+**Options:**
+- `-g, --global` - List globally installed packages
+
+**Examples:**
+
+```bash
+# List local dependencies
+snpm list
+
+# List global packages
+snpm list -g
+```
+
+## patch
+
+Modify installed packages to fix bugs or customize behavior. Patches are saved and automatically applied on subsequent installs.
+
+```bash
+snpm patch <subcommand>
+```
+
+### patch edit
+
+Prepare a package for patching.
+
+```bash
+snpm patch edit <package[@version]>
+```
+
+**Alias:** `snpm patch start`
+
+**Examples:**
+
+```bash
+# Prepare lodash for patching
+snpm patch edit lodash
+
+# Patch a specific version
+snpm patch edit lodash@4.17.21
+```
+
+### patch commit
+
+Create a patch from your modifications.
+
+```bash
+snpm patch commit <path>
+```
+
+**Examples:**
+
+```bash
+# After editing, commit the patch
+snpm patch commit .snpm-patch/lodash@4.17.21
+```
+
+### patch remove
+
+Remove a patch for a package.
+
+```bash
+snpm patch remove <package>
+```
+
+### patch list
+
+List all patches in the current project.
+
+```bash
+snpm patch list
+```
+
+## clean
+
+Remove cached packages and metadata to free disk space.
+
+```bash
+snpm clean
+```
+
+**Options:**
+- `-y, --yes` - Skip confirmation prompt
+- `--dry-run` - Show what would be deleted without deleting
+- `--packages` - Only clean cached packages
+- `--metadata` - Only clean registry metadata cache
+- `--global` - Also clean global packages and binaries
+- `--all` - Clean everything (packages, metadata, and global)
+
+**Examples:**
+
+```bash
+# Interactive clean (prompts for confirmation)
+snpm clean
+
+# Clean without prompts
+snpm clean -y
+
+# Preview what would be cleaned
+snpm clean --dry-run
+
+# Clean only cached packages
+snpm clean --packages
+
+# Clean everything including global installs
+snpm clean --all
 ```
 
 ## config

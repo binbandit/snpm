@@ -147,7 +147,15 @@ snpm outdated --production
 
 ## Global Store
 
-Packages are downloaded once to `~/.snpm-store` and reused across all projects. This saves disk space and makes subsequent installs much faster.
+Packages are downloaded once to a global store and reused across all projects. The store location is platform-specific:
+
+- **macOS**: `~/Library/Application Support/io.snpm.snpm/packages`
+- **Linux**: `~/.local/share/snpm/packages`
+- **Windows**: `%LOCALAPPDATA%\snpm\snpm\data\packages`
+
+Override with the `SNPM_HOME` environment variable (packages stored in `$SNPM_HOME/data/packages`).
+
+This saves disk space and makes subsequent installs much faster.
 
 ## Lockfile
 

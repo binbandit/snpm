@@ -1,107 +1,122 @@
 <div align="center">
   <img src="docs/logo.png" alt="snpm logo" width="300" />
-  <p><strong>Speedy Node Package Manager</strong></p>
+  
   <p>
-    <a href="https://www.npmjs.com/package/snpm"><img src="https://img.shields.io/npm/v/snpm?style=flat-square&color=blue" alt="npm version"></a>
-    <a href="https://github.com/binbandit/snpm/releases"><img src="https://img.shields.io/github/v/release/binbandit/snpm?style=flat-square&color=green" alt="GitHub release"></a>
+    <strong>A fast, secure, drop-in replacement for npm</strong>
+  </p>
+
+  <p>
+    <a href="https://www.npmjs.com/package/snpm"><img src="https://img.shields.io/npm/v/snpm?style=flat-square" alt="npm version"></a>
+    <a href="https://github.com/binbandit/snpm/releases"><img src="https://img.shields.io/github/v/release/binbandit/snpm?style=flat-square" alt="GitHub release"></a>
     <a href="https://github.com/binbandit/snpm/blob/main/LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square" alt="License"></a>
+  </p>
+
+  <p>
+    <a href="https://snpm.io">Documentation</a> · <a href="https://github.com/binbandit/snpm/releases">Releases</a> · <a href="https://github.com/binbandit/snpm/issues">Issues</a>
   </p>
 </div>
 
-A fast, secure, drop-in replacement for npm, yarn, and pnpm — written in Rust.
+<br />
+
+## Install
+
+```bash
+npm install -g snpm
+```
+
+Or download a binary from [GitHub Releases](https://github.com/binbandit/snpm/releases).
+
+<br />
+
+## Usage
+
+```bash
+snpm install          # Install dependencies
+snpm add react        # Add a package
+snpm add -D typescript # Add a dev dependency
+snpm run build        # Run a script
+```
+
+Same commands you already know. No new workflow to learn.
+
+<br />
 
 ## Why snpm?
 
-| | snpm | npm | yarn | pnpm |
-|---|:---:|:---:|:---:|:---:|
-| Global package cache | ✅ | ❌ | ✅ | ✅ |
-| Parallel downloads | ✅ | Limited | ✅ | ✅ |
+|  | snpm | npm | yarn | pnpm |
+|:--|:--:|:--:|:--:|:--:|
+| Global cache | ✅ | ❌ | ✅ | ✅ |
+| Parallel downloads | ✅ | ⚠️ | ✅ | ✅ |
 | Install script blocking | ✅ | ❌ | ❌ | ❌ |
-| Minimum package age | ✅ | ❌ | ❌ | ❌ |
-| Readable lockfile (YAML) | ✅ | ❌ | ✅ | ✅ |
+| Min package age | ✅ | ❌ | ❌ | ❌ |
 | Version catalogs | ✅ | ❌ | ❌ | ✅ |
 | Written in Rust | ✅ | ❌ | ❌ | ❌ |
 
-**Key differentiators:**
-- **Security-first**: Install scripts blocked by default, minimum package age protection against supply chain attacks
-- **Fast by default**: Global cache, parallel operations, smart lockfile reuse
-- **Familiar**: Same commands you already know — `install`, `add`, `run`
-
-## Installation
-
-```bash
-# Via npm (recommended)
-npm install -g snpm
-
-# Via GitHub releases (macOS, Linux, Windows)
-# Download from https://github.com/binbandit/snpm/releases
-
-# From source
-cargo install --path snpm-cli
-```
-
-## Quick Start
-
-```bash
-# Install dependencies
-snpm install
-
-# Add packages
-snpm add react
-snpm add -D typescript
-
-# Run scripts
-snpm run build
-
-# That's it. Same workflow, faster and more secure.
-```
+<br />
 
 ## Features
 
-### Commands
-`install` · `add` · `remove` · `run` · `exec` · `dlx` · `init` · `upgrade` · `outdated` · `list` · `patch` · `clean` · `config` · `login` · `logout`
+**Security** — Install scripts are blocked by default. Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` to ignore packages published in the last week.
 
-### Workspaces
-First-class monorepo support with `snpm-workspace.yaml` (or `pnpm-workspace.yaml` for easy migration).
+**Workspaces** — First-class monorepo support. Drop in `snpm-workspace.yaml` or use your existing `pnpm-workspace.yaml`.
 
-### Catalog Protocol  
-Define versions once in `snpm-catalog.yaml`, reference with `"react": "catalog:"` — no more version drift.
+**Catalogs** — Define versions once in `snpm-catalog.yaml`, reference them with `"react": "catalog:"`. No more version drift.
 
-### Security
-- **Install scripts blocked by default** — whitelist trusted packages explicitly
-- **Minimum package age** — ignore packages published in the last N days
-- **Frozen lockfile** — fail CI if lockfile is out of sync
+**Patching** — Run `snpm patch edit lodash`, make your fix, then `snpm patch commit`. Patches auto-apply on install.
 
-### Flexible Linking
-Virtual store layout with configurable hoisting (`none`, `single-version`, `all`) and link backends (`auto`, `hardlink`, `symlink`, `copy`).
+**Flexible** — Configurable hoisting modes and link backends. Use hardlinks, symlinks, or copies.
 
-### Package Patching
-`snpm patch edit lodash` → make changes → `snpm patch commit` — patches auto-apply on install.
+<br />
 
 ## CI/CD
 
 ```bash
-# Recommended CI setup
-SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install --frozen-lockfile
-
-# Production build
-snpm install --production --frozen-lockfile
+snpm install --frozen-lockfile                    # Fail if lockfile is out of sync
+snpm install --production --frozen-lockfile       # Skip devDependencies
+SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install          # Ignore recently published packages
 ```
+
+<br />
+
+## Commands
+
+```
+install    Install dependencies from package.json
+add        Add packages to dependencies
+remove     Remove packages
+run        Run a script from package.json
+exec       Execute a command with node_modules/.bin in PATH
+dlx        Download and run a package (like npx)
+init       Create a new package.json
+upgrade    Update packages to latest versions
+outdated   Check for outdated packages
+list       List installed packages
+patch      Patch installed packages
+clean      Clear the package cache
+config     Show configuration
+login      Authenticate with a registry
+logout     Remove registry credentials
+```
+
+<br />
 
 ## Documentation
 
-Full documentation at **[snpm.io](https://snpm.io)**
+**[snpm.io](https://snpm.io)**
+
+<br />
 
 ## Contributing
-
-We welcome contributions! snpm is written in Rust with a strict "no cleverness" rule — the codebase is designed to be readable by mid-level Rust developers.
 
 ```bash
 git clone https://github.com/binbandit/snpm.git
 cd snpm
-cargo build
-cargo test
+cargo build && cargo test
 ```
+
+snpm follows a "no cleverness" rule — code should be readable by any mid-level Rust developer.
+
+<br />
 
 ## License
 

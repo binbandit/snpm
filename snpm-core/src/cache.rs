@@ -1,10 +1,24 @@
+use crate::config::OfflineMode;
 use crate::console;
 use crate::registry::RegistryPackage;
 use crate::{Result, SnpmConfig};
 use std::fs;
 use std::path::Path;
 
+/// Load cached metadata with default freshness checks (Online mode).
 pub fn load_metadata(config: &SnpmConfig, name: &str) -> Option<RegistryPackage> {
+    load_metadata_with_offline(config, name, OfflineMode::Online)
+}
+
+/// Load cached metadata respecting offline mode.
+/// - Online: Only return fresh cache
+/// - PreferOffline: Return stale cache if available
+/// - Offline: Return any cache (caller must handle missing case)
+pub fn load_metadata_with_offline(
+    config: &SnpmConfig,
+    name: &str,
+    offline_mode: OfflineMode,
+) -> Option<RegistryPackage> {
     let sanitized = sanitize_package_name(name);
     let cache_path = config.metadata_dir().join(&sanitized).join("index.json");
 
@@ -15,10 +29,15 @@ pub fn load_metadata(config: &SnpmConfig, name: &str) -> Option<RegistryPackage>
     if let Ok(data) = fs::read_to_string(&cache_path)
         && let Ok(package) = serde_json::from_str::<RegistryPackage>(&data)
     {
-        if is_fresh(config, &cache_path) {
+        let fresh = is_fresh(config, &cache_path);
+
+        // In PreferOffline or Offline mode, accept stale cache
+        if fresh || matches!(offline_mode, OfflineMode::PreferOffline | OfflineMode::Offline) {
             if console::is_logging_enabled() {
+                let status = if fresh { "fresh" } else { "stale (offline mode)" };
                 console::verbose(&format!(
-                    "using cached metadata for {} from {}",
+                    "using {} cached metadata for {} from {}",
+                    status,
                     name,
                     cache_path.display()
                 ));

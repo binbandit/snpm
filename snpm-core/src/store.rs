@@ -1,3 +1,4 @@
+use crate::config::OfflineMode;
 use crate::console;
 use crate::resolve::types::ResolvedPackage;
 use crate::{Result, SnpmConfig, SnpmError};
@@ -8,10 +9,21 @@ use std::path::PathBuf;
 use std::time::Instant;
 use tar::Archive;
 
+/// Ensure a package is in the store (Online mode).
 pub async fn ensure_package(
     config: &SnpmConfig,
     package: &ResolvedPackage,
     client: &reqwest::Client,
+) -> Result<PathBuf> {
+    ensure_package_with_offline(config, package, client, OfflineMode::Online).await
+}
+
+/// Ensure a package is in the store, respecting offline mode.
+pub async fn ensure_package_with_offline(
+    config: &SnpmConfig,
+    package: &ResolvedPackage,
+    client: &reqwest::Client,
+    offline_mode: OfflineMode,
 ) -> Result<PathBuf> {
     let start = Instant::now();
 
@@ -29,6 +41,13 @@ pub async fn ensure_package(
             root.display()
         ));
         return Ok(root);
+    }
+
+    // In Offline mode, we can't download - fail if not in store
+    if matches!(offline_mode, OfflineMode::Offline) {
+        return Err(SnpmError::OfflineRequired {
+            resource: format!("package {}@{}", package.id.name, package.id.version),
+        });
     }
 
     console::verbose(&format!(

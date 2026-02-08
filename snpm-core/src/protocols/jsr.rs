@@ -1,3 +1,4 @@
+use crate::config::OfflineMode;
 use crate::console;
 use crate::registry::RegistryPackage;
 use crate::{Result, SnpmConfig, SnpmError};
@@ -11,10 +12,26 @@ pub async fn fetch_package(
     client: &Client,
     name: &str,
 ) -> Result<RegistryPackage> {
+    fetch_package_with_offline(config, client, name, OfflineMode::Online).await
+}
+
+pub async fn fetch_package_with_offline(
+    config: &SnpmConfig,
+    client: &Client,
+    name: &str,
+    offline_mode: OfflineMode,
+) -> Result<RegistryPackage> {
     let compat = jsr_compat_name(name);
 
-    if let Some(cached) = crate::cache::load_metadata(config, &compat) {
+    if let Some(cached) = crate::cache::load_metadata_with_offline(config, &compat, offline_mode) {
         return Ok(cached);
+    }
+
+    // In Offline mode, if cache miss, we fail
+    if matches!(offline_mode, OfflineMode::Offline) {
+        return Err(SnpmError::OfflineRequired {
+            resource: format!("jsr package metadata for {}", name),
+        });
     }
 
     let encoded = super::encode_package_name(&compat);

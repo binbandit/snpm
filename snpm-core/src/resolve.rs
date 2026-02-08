@@ -2,6 +2,7 @@ pub mod peers;
 pub mod query;
 pub mod types;
 
+use crate::config::OfflineMode;
 use crate::registry::{RegistryPackage, RegistryProtocol};
 use crate::{Result, SnpmConfig, SnpmError, console};
 use async_recursion::async_recursion;
@@ -26,6 +27,7 @@ pub trait Prefetcher: Send + Sync {
 type PackageMap = BTreeMap<PackageId, ResolvedPackage>;
 type PackageCache = BTreeMap<String, RegistryPackage>;
 
+/// Resolve dependencies with default online mode.
 pub async fn resolve<F, Fut>(
     config: &SnpmConfig,
     client: &Client,
@@ -40,13 +42,7 @@ where
     F: FnMut(ResolvedPackage) -> Fut + Send,
     Fut: std::future::Future<Output = Result<()>> + Send,
 {
-    let packages = Arc::new(Mutex::new(PackageMap::new()));
-    let package_cache = Arc::new(Mutex::new(PackageCache::new()));
-    let default_protocol = RegistryProtocol::npm();
-    let done = Arc::new(AtomicBool::new(false));
-    let registry_semaphore = Arc::new(Semaphore::new(config.registry_concurrency));
-
-    let resolver_task = run_resolver(
+    resolve_with_offline(
         config,
         client,
         root_deps,
@@ -54,12 +50,58 @@ where
         min_age_days,
         force,
         overrides,
-        &default_protocol,
-        packages.clone(),
-        package_cache.clone(),
-        done.clone(),
-        registry_semaphore.clone(),
-    );
+        OfflineMode::Online,
+        on_package,
+    )
+    .await
+}
+
+/// Resolve dependencies respecting offline mode.
+pub async fn resolve_with_offline<F, Fut>(
+    config: &SnpmConfig,
+    client: &Client,
+    root_deps: &BTreeMap<String, String>,
+    root_protocols: &BTreeMap<String, RegistryProtocol>,
+    min_age_days: Option<u32>,
+    force: bool,
+    overrides: Option<&BTreeMap<String, String>>,
+    offline_mode: OfflineMode,
+    on_package: F,
+) -> Result<ResolutionGraph>
+where
+    F: FnMut(ResolvedPackage) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<()>> + Send,
+{
+    let packages = Arc::new(Mutex::new(PackageMap::new()));
+    let package_cache = Arc::new(Mutex::new(PackageCache::new()));
+    let default_protocol = RegistryProtocol::npm();
+    let done = Arc::new(AtomicBool::new(false));
+    let registry_semaphore = Arc::new(Semaphore::new(config.registry_concurrency));
+
+    // Wrap resolver to ensure done flag is always set (even on error)
+    let done_for_resolver = done.clone();
+    let resolver_task = async {
+        let result = run_resolver(
+            config,
+            client,
+            root_deps,
+            root_protocols,
+            min_age_days,
+            force,
+            overrides,
+            &default_protocol,
+            packages.clone(),
+            package_cache.clone(),
+            done_for_resolver.clone(),
+            registry_semaphore.clone(),
+            offline_mode,
+        )
+        .await;
+
+        // Always signal completion so prefetcher doesn't hang
+        done_for_resolver.store(true, Ordering::SeqCst);
+        result
+    };
 
     let prefetcher_task = run_prefetcher(packages.clone(), done.clone(), on_package);
 
@@ -100,6 +142,7 @@ async fn run_resolver(
     package_cache: Arc<Mutex<PackageCache>>,
     done: Arc<AtomicBool>,
     semaphore: Arc<Semaphore>,
+    offline_mode: OfflineMode,
 ) -> Result<ResolutionRoot> {
     let mut tasks = Vec::new();
 
@@ -125,6 +168,7 @@ async fn run_resolver(
                 overrides,
                 None,
                 semaphore,
+                offline_mode,
             )
             .await?;
 
@@ -219,6 +263,7 @@ async fn resolve_package(
     overrides: Option<&BTreeMap<String, String>>,
     prefetch: Option<&dyn Prefetcher>,
     registry_semaphore: Arc<Semaphore>,
+    offline_mode: OfflineMode,
 ) -> Result<PackageId> {
     let request = build_dep_request(name, range, protocol, overrides);
     let cache_key = format!("{:?}:{}", request.protocol, request.source);
@@ -233,9 +278,14 @@ async fn resolve_package(
             package
         } else {
             let _permit = registry_semaphore.acquire().await.unwrap();
-            let fetched =
-                crate::registry::fetch_package(config, client, &request.source, &request.protocol)
-                    .await?;
+            let fetched = crate::registry::fetch_package_with_offline(
+                config,
+                client,
+                &request.source,
+                &request.protocol,
+                offline_mode,
+            )
+            .await?;
             drop(_permit);
 
             let mut cache = package_cache.lock().await;
@@ -357,6 +407,7 @@ async fn resolve_package(
                 overrides,
                 prefetch,
                 semaphore,
+                offline_mode,
             )
             .await?;
             Ok::<(String, PackageId), SnpmError>((name, id))
@@ -401,6 +452,7 @@ async fn resolve_package(
                 overrides,
                 prefetch,
                 semaphore,
+                offline_mode,
             )
             .await;
 

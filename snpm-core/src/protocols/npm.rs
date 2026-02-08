@@ -1,3 +1,4 @@
+use crate::config::OfflineMode;
 use crate::console;
 use crate::registry::RegistryPackage;
 use crate::{Result, SnpmConfig, SnpmError};
@@ -6,14 +7,34 @@ use reqwest::header::{ACCEPT, HeaderValue};
 use std::env;
 use std::time::Instant;
 
+/// Fetch package metadata (Online mode).
 pub async fn fetch_package(
     config: &SnpmConfig,
     client: &Client,
     name: &str,
     protocol_name: &str,
 ) -> Result<RegistryPackage> {
-    if let Some(cached) = crate::cache::load_metadata(config, name) {
+    fetch_package_with_offline(config, client, name, protocol_name, OfflineMode::Online).await
+}
+
+/// Fetch package metadata respecting offline mode.
+pub async fn fetch_package_with_offline(
+    config: &SnpmConfig,
+    client: &Client,
+    name: &str,
+    protocol_name: &str,
+    offline_mode: OfflineMode,
+) -> Result<RegistryPackage> {
+    // Try to load from cache first
+    if let Some(cached) = crate::cache::load_metadata_with_offline(config, name, offline_mode) {
         return Ok(cached);
+    }
+
+    // In Offline mode, if cache miss, we fail
+    if matches!(offline_mode, OfflineMode::Offline) {
+        return Err(SnpmError::OfflineRequired {
+            resource: format!("package metadata for {}", name),
+        });
     }
 
     let encoded = super::encode_package_name(name);

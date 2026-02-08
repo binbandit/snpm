@@ -6,6 +6,17 @@ use std::path::PathBuf;
 pub mod rc;
 pub use self::rc::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OfflineMode {
+    /// Normal mode: fetch from network, use cache as optimization
+    #[default]
+    Online,
+    /// Prefer cached data even if stale; only fetch if cache miss
+    PreferOffline,
+    /// Never fetch from network; fail if not cached
+    Offline,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthScheme {
     Bearer,

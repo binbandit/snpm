@@ -120,4 +120,7 @@ pub enum SnpmError {
 
     #[error("Invalid patch file at {path:?}: {reason}")]
     PatchInvalid { path: PathBuf, reason: String },
+
+    #[error("Offline mode: {resource} not available in cache")]
+    OfflineRequired { resource: String },
 }

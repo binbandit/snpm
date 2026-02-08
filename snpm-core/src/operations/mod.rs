@@ -15,7 +15,7 @@ pub use auth::{
 pub use clean::{
     CleanOptions, CleanSummary, analyze as clean_analyze, execute as clean_execute, format_bytes,
 };
-pub use dlx::dlx;
+pub use dlx::{dlx, dlx_with_offline};
 pub use global::{install_global, remove_global};
 pub use init::init;
 pub use install::{

@@ -1,3 +1,4 @@
+use crate::config::OfflineMode;
 use crate::console;
 use crate::linker;
 use crate::resolve;
@@ -13,7 +14,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::TempDir;
 use tokio::task::JoinHandle;
 
+/// Run a package binary with default online mode.
 pub async fn dlx(config: &SnpmConfig, package_spec: String, arguments: Vec<String>) -> Result<()> {
+    dlx_with_offline(config, package_spec, arguments, OfflineMode::Online).await
+}
+
+/// Run a package binary respecting offline mode.
+pub async fn dlx_with_offline(
+    config: &SnpmConfig,
+    package_spec: String,
+    arguments: Vec<String>,
+    offline_mode: OfflineMode,
+) -> Result<()> {
     let temp_dir = TempDir::new().map_err(|e| SnpmError::Io {
         path: PathBuf::from("temp_dlx"),
         source: e,
@@ -43,15 +55,10 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, arguments: Vec<Strin
     let client = store_client.clone();
     let tasks = store_tasks.clone();
 
-    // DLX runs in a temporary directory, so we must copy files to avoid
-    // symlink resolution issues (Node.js preserving symlink paths).
+    // DLX runs in a temporary directory - use Copy to avoid symlink resolution issues
     let mut dlx_config = config.clone();
     dlx_config.link_backend = crate::config::LinkBackend::Copy;
     let config = &dlx_config;
-    // Note: store resolution uses the original config (store_config) correctly below.
-    // Actually, ensure_package needs correct config too for cache/store location.
-    // But LinkBackend is only used in linker. Store location is same.
-    // But LinkBackend is only used in linker. Store location is same.
     let store_config_clone = store_config.clone();
 
     let progress_count = Arc::new(AtomicUsize::new(0));
@@ -59,7 +66,7 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, arguments: Vec<Strin
 
     let root_protocols = BTreeMap::new();
 
-    let graph = resolve::resolve(
+    let graph = resolve::resolve_with_offline(
         config,
         &registry_client,
         &root_deps,
@@ -67,6 +74,7 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, arguments: Vec<Strin
         config.min_package_age_days,
         true,
         None,
+        offline_mode,
         move |package| {
             let config = store_config_clone.clone();
             let client = client.clone();
@@ -88,7 +96,9 @@ pub async fn dlx(config: &SnpmConfig, package_spec: String, arguments: Vec<Strin
                 let package_id = package.id.clone();
 
                 let handle = tokio::spawn(async move {
-                    let path = store::ensure_package(&config, &package, &client).await?;
+                    let path =
+                        store::ensure_package_with_offline(&config, &package, &client, offline_mode)
+                            .await?;
                     let mut map = paths.lock().await;
                     map.insert(package_id, path);
                     Ok::<(), SnpmError>(())

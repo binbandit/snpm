@@ -16,7 +16,7 @@ pub mod store;
 pub mod version;
 pub mod workspace;
 
-pub use config::{HoistingMode, LinkBackend, SnpmConfig};
+pub use config::{HoistingMode, LinkBackend, OfflineMode, SnpmConfig};
 pub use error::SnpmError;
 pub use project::Project;
 pub use workspace::Workspace;

@@ -48,4 +48,6 @@ pub enum Command {
     Patch(commands::patch::PatchArgs),
     /// Remove cached packages and metadata to free disk space
     Clean(commands::clean::CleanArgs),
+    /// Scan dependencies for security vulnerabilities
+    Audit(commands::audit::AuditArgs),
 }

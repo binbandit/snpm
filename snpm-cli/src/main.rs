@@ -56,6 +56,7 @@ async fn run() -> Result<()> {
         Command::Config(args) => commands::config::run(args, &config).await?,
         Command::Patch(args) => commands::patch::run(args, &config).await?,
         Command::Clean(args) => commands::clean::run(args, &config).await?,
+        Command::Audit(args) => commands::audit::run(args, &config).await?,
     }
 
     Ok(())

@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth;
 pub mod clean;
 pub mod dlx;
@@ -8,6 +9,10 @@ pub mod lazy;
 pub mod patch;
 pub mod run;
 
+pub use audit::{
+    AuditAdvisory, AuditOptions, AuditResult, FixResult, Severity, VulnerabilityCounts, audit,
+    audit_workspace, fix,
+};
 pub use auth::{
     AuthResult, AuthType, Credentials, OpenerFn, login, login_with_fallback, logout,
     save_credentials,

@@ -96,9 +96,13 @@ pub async fn dlx_with_offline(
                 let package_id = package.id.clone();
 
                 let handle = tokio::spawn(async move {
-                    let path =
-                        store::ensure_package_with_offline(&config, &package, &client, offline_mode)
-                            .await?;
+                    let path = store::ensure_package_with_offline(
+                        &config,
+                        &package,
+                        &client,
+                        offline_mode,
+                    )
+                    .await?;
                     let mut map = paths.lock().await;
                     map.insert(package_id, path);
                     Ok::<(), SnpmError>(())

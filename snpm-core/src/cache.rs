@@ -32,9 +32,18 @@ pub fn load_metadata_with_offline(
         let fresh = is_fresh(config, &cache_path);
 
         // In PreferOffline or Offline mode, accept stale cache
-        if fresh || matches!(offline_mode, OfflineMode::PreferOffline | OfflineMode::Offline) {
+        if fresh
+            || matches!(
+                offline_mode,
+                OfflineMode::PreferOffline | OfflineMode::Offline
+            )
+        {
             if console::is_logging_enabled() {
-                let status = if fresh { "fresh" } else { "stale (offline mode)" };
+                let status = if fresh {
+                    "fresh"
+                } else {
+                    "stale (offline mode)"
+                };
                 console::verbose(&format!(
                     "using {} cached metadata for {} from {}",
                     status,

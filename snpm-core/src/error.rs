@@ -123,4 +123,13 @@ pub enum SnpmError {
 
     #[error("Offline mode: {resource} not available in cache")]
     OfflineRequired { resource: String },
+
+    #[error("Audit failed: {reason}")]
+    AuditFailed { reason: String },
+
+    #[error("Audit endpoint not available at {registry}")]
+    AuditEndpointNotAvailable { registry: String },
+
+    #[error("Lockfile required for audit. Run `snpm install` first.")]
+    AuditLockfileRequired,
 }

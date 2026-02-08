@@ -284,4 +284,13 @@ impl SnpmConfig {
 
         None
     }
+
+    pub fn auth_scheme_for_url(&self, url: &str) -> AuthScheme {
+        if let Some(host) = host_from_url(url)
+            && let Some(scheme) = self.registry_auth_schemes.get(&host)
+        {
+            return *scheme;
+        }
+        self.default_registry_auth_scheme
+    }
 }

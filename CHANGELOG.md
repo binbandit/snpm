@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.2.18] - 2026-02-18
+## [2026.2.19] - 2026-02-19
 
 ### <!-- 0 -->🚀 Features
 
@@ -110,7 +110,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.2.16 release [skip ci] ([c3773c5](https://github.com/binbandit/snpm/commit/c3773c590e550cd398c375b65c09315bcc6bd5b6))
 - *(release)* Bump version to 2026.2.17 [skip ci] ([102d2a2](https://github.com/binbandit/snpm/commit/102d2a2f4a116c6f3b048cd891724c4a303e2fb5))
 - *(release)* Merge 2026.2.17 release [skip ci] ([aba0e21](https://github.com/binbandit/snpm/commit/aba0e2149c4a591dbb0b64d233d0c5af7eaed9a8))
-- *(release)* Bump version to 2026.2.18 [skip ci] ([3c34b37](https://github.com/binbandit/snpm/commit/3c34b37244f8478fc1af0a30db772ed21d921518))
+- *(release)* Bump version to 2026.2.18 [skip ci] ([85c385e](https://github.com/binbandit/snpm/commit/85c385ed60d7ff0ae6eab3b7a9e3067312d5483b))
+- *(release)* Merge 2026.2.18 release [skip ci] ([6c38f3c](https://github.com/binbandit/snpm/commit/6c38f3c3a0d342e152f8c9c39d2b39cea16396f1))
+- *(release)* Bump version to 2026.2.19 [skip ci] ([4114c83](https://github.com/binbandit/snpm/commit/4114c83893d5124588b8f8aba865cf19fa4e58c4))
 
 ## [2025.12.24] - 2025-12-24
 

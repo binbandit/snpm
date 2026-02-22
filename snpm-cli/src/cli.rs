@@ -50,4 +50,6 @@ pub enum Command {
     Clean(commands::clean::CleanArgs),
     /// Scan dependencies for security vulnerabilities
     Audit(commands::audit::AuditArgs),
+    /// Explain why a dependency is installed
+    Why(commands::why::WhyArgs),
 }

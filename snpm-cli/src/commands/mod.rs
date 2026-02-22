@@ -14,3 +14,4 @@ pub mod patch;
 pub mod remove;
 pub mod run;
 pub mod upgrade;
+pub mod why;

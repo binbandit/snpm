@@ -5,7 +5,7 @@ mod version;
 use crate::manifest::{PackageManagerReference, PackageManagerSpecifier};
 use std::env;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{Command, ExitCode, ExitStatus, Stdio};
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -33,8 +33,15 @@ fn run(args: Vec<String>) -> anyhow::Result<ExitCode> {
     command.stderr(Stdio::inherit());
 
     let status = command.status()?;
+    Ok(exit_code_from_status(status))
+}
 
-    Ok(ExitCode::from(status.code().unwrap_or(1) as u8))
+fn exit_code_from_status(status: ExitStatus) -> ExitCode {
+    status
+        .code()
+        .and_then(|code| u8::try_from(code).ok())
+        .map(ExitCode::from)
+        .unwrap_or_else(|| ExitCode::from(1))
 }
 
 fn handle_switch_command(args: &[String]) -> anyhow::Result<ExitCode> {

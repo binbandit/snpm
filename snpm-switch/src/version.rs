@@ -70,7 +70,7 @@ fn binary_path_for_version(version_dir: &Path) -> PathBuf {
     version_dir.join(binary_name)
 }
 
-fn download_version(version: &str, destination: &PathBuf) -> anyhow::Result<()> {
+fn download_version(version: &str, destination: &Path) -> anyhow::Result<()> {
     eprintln!("Downloading snpm {}...", version);
 
     let client = reqwest::blocking::Client::builder()

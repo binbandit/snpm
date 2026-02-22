@@ -13,3 +13,4 @@ check:
 # Install snpm globally
 install:
   cargo install --path snpm-cli --force
+  cargo install --path snpm-switch --force

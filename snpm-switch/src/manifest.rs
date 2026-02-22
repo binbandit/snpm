@@ -1,11 +1,17 @@
 use serde::Deserialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct PackageManagerReference {
     pub name: String,
-    pub version: String,
+    pub reference: PackageManagerSpecifier,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackageManagerSpecifier {
+    Version(String),
+    Local(PathBuf),
 }
 
 #[derive(Deserialize)]
@@ -45,10 +51,13 @@ fn parse_package_manager(path: &Path) -> anyhow::Result<Option<PackageManagerRef
         return Ok(None);
     };
 
-    parse_package_manager_field(&field)
+    parse_package_manager_field(path, &field)
 }
 
-fn parse_package_manager_field(field: &str) -> anyhow::Result<Option<PackageManagerReference>> {
+fn parse_package_manager_field(
+    manifest_path: &Path,
+    field: &str,
+) -> anyhow::Result<Option<PackageManagerReference>> {
     let at_index = match field.rfind('@') {
         Some(idx) if idx > 0 => idx,
         _ => return Ok(None),
@@ -57,13 +66,29 @@ fn parse_package_manager_field(field: &str) -> anyhow::Result<Option<PackageMana
     let name = field[..at_index].to_string();
     let version_part = &field[at_index + 1..];
 
-    let version = if let Some(plus_index) = version_part.find('+') {
-        version_part[..plus_index].to_string()
+    let reference = if let Some(local_path) = version_part.strip_prefix("local:") {
+        let mut resolved = PathBuf::from(local_path);
+
+        if resolved.is_relative() {
+            let base_dir = manifest_path.parent().ok_or_else(|| {
+                anyhow::anyhow!("Unable to resolve local packageManager reference")
+            })?;
+
+            resolved = base_dir.join(resolved);
+        }
+
+        PackageManagerSpecifier::Local(resolved)
     } else {
-        version_part.to_string()
+        let version = if let Some(plus_index) = version_part.find('+') {
+            version_part[..plus_index].to_string()
+        } else {
+            version_part.to_string()
+        };
+
+        PackageManagerSpecifier::Version(version)
     };
 
-    Ok(Some(PackageManagerReference { name, version }))
+    Ok(Some(PackageManagerReference { name, reference }))
 }
 
 #[cfg(test)]
@@ -72,20 +97,49 @@ mod tests {
 
     #[test]
     fn test_parse_package_manager_field() {
-        let result = parse_package_manager_field("snpm@1.0.0").unwrap().unwrap();
-        assert_eq!(result.name, "snpm");
-        assert_eq!(result.version, "1.0.0");
-
-        let result = parse_package_manager_field("snpm@1.0.0+sha256.abc123")
+        let result = parse_package_manager_field(Path::new("/tmp/package.json"), "snpm@1.0.0")
             .unwrap()
             .unwrap();
         assert_eq!(result.name, "snpm");
-        assert_eq!(result.version, "1.0.0");
+        assert_eq!(
+            result.reference,
+            PackageManagerSpecifier::Version("1.0.0".to_string())
+        );
 
-        let result = parse_package_manager_field("@scoped/pkg@2.0.0")
-            .unwrap()
-            .unwrap();
+        let result =
+            parse_package_manager_field(Path::new("/tmp/package.json"), "snpm@1.0.0+sha256.abc123")
+                .unwrap()
+                .unwrap();
+        assert_eq!(result.name, "snpm");
+        assert_eq!(
+            result.reference,
+            PackageManagerSpecifier::Version("1.0.0".to_string())
+        );
+
+        let result =
+            parse_package_manager_field(Path::new("/tmp/package.json"), "@scoped/pkg@2.0.0")
+                .unwrap()
+                .unwrap();
         assert_eq!(result.name, "@scoped/pkg");
-        assert_eq!(result.version, "2.0.0");
+        assert_eq!(
+            result.reference,
+            PackageManagerSpecifier::Version("2.0.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_local_package_manager_field() {
+        let result = parse_package_manager_field(
+            Path::new("/repo/package.json"),
+            "snpm@local:./target/debug/snpm",
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(result.name, "snpm");
+        assert_eq!(
+            result.reference,
+            PackageManagerSpecifier::Local(PathBuf::from("/repo/./target/debug/snpm"))
+        );
     }
 }

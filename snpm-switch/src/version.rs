@@ -1,5 +1,6 @@
 use crate::config;
 use flate2::read::GzDecoder;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -70,22 +71,39 @@ fn binary_path_for_version(version_dir: &Path) -> PathBuf {
 }
 
 fn download_version(version: &str, destination: &PathBuf) -> anyhow::Result<()> {
-    let url = build_download_url(version)?;
-
     eprintln!("Downloading snpm {}...", version);
 
-    let client = reqwest::blocking::Client::new();
-    let response = client.get(&url).send()?;
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("snpm-switch")
+        .build()?;
 
-    if !response.status().is_success() {
-        anyhow::bail!(
-            "Failed to download snpm {}: HTTP {}",
-            version,
-            response.status()
-        );
+    let mut selected = None;
+    let mut last_status = None;
+
+    for url in build_download_urls(version)? {
+        let response = client.get(&url).send()?;
+
+        if response.status().is_success() {
+            selected = Some((url, response.bytes()?));
+            break;
+        }
+
+        last_status = Some(response.status());
     }
 
-    let bytes = response.bytes()?;
+    let (url, bytes) = selected.ok_or_else(|| {
+        let status = last_status
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        anyhow::anyhow!(
+            "Failed to download snpm {} from known release asset names (last HTTP status: {})",
+            version,
+            status
+        )
+    })?;
+
+    verify_checksum(&client, &url, &bytes)?;
 
     fs::create_dir_all(destination)?;
 
@@ -111,29 +129,106 @@ fn download_version(version: &str, destination: &PathBuf) -> anyhow::Result<()> 
     Ok(())
 }
 
-fn build_download_url(version: &str) -> anyhow::Result<String> {
+fn build_download_urls(version: &str) -> anyhow::Result<Vec<String>> {
     let base_url = config::download_base_url();
-    let (os, arch, ext) = platform_info();
+    let platform = platform_info();
 
-    Ok(format!(
-        "{}/v{}/snpm-{}-{}.{}",
-        base_url, version, os, arch, ext
-    ))
+    let mut asset_names = vec![format!(
+        "snpm-{}-{}.{}",
+        platform.release_os, platform.release_arch, platform.ext
+    )];
+
+    let legacy_asset_name = format!(
+        "snpm-{}-{}.{}",
+        platform.legacy_os, platform.legacy_arch, platform.ext
+    );
+
+    if !asset_names.contains(&legacy_asset_name) {
+        asset_names.push(legacy_asset_name);
+    }
+
+    Ok(asset_names
+        .into_iter()
+        .map(|asset_name| format!("{}/v{}/{}", base_url, version, asset_name))
+        .collect())
 }
 
-fn platform_info() -> (&'static str, &'static str, &'static str) {
-    let os = if cfg!(target_os = "macos") {
-        "darwin"
-    } else if cfg!(target_os = "windows") {
-        "win32"
+fn verify_checksum(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    bytes: &[u8],
+) -> anyhow::Result<()> {
+    if should_skip_checksum() {
+        eprintln!("Skipping checksum verification due to SNPM_SWITCH_SKIP_CHECKSUM.");
+        return Ok(());
+    }
+
+    let checksum_url = format!("{}.sha256", url);
+    let response = client.get(&checksum_url).send()?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Failed to download checksum file for {}: HTTP {}",
+            url,
+            response.status()
+        );
+    }
+
+    let checksum_text = response.text()?;
+    let expected = parse_sha256_checksum(&checksum_text)?;
+
+    let actual = format!("{:x}", Sha256::digest(bytes));
+
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
     } else {
-        "linux"
+        anyhow::bail!(
+            "Checksum mismatch for {} (expected {}, got {})",
+            url,
+            expected,
+            actual
+        )
+    }
+}
+
+fn should_skip_checksum() -> bool {
+    match std::env::var("SNPM_SWITCH_SKIP_CHECKSUM") {
+        Ok(value) => value == "1" || value.eq_ignore_ascii_case("true"),
+        Err(_) => false,
+    }
+}
+
+fn parse_sha256_checksum(text: &str) -> anyhow::Result<&str> {
+    let checksum = text.split_whitespace().next().unwrap_or("");
+
+    if checksum.len() != 64 || !checksum.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
+        anyhow::bail!("Invalid SHA256 checksum format");
+    }
+
+    Ok(checksum)
+}
+
+struct PlatformInfo {
+    release_os: &'static str,
+    release_arch: &'static str,
+    legacy_os: &'static str,
+    legacy_arch: &'static str,
+    ext: &'static str,
+}
+
+fn platform_info() -> PlatformInfo {
+    let (release_os, legacy_os) = if cfg!(target_os = "macos") {
+        ("macos", "darwin")
+    } else if cfg!(target_os = "windows") {
+        ("windows", "win32")
+    } else {
+        ("linux", "linux")
     };
 
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
+    let (release_arch, legacy_arch) = if cfg!(target_arch = "aarch64") {
+        ("arm64", "arm64")
     } else {
-        "x64"
+        ("amd64", "x64")
     };
 
     let ext = if cfg!(target_os = "windows") {
@@ -142,7 +237,13 @@ fn platform_info() -> (&'static str, &'static str, &'static str) {
         "tar.gz"
     };
 
-    (os, arch, ext)
+    PlatformInfo {
+        release_os,
+        release_arch,
+        legacy_os,
+        legacy_arch,
+        ext,
+    }
 }
 
 fn extract_tarball(data: &[u8], destination: &Path) -> anyhow::Result<()> {

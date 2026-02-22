@@ -1,17 +1,12 @@
 #!/usr/bin/env node
 
-const { existsSync, mkdirSync, chmodSync } = require('fs');
+const { existsSync, mkdirSync, chmodSync, unlinkSync } = require('fs');
 const { join } = require('path');
 const { get } = require('https');
 const { createWriteStream } = require('fs');
-const { pipeline } = require('stream');
-const { promisify } = require('util');
-const { createGunzip } = require('zlib');
 const tar = require('tar');
 
-const streamPipeline = promisify(pipeline);
-
-const BINARY_NAME = 'snpm';
+const BINARIES = ['snpm', 'snpm-switch'];
 const REPO_OWNER = 'binbandit';
 const REPO_NAME = 'snpm';
 
@@ -42,10 +37,10 @@ function getPlatform() {
     throw new Error(`Unsupported architecture: ${arch} on ${platform}`);
   }
 
-  return platformMap[platform][arch];
+  return platformMap[platform][arch].replace('snpm-', '');
 }
 
-function getDownloadUrl(version) {
+function getDownloadUrl(binaryName, version) {
   const platform = getPlatform();
   const isWindows = process.platform === 'win32';
   const ext = isWindows ? 'zip' : 'tar.gz';
@@ -54,10 +49,10 @@ function getDownloadUrl(version) {
   const tag = version || 'latest';
   
   if (tag === 'latest') {
-    return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download/${platform}.${ext}`;
+    return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download/${binaryName}-${platform}.${ext}`;
   }
   
-  return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${tag}/${platform}.${ext}`;
+  return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${tag}/${binaryName}-${platform}.${ext}`;
 }
 
 async function download(url, dest) {
@@ -111,33 +106,45 @@ async function install() {
       mkdirSync(binDir, { recursive: true });
     }
 
-    const platform = getPlatform();
     const isWindows = process.platform === 'win32';
     const ext = isWindows ? 'zip' : 'tar.gz';
-    const archivePath = join(binDir, `${platform}.${ext}`);
-    const url = getDownloadUrl(version);
+    const platform = getPlatform();
 
-    console.log(`Downloading from: ${url}`);
-    await download(url, archivePath);
-    console.log('Download complete, extracting...');
+    for (const binaryName of BINARIES) {
+      const archivePath = join(binDir, `${binaryName}-${platform}.${ext}`);
+      const url = getDownloadUrl(binaryName, version);
 
-    if (isWindows) {
-      await extractZip(archivePath, binDir);
-    } else {
-      await extractTarGz(archivePath, binDir);
+      console.log(`Downloading from: ${url}`);
+
+      try {
+        await download(url, archivePath);
+      } catch (error) {
+        if (binaryName === 'snpm-switch') {
+          console.warn(`Warning: failed to download ${binaryName}; falling back to snpm binary only.`);
+          continue;
+        }
+        throw error;
+      }
+
+      console.log(`Download complete for ${binaryName}, extracting...`);
+
+      if (isWindows) {
+        await extractZip(archivePath, binDir);
+      } else {
+        await extractTarGz(archivePath, binDir);
+      }
+
+      unlinkSync(archivePath);
     }
 
-    // Make binary executable on Unix-like systems
     if (!isWindows) {
-      const binaryPath = join(binDir, BINARY_NAME);
-      if (existsSync(binaryPath)) {
-        chmodSync(binaryPath, 0o755);
+      for (const binaryName of BINARIES) {
+        const binaryPath = join(binDir, binaryName);
+        if (existsSync(binaryPath)) {
+          chmodSync(binaryPath, 0o755);
+        }
       }
     }
-
-    // Clean up archive
-    const fs = require('fs');
-    fs.unlinkSync(archivePath);
 
     console.log('✓ snpm installed successfully!');
   } catch (error) {

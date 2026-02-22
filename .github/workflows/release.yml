@@ -179,31 +179,31 @@ jobs:
           # Linux targets
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            asset_name: snpm-linux-amd64
+            platform_asset: linux-amd64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            asset_name: snpm-linux-amd64-musl
+            platform_asset: linux-amd64-musl
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            asset_name: snpm-linux-arm64
+            platform_asset: linux-arm64
             linker: aarch64-linux-gnu-gcc
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            asset_name: snpm-linux-arm64-musl
+            platform_asset: linux-arm64-musl
           # macOS targets
           - os: macos-latest
             target: x86_64-apple-darwin
-            asset_name: snpm-macos-amd64
+            platform_asset: macos-amd64
           - os: macos-latest
             target: aarch64-apple-darwin
-            asset_name: snpm-macos-arm64
+            platform_asset: macos-arm64
           # Windows targets
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            asset_name: snpm-windows-amd64
+            platform_asset: windows-amd64
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            asset_name: snpm-windows-arm64
+            platform_asset: windows-arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -263,7 +263,7 @@ jobs:
         run: |
           # Use cross for aarch64-musl, regular cargo for others
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            cross build --release --target ${{ matrix.target }} --bin snpm
+            cross build --release --target ${{ matrix.target }} --bin snpm --bin snpm-switch
           else
             # Set compiler based on target
             case "${{ matrix.target }}" in
@@ -277,51 +277,54 @@ jobs:
 
             if [ -n "${{ matrix.linker }}" ]; then
               RUSTFLAGS="--codegen target-feature=+crt-static --codegen linker=${{ matrix.linker }}" \
-                cargo build --release --target ${{ matrix.target }} --bin snpm
+                cargo build --release --target ${{ matrix.target }} --bin snpm --bin snpm-switch
             else
               RUSTFLAGS="--codegen target-feature=+crt-static" \
-                cargo build --release --target ${{ matrix.target }} --bin snpm
+                cargo build --release --target ${{ matrix.target }} --bin snpm --bin snpm-switch
             fi
           fi
 
       - name: Package binary and generate checksums
         shell: bash
         run: |
+          set -euo pipefail
           cd target/${{ matrix.target }}/release
 
-          # Determine binary extension
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            BINARY_NAME="snpm.exe"
-            ARCHIVE_NAME="${{ matrix.asset_name }}.zip"
-            # Create zip for Windows using 7z (pre-installed on GitHub Actions)
-            7z a "$ARCHIVE_NAME" "$BINARY_NAME"
-          else
-            BINARY_NAME="snpm"
-            ARCHIVE_NAME="${{ matrix.asset_name }}.tar.gz"
-            # Create tar.gz for Unix-like systems
-            tar czf "$ARCHIVE_NAME" "$BINARY_NAME"
-          fi
+          for BIN_NAME in snpm snpm-switch; do
+            if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+              BINARY_NAME="${BIN_NAME}.exe"
+              ARCHIVE_NAME="${BIN_NAME}-${{ matrix.platform_asset }}.zip"
+              # Create zip for Windows using 7z (pre-installed on GitHub Actions)
+              7z a "$ARCHIVE_NAME" "$BINARY_NAME"
+            else
+              BINARY_NAME="${BIN_NAME}"
+              ARCHIVE_NAME="${BIN_NAME}-${{ matrix.platform_asset }}.tar.gz"
+              # Create tar.gz for Unix-like systems
+              tar czf "$ARCHIVE_NAME" "$BINARY_NAME"
+            fi
 
-          # Generate SHA256 checksum
-          if [[ "${{ matrix.target }}" == *"windows"* ]] && command -v powershell >/dev/null 2>&1; then
-            powershell -Command "(Get-FileHash -Algorithm SHA256 '$ARCHIVE_NAME').Hash.ToLower() + '  ' + '$ARCHIVE_NAME'" > "$ARCHIVE_NAME.sha256"
-          elif command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
-          elif command -v shasum >/dev/null 2>&1; then
-            shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
-          else
-            echo "Warning: No SHA256 utility found"
-          fi
+            # Generate SHA256 checksum
+            if [[ "${{ matrix.target }}" == *"windows"* ]] && command -v powershell >/dev/null 2>&1; then
+              powershell -Command "(Get-FileHash -Algorithm SHA256 '$ARCHIVE_NAME').Hash.ToLower() + '  ' + '$ARCHIVE_NAME'" > "$ARCHIVE_NAME.sha256"
+            elif command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+            elif command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+            else
+              echo "Warning: No SHA256 utility found"
+            fi
 
-          # Move files to root
-          mv "$ARCHIVE_NAME"* "${{ github.workspace }}/"
+            # Move files to root
+            mv "$ARCHIVE_NAME"* "${{ github.workspace }}/"
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
+          name: ${{ matrix.platform_asset }}
           path: |
-            ${{ matrix.asset_name }}.*
+            snpm-${{ matrix.platform_asset }}.*
+            snpm-switch-${{ matrix.platform_asset }}.*
 
   release:
     name: Create Release
@@ -481,4 +484,3 @@ jobs:
         continue-on-error: true
         run: |
           git push origin --delete "${RELEASE_BRANCH}" || echo "Release branch already deleted or doesn't exist"
-

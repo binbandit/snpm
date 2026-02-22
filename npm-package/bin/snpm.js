@@ -4,11 +4,13 @@ const { spawnSync } = require('child_process');
 const { join } = require('path');
 const { existsSync } = require('fs');
 
-const binName = process.platform === 'win32' ? 'snpm.exe' : 'snpm';
-const binPath = join(__dirname, binName);
+const exeSuffix = process.platform === 'win32' ? '.exe' : '';
+const switchPath = join(__dirname, `snpm-switch${exeSuffix}`);
+const fallbackPath = join(__dirname, `snpm${exeSuffix}`);
+const binPath = existsSync(switchPath) ? switchPath : fallbackPath;
 
 if (!existsSync(binPath)) {
-  console.error('snpm binary not found. Please run: npm install');
+  console.error('snpm binaries not found. Please run: npm install');
   console.error('If the problem persists, try reinstalling: npm install -g snpm --force');
   process.exit(1);
 }

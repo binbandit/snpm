@@ -8,6 +8,7 @@ pub mod install;
 pub mod lazy;
 pub mod patch;
 pub mod run;
+pub mod why;
 
 pub use audit::{
     AuditAdvisory, AuditOptions, AuditResult, FixResult, Severity, VulnerabilityCounts, audit,
@@ -35,3 +36,4 @@ pub use patch::{
 pub use run::{
     ExecOptions, exec_command, exec_workspace_command, run_script, run_workspace_scripts,
 };
+pub use why::{WhyHop, WhyOptions, WhyPackageMatch, WhyPath, WhyResult, why};

@@ -1,5 +1,6 @@
 use crate::{LinkBackend, Result, SnpmConfig, SnpmError};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 pub fn symlink_is_correct(link: &Path, expected_target: &Path) -> bool {
@@ -44,6 +45,16 @@ pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
 
         let from = entry.path();
         let to = dest.join(entry.file_name());
+
+        if file_type.is_symlink() {
+            return Err(SnpmError::Io {
+                path: from,
+                source: std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "refusing to link symlink from package store",
+                ),
+            });
+        }
 
         if file_type.is_dir() {
             link_dir(config, &from, &to)?;
@@ -121,6 +132,16 @@ pub fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
 
         let from = entry.path();
         let to = dest.join(entry.file_name());
+
+        if file_type.is_symlink() {
+            return Err(SnpmError::Io {
+                path: from,
+                source: std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "refusing to copy symlink from package store",
+                ),
+            });
+        }
 
         if file_type.is_dir() {
             copy_dir(&from, &to)?;

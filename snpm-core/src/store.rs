@@ -5,7 +5,8 @@ use crate::{Result, SnpmConfig, SnpmError};
 use flate2::read::GzDecoder;
 use std::fs;
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::io::ErrorKind;
+use std::path::{Component, Path, PathBuf};
 use std::time::Instant;
 use tar::Archive;
 
@@ -54,6 +55,13 @@ pub async fn ensure_package_with_offline(
         "store miss: {}@{}; downloading from {}",
         package.id.name, package.id.version, package.tarball
     ));
+
+    if pkg_dir.exists() {
+        fs::remove_dir_all(&pkg_dir).map_err(|source| SnpmError::WriteFile {
+            path: pkg_dir.clone(),
+            source,
+        })?;
+    }
 
     fs::create_dir_all(&pkg_dir).map_err(|source| SnpmError::WriteFile {
         path: pkg_dir.clone(),
@@ -173,17 +181,92 @@ fn unpack_tarball(pkg_dir: &PathBuf, data: Vec<u8>) -> Result<()> {
     let decoder = GzDecoder::new(cursor);
     let mut archive = Archive::new(decoder);
 
-    archive
-        .unpack(pkg_dir)
-        .map_err(|source| SnpmError::Archive {
+    let entries = archive.entries().map_err(|source| SnpmError::Archive {
+        path: pkg_dir.clone(),
+        source,
+    })?;
+
+    for entry in entries {
+        let mut entry = entry.map_err(|source| SnpmError::Archive {
             path: pkg_dir.clone(),
             source,
         })?;
 
+        let rel_path = entry.path().map_err(|source| SnpmError::Archive {
+            path: pkg_dir.clone(),
+            source,
+        })?;
+
+        let Some(dest_path) = safe_join(pkg_dir, &rel_path) else {
+            return Err(SnpmError::Archive {
+                path: pkg_dir.clone(),
+                source: std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "archive entry escapes extraction root: {}",
+                        rel_path.display()
+                    ),
+                ),
+            });
+        };
+
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            return Err(SnpmError::Archive {
+                path: pkg_dir.clone(),
+                source: std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "archive contains forbidden symlink/hardlink entry: {}",
+                        rel_path.display()
+                    ),
+                ),
+            });
+        }
+
+        if entry_type.is_dir() {
+            fs::create_dir_all(&dest_path).map_err(|source| SnpmError::WriteFile {
+                path: dest_path.clone(),
+                source,
+            })?;
+            continue;
+        }
+
+        if !entry_type.is_file() {
+            continue;
+        }
+
+        if let Some(parent) = dest_path.parent() {
+            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+
+        entry
+            .unpack(&dest_path)
+            .map_err(|source| SnpmError::Archive {
+                path: dest_path,
+                source,
+            })?;
+    }
+
     Ok(())
 }
 
-fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+fn safe_join(root: &Path, rel: &Path) -> Option<PathBuf> {
+    let mut out = root.to_path_buf();
+    for component in rel.components() {
+        match component {
+            Component::Normal(segment) => out.push(segment),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(out)
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
@@ -194,6 +277,16 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
             continue;
         }
 
+        if ty.is_symlink() {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "refusing to copy symlink from local dependency: {}",
+                    entry.path().display()
+                ),
+            ));
+        }
+
         let dst_path = dst.join(&name);
         if ty.is_dir() {
             copy_dir_all(&entry.path(), &dst_path)?;
@@ -202,4 +295,63 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unpack_tarball;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::io::Write;
+    use tar::{Builder, EntryType, Header};
+    use tempfile::tempdir;
+
+    fn build_tarball<F>(mut append: F) -> Vec<u8>
+    where
+        F: FnMut(&mut Builder<Vec<u8>>),
+    {
+        let mut builder = Builder::new(Vec::new());
+        append(&mut builder);
+        let tar_bytes = builder.into_inner().unwrap();
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar_bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn rejects_symlink_entry() {
+        let bytes = build_tarball(|builder| {
+            let mut header = Header::new_gnu();
+            header.set_entry_type(EntryType::Symlink);
+            header.set_path("package/symlink").unwrap();
+            header.set_link_name("../../outside").unwrap();
+            header.set_size(0);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append(&header, std::io::empty()).unwrap();
+        });
+
+        let temp = tempdir().unwrap();
+        let result = unpack_tarball(&temp.path().to_path_buf(), bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_hardlink_entry() {
+        let bytes = build_tarball(|builder| {
+            let mut header = Header::new_gnu();
+            header.set_entry_type(EntryType::Link);
+            header.set_path("package/link").unwrap();
+            header.set_link_name("../../outside").unwrap();
+            header.set_size(0);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append(&header, std::io::empty()).unwrap();
+        });
+
+        let temp = tempdir().unwrap();
+        let result = unpack_tarball(&temp.path().to_path_buf(), bytes);
+        assert!(result.is_err());
+    }
 }

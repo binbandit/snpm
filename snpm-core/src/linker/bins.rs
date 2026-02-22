@@ -3,7 +3,7 @@ use crate::{Result, SnpmError};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub fn link_bundled_bins_recursive(
     graph: &ResolutionGraph,
@@ -35,7 +35,11 @@ fn link_bundled_bins(pkg_dest: &Path) -> Result<()> {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if !path.is_dir() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+
+        if !file_type.is_dir() || file_type.is_symlink() {
             continue;
         }
 
@@ -52,7 +56,12 @@ fn link_bundled_bins(pkg_dest: &Path) -> Result<()> {
             if let Ok(scope_entries) = fs::read_dir(&path) {
                 for scope_entry in scope_entries.flatten() {
                     let scope_path = scope_entry.path();
-                    if scope_path.is_dir()
+                    let Ok(scope_type) = scope_entry.file_type() else {
+                        continue;
+                    };
+
+                    if scope_type.is_dir()
+                        && !scope_type.is_symlink()
                         && let Some(pkg_name) = scope_entry.file_name().to_str()
                     {
                         let full_name = format!("{}/{}", name, pkg_name);
@@ -96,15 +105,23 @@ fn link_bins_from_bundled_pkg(pkg_path: &Path, bin_dir: &Path, pkg_name: &str) -
 
     match bin {
         Value::String(script) => {
-            let target = pkg_path.join(script);
-            let bin_name = sanitize_bin_name(pkg_name);
+            let Some(target) = resolve_bin_target(pkg_path, script) else {
+                return Ok(());
+            };
+            let Some(bin_name) = sanitize_bin_name(pkg_name) else {
+                return Ok(());
+            };
             create_bin_file(bin_dir, &bin_name, &target)?;
         }
         Value::Object(map) => {
             for (entry_name, v) in map.iter() {
                 if let Some(script) = v.as_str() {
-                    let target = pkg_path.join(script);
-                    let bin_name = sanitize_bin_name(entry_name);
+                    let Some(target) = resolve_bin_target(pkg_path, script) else {
+                        continue;
+                    };
+                    let Some(bin_name) = sanitize_explicit_bin_name(entry_name) else {
+                        continue;
+                    };
                     create_bin_file(bin_dir, &bin_name, &target)?;
                 }
             }
@@ -146,15 +163,23 @@ pub fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
 
     match bin {
         Some(Value::String(script)) => {
-            let target = dest.join(script);
-            let bin_name = sanitize_bin_name(name);
+            let Some(target) = resolve_bin_target(dest, script) else {
+                return Ok(());
+            };
+            let Some(bin_name) = sanitize_bin_name(name) else {
+                return Ok(());
+            };
             create_bin_file(&bin_dir, &bin_name, &target)?;
         }
         Some(Value::Object(map)) => {
             for (entry_name, v) in map.iter() {
                 if let Some(script) = v.as_str() {
-                    let target = dest.join(script);
-                    let bin_name = sanitize_bin_name(entry_name);
+                    let Some(target) = resolve_bin_target(dest, script) else {
+                        continue;
+                    };
+                    let Some(bin_name) = sanitize_explicit_bin_name(entry_name) else {
+                        continue;
+                    };
                     create_bin_file(&bin_dir, &bin_name, &target)?;
                 }
             }
@@ -213,6 +238,88 @@ fn create_bin_file(bin_dir: &Path, name: &str, target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn sanitize_bin_name(name: &str) -> String {
-    name.rsplit('/').next().unwrap_or(name).to_string()
+fn sanitize_bin_name(name: &str) -> Option<String> {
+    let candidate = name.rsplit('/').next().unwrap_or(name);
+
+    if candidate.is_empty()
+        || candidate == "."
+        || candidate == ".."
+        || candidate.contains('/')
+        || candidate.contains('\\')
+        || candidate.contains(':')
+        || candidate.contains('\0')
+    {
+        return None;
+    }
+
+    Some(candidate.to_string())
+}
+
+fn sanitize_explicit_bin_name(name: &str) -> Option<String> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(':')
+        || name.contains('\0')
+    {
+        return None;
+    }
+
+    Some(name.to_string())
+}
+
+fn resolve_bin_target(root: &Path, script: &str) -> Option<PathBuf> {
+    let script_path = Path::new(script);
+    if script_path.is_absolute() {
+        return None;
+    }
+
+    let mut target = root.to_path_buf();
+    for component in script_path.components() {
+        match component {
+            Component::Normal(part) => target.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+
+    Some(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::link_bins;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn blocks_traversal_in_bin_name_and_script() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let pkg_dir = root.join("node_modules").join("pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+
+        fs::write(pkg_dir.join("safe.js"), "#!/usr/bin/env node\n").unwrap();
+
+        let manifest = r#"{
+            "name": "pkg",
+            "version": "1.0.0",
+            "bin": {
+                "ok": "safe.js",
+                "../escape": "safe.js",
+                "escape-script": "../outside.js"
+            }
+        }"#;
+        fs::write(pkg_dir.join("package.json"), manifest).unwrap();
+
+        link_bins(&pkg_dir, &root.join("node_modules"), "pkg").unwrap();
+
+        let bin_dir = root.join("node_modules").join(".bin");
+        assert!(bin_dir.join("ok").exists());
+        assert!(!bin_dir.join("escape").exists());
+        assert!(!bin_dir.join("escape-script").exists());
+        assert!(!root.join("node_modules").join("outside.js").exists());
+    }
 }

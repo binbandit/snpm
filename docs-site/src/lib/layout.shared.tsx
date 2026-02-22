@@ -1,4 +1,4 @@
-import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
+import type { BaseLayoutProps } from '@/components/layout/shared';
 import { Package, ArrowRight } from 'lucide-react';
 
 export function baseOptions(): BaseLayoutProps {

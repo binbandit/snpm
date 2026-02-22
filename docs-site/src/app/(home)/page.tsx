@@ -7,18 +7,41 @@ import {
   Code2, Sparkles, FileText, Users, BookOpen, Github, Package, X
 } from 'lucide-react';
 
+const FALLBACK_VERSION = '2026.1.7';
+const LATEST_RELEASE_URL = 'https://api.github.com/repos/binbandit/snpm/releases/latest';
+
 export default function HomePage() {
+  const [version, setVersion] = useState(FALLBACK_VERSION);
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetch(LATEST_RELEASE_URL)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { tag_name?: string } | null) => {
+        const version = data?.tag_name?.trim().replace(/^v/, '');
+        if (mounted && version) {
+          setVersion(version);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-white dark:bg-[#1a1512] transition-colors">
       <main>
-        <HeroSection />
+        <HeroSection version={version} />
         <KeyFeatures />
         <PerformanceSection />
         <CommandShowcase />
         <ComparisonSection />
         <DifferentiatorsSection />
         <CTA />
-        <Footer />
+        <Footer version={version} />
       </main>
     </div>
   );
@@ -42,10 +65,9 @@ const acronyms = [
   'Suddenly Not Panicking Manager'
 ];
 
-function HeroSection() {
+function HeroSection({ version }: { version: string }) {
   const [copied, setCopied] = useState(false);
   const [acronym, setAcronym] = useState('Suddenly Not Panicking Manager');
-  const version = '2026.1.7';
 
   useEffect(() => {
     // Pick a random acronym on mount
@@ -102,6 +124,7 @@ function HeroSection() {
               <div className="bg-white/60 dark:bg-[#2a2118]/80 backdrop-blur-sm border border-[#d4c5b0] dark:border-[#4a3828] rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow relative group">
                 <code className="text-gray-900 dark:text-[#f5f1e8]">$ npm install -g snpm</code>
                 <button
+                  type="button"
                   className="absolute top-3 right-3 p-2 rounded-lg text-gray-500 dark:text-[#c9b89a] hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-[#3a2d1d] transition-all opacity-0 group-hover:opacity-100"
                   onClick={handleCopy}
                   title="Copy to clipboard"
@@ -455,9 +478,7 @@ function CTA() {
   );
 }
 
-function Footer() {
-  const version = '2026.1.7';
-
+function Footer({ version }: { version: string }) {
   return (
     <footer className="bg-[#f5f1e8] dark:bg-[#1a1512] border-t border-[#d4c5b0]/50 dark:border-[#4a3828]/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -540,8 +561,8 @@ function PerformanceChart({ data }: { data: Array<{ name: string; time: number; 
             }}
           />
           <Bar dataKey="time" radius={[8, 8, 0, 0]}>
-            {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
+            {data.map((entry) => (
+              <Cell key={entry.name} fill={entry.color} />
             ))}
           </Bar>
         </BarChart>

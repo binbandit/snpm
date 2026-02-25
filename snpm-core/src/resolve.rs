@@ -389,7 +389,17 @@ async fn resolve_package(
 
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
-        let protocol = request.protocol.clone();
+        let dep_protocol = if range.starts_with("file:") {
+            RegistryProtocol::file()
+        } else if range.starts_with("git:") || range.starts_with("git+") {
+            RegistryProtocol::git()
+        } else if range.starts_with("jsr:") {
+            RegistryProtocol::jsr()
+        } else if range.starts_with("npm:") {
+            RegistryProtocol::npm()
+        } else {
+            RegistryProtocol::npm()
+        };
         let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
 
@@ -399,7 +409,7 @@ async fn resolve_package(
                 client,
                 &name,
                 &range,
-                &protocol,
+                &dep_protocol,
                 packages_clone,
                 cache_clone,
                 min_age_days,
@@ -434,7 +444,17 @@ async fn resolve_package(
         let range = dep_range.clone();
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
-        let protocol = request.protocol.clone();
+        let dep_protocol = if range.starts_with("file:") {
+            RegistryProtocol::file()
+        } else if range.starts_with("git:") || range.starts_with("git+") {
+            RegistryProtocol::git()
+        } else if range.starts_with("jsr:") {
+            RegistryProtocol::jsr()
+        } else if range.starts_with("npm:") {
+            RegistryProtocol::npm()
+        } else {
+            RegistryProtocol::npm()
+        };
         let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
 
@@ -444,7 +464,7 @@ async fn resolve_package(
                 client,
                 &name,
                 &range,
-                &protocol,
+                &dep_protocol,
                 packages_clone,
                 cache_clone,
                 min_age_days,

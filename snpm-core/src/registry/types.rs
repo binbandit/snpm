@@ -100,6 +100,12 @@ impl RegistryProtocol {
         }
     }
 
+    pub fn file() -> Self {
+        RegistryProtocol {
+            name: "file".to_string(),
+        }
+    }
+
     pub fn custom(name: &str) -> Self {
         RegistryProtocol {
             name: name.to_string(),

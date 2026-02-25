@@ -49,8 +49,12 @@ pub async fn install_workspace(
     }
 
     let root_protocols: BTreeMap<String, RegistryProtocol> = root_dependencies
-        .keys()
-        .map(|name| (name.clone(), RegistryProtocol::npm()))
+        .iter()
+        .map(|(name, spec)| {
+            let protocol = super::manifest::detect_manifest_protocol(spec)
+                .unwrap_or_else(RegistryProtocol::npm);
+            (name.clone(), protocol)
+        })
         .collect();
 
     let lockfile_path = workspace.root.join("snpm-lock.yaml");
@@ -521,7 +525,20 @@ pub fn collect_workspace_root_deps(
         )?;
 
         for (name, range) in dependencies.iter() {
-            insert_workspace_root_dep(&mut combined, &workspace.root, name, range)?;
+            insert_workspace_root_dep(&mut combined, &workspace.root, &member.root, name, range)?;
+        }
+
+        let mut local_optional = BTreeSet::new();
+        let optional_dependencies = apply_specs(
+            &member.manifest.optional_dependencies,
+            Some(workspace),
+            None,
+            &mut local_optional,
+            None,
+        )?;
+
+        for (name, range) in optional_dependencies.iter() {
+            insert_workspace_root_dep(&mut combined, &workspace.root, &member.root, name, range)?;
         }
 
         if include_dev {
@@ -535,7 +552,7 @@ pub fn collect_workspace_root_deps(
             )?;
 
             for (name, range) in development_dependencies.iter() {
-                insert_workspace_root_dep(&mut combined, &workspace.root, name, range)?;
+                insert_workspace_root_dep(&mut combined, &workspace.root, &member.root, name, range)?;
             }
         }
     }
@@ -545,21 +562,40 @@ pub fn collect_workspace_root_deps(
 
 pub fn insert_workspace_root_dep(
     combined: &mut BTreeMap<String, String>,
-    root: &Path,
+    workspace_root: &Path,
+    declaring_package_root: &Path,
     name: &str,
     range: &str,
 ) -> Result<()> {
+    // Resolve file: paths relative to the declaring package
+    let resolved_range = if let Some(file_path) = range.strip_prefix("file:") {
+        let path = Path::new(file_path);
+        if path.is_relative() {
+            let absolute = declaring_package_root.join(path);
+            let canonical = absolute.canonicalize().map_err(|e| SnpmError::ResolutionFailed {
+                name: name.to_string(),
+                range: range.to_string(),
+                reason: format!("Failed to resolve file path {}: {}", absolute.display(), e),
+            })?;
+            format!("file:{}", canonical.display())
+        } else {
+            range.to_string()
+        }
+    } else {
+        range.to_string()
+    };
+
     if let Some(existing) = combined.get(name) {
-        if existing != range {
+        if existing != &resolved_range {
             return Err(SnpmError::WorkspaceConfig {
-                path: root.to_path_buf(),
+                path: workspace_root.to_path_buf(),
                 reason: format!(
-                    "dependency {name} has conflicting ranges {existing} and {range} across workspace projects"
+                    "dependency {name} has conflicting ranges {existing} and {resolved_range} across workspace projects"
                 ),
             });
         }
     } else {
-        combined.insert(name.to_string(), range.to_string());
+        combined.insert(name.to_string(), resolved_range);
     }
 
     Ok(())

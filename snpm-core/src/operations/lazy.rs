@@ -136,6 +136,7 @@ fn build_manifest_root(
         Ok(build_project_manifest_root(
             &dependencies,
             &development_dependencies,
+            &project.manifest.optional_dependencies,
             true,
         ))
     }

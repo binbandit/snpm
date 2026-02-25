@@ -143,6 +143,7 @@ pub async fn dlx_with_offline(
         version: Some("0.0.0".to_string()),
         dependencies: root_deps,
         dev_dependencies: BTreeMap::new(),
+        optional_dependencies: BTreeMap::new(),
         scripts: BTreeMap::new(),
         pnpm: None,
         snpm: None,

@@ -131,6 +131,7 @@ pub async fn install(
         build_project_manifest_root(
             &dependencies,
             &development_dependencies,
+            &project.manifest.optional_dependencies,
             options.include_dev,
         )
     };
@@ -629,7 +630,7 @@ pub async fn outdated(
     let root_dependencies = if let Some(workspace_reference) = workspace.as_ref() {
         collect_workspace_root_deps(workspace_reference, include_dev)?
     } else {
-        build_project_manifest_root(&dependencies, &development_dependencies, include_dev)
+        build_project_manifest_root(&dependencies, &development_dependencies, &project.manifest.optional_dependencies, include_dev)
     };
 
     let mut root_protocols = BTreeMap::new();

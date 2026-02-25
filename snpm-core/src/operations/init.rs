@@ -1,5 +1,5 @@
 use crate::project::Manifest;
-use crate::{Result, SnpmError, console};
+use crate::{console, Result, SnpmError};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -22,6 +22,7 @@ pub fn init(root: &Path) -> Result<()> {
         version: Some("0.1.0".to_string()),
         dependencies: BTreeMap::new(),
         dev_dependencies: BTreeMap::new(),
+        optional_dependencies: BTreeMap::new(),
         scripts: BTreeMap::new(),
         pnpm: None,
         snpm: None,

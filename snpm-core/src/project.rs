@@ -30,6 +30,8 @@ pub struct Manifest {
     #[serde(default)]
     pub dev_dependencies: BTreeMap<String, String>,
     #[serde(default)]
+    pub optional_dependencies: BTreeMap<String, String>,
+    #[serde(default)]
     pub scripts: BTreeMap<String, String>,
     #[serde(default)]
     pub pnpm: Option<ManifestPnpm>,

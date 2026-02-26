@@ -335,18 +335,16 @@ fn populate_virtual_store(
             version: id.version.clone(),
         })?;
 
-        if package_location.exists() {
-            fs::remove_dir_all(&package_location).ok();
-        }
+        if !package_location.exists() {
+            if let Some(parent) = package_location.parent() {
+                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
 
-        if let Some(parent) = package_location.parent() {
-            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+            crate::linker::fs::link_dir(config, store_path, &package_location)?;
         }
-
-        crate::linker::fs::link_dir(config, store_path, &package_location)?;
 
         virtual_store_paths
             .lock()

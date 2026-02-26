@@ -334,14 +334,14 @@ fn rebuild_virtual_store_paths(
     graph: &ResolutionGraph,
 ) -> Result<BTreeMap<PackageId, PathBuf>> {
     let mut paths = BTreeMap::new();
-    
+
     for (id, _) in &graph.packages {
         let safe_name = id.name.replace('/', "+");
         let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
         let package_location = virtual_id_dir.join("node_modules").join(&id.name);
         paths.insert(id.clone(), package_location);
     }
-    
+
     Ok(paths)
 }
 
@@ -368,10 +368,11 @@ fn populate_virtual_store(
         })?;
 
         if marker_file.is_file() {
-            if package_location.is_dir() && fs::read_dir(&package_location)
-                .ok()
-                .and_then(|mut d| d.next())
-                .is_some()
+            if package_location.is_dir()
+                && fs::read_dir(&package_location)
+                    .ok()
+                    .and_then(|mut d| d.next())
+                    .is_some()
             {
                 virtual_store_paths
                     .lock()
@@ -398,7 +399,7 @@ fn populate_virtual_store(
         }
 
         crate::linker::fs::link_dir_fast(config, store_path, &package_location)?;
-        
+
         fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
             path: marker_file,
             source,
@@ -606,7 +607,13 @@ pub fn collect_workspace_root_deps(
             )?;
 
             for (name, range) in development_dependencies.iter() {
-                insert_workspace_root_dep(&mut combined, &workspace.root, &member.root, name, range)?;
+                insert_workspace_root_dep(
+                    &mut combined,
+                    &workspace.root,
+                    &member.root,
+                    name,
+                    range,
+                )?;
             }
         }
     }
@@ -625,11 +632,13 @@ pub fn insert_workspace_root_dep(
         let path = Path::new(file_path);
         if path.is_relative() {
             let absolute = declaring_package_root.join(path);
-            let canonical = absolute.canonicalize().map_err(|e| SnpmError::ResolutionFailed {
-                name: name.to_string(),
-                range: range.to_string(),
-                reason: format!("Failed to resolve file path {}: {}", absolute.display(), e),
-            })?;
+            let canonical = absolute
+                .canonicalize()
+                .map_err(|e| SnpmError::ResolutionFailed {
+                    name: name.to_string(),
+                    range: range.to_string(),
+                    reason: format!("Failed to resolve file path {}: {}", absolute.display(), e),
+                })?;
             format!("file:{}", canonical.display())
         } else {
             range.to_string()

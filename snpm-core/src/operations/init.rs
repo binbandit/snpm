@@ -1,5 +1,5 @@
 use crate::project::Manifest;
-use crate::{console, Result, SnpmError};
+use crate::{Result, SnpmError, console};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;

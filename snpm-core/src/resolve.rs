@@ -389,17 +389,7 @@ async fn resolve_package(
 
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
-        let dep_protocol = if range.starts_with("file:") {
-            RegistryProtocol::file()
-        } else if range.starts_with("git:") || range.starts_with("git+") {
-            RegistryProtocol::git()
-        } else if range.starts_with("jsr:") {
-            RegistryProtocol::jsr()
-        } else if range.starts_with("npm:") {
-            RegistryProtocol::npm()
-        } else {
-            RegistryProtocol::npm()
-        };
+        let dep_protocol = protocol_from_range(&range);
         let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
 
@@ -444,17 +434,7 @@ async fn resolve_package(
         let range = dep_range.clone();
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
-        let dep_protocol = if range.starts_with("file:") {
-            RegistryProtocol::file()
-        } else if range.starts_with("git:") || range.starts_with("git+") {
-            RegistryProtocol::git()
-        } else if range.starts_with("jsr:") {
-            RegistryProtocol::jsr()
-        } else if range.starts_with("npm:") {
-            RegistryProtocol::npm()
-        } else {
-            RegistryProtocol::npm()
-        };
+        let dep_protocol = protocol_from_range(&range);
         let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
 
@@ -520,4 +500,18 @@ fn resolve_relative_path(base: &Path, relative: &str) -> PathBuf {
     }
 
     components
+}
+
+fn protocol_from_range(range: &str) -> RegistryProtocol {
+    if range.starts_with("file:") {
+        RegistryProtocol::file()
+    } else if range.starts_with("git:") || range.starts_with("git+") {
+        RegistryProtocol::git()
+    } else if range.starts_with("jsr:") {
+        RegistryProtocol::jsr()
+    } else if range.starts_with("npm:") {
+        RegistryProtocol::npm()
+    } else {
+        RegistryProtocol::npm()
+    }
 }

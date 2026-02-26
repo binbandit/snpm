@@ -77,7 +77,18 @@ pub async fn install_workspace(
         InstallScenario::Hot => {
             console::step("Using cached install");
             let existing = existing_lockfile.expect("Hot scenario requires lockfile");
-            lockfile::to_graph(&existing)
+            let graph = lockfile::to_graph(&existing);
+            let cache_check = check_store_cache(config, &graph);
+            store_paths_map = cache_check.cached;
+            
+            if !cache_check.missing.is_empty() {
+                return Err(SnpmError::StoreMissing {
+                    name: cache_check.missing[0].id.name.clone(),
+                    version: cache_check.missing[0].id.version.clone(),
+                });
+            }
+            
+            graph
         }
 
         InstallScenario::WarmLinkOnly => {
@@ -554,7 +565,6 @@ pub fn insert_workspace_root_dep(
     name: &str,
     range: &str,
 ) -> Result<()> {
-    // Resolve file: paths relative to the declaring package
     let resolved_range = if let Some(file_path) = range.strip_prefix("file:") {
         let path = Path::new(file_path);
         if path.is_relative() {

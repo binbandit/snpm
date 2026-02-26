@@ -528,19 +528,6 @@ pub fn collect_workspace_root_deps(
             insert_workspace_root_dep(&mut combined, &workspace.root, &member.root, name, range)?;
         }
 
-        let mut local_optional = BTreeSet::new();
-        let optional_dependencies = apply_specs(
-            &member.manifest.optional_dependencies,
-            Some(workspace),
-            None,
-            &mut local_optional,
-            None,
-        )?;
-
-        for (name, range) in optional_dependencies.iter() {
-            insert_workspace_root_dep(&mut combined, &workspace.root, &member.root, name, range)?;
-        }
-
         if include_dev {
             let mut local_development = BTreeSet::new();
             let development_dependencies = apply_specs(

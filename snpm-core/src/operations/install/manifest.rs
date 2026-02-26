@@ -72,14 +72,10 @@ pub fn write_manifest(
 pub fn build_project_manifest_root(
     dependencies: &BTreeMap<String, String>,
     development_dependencies: &BTreeMap<String, String>,
-    optional_dependencies: &BTreeMap<String, String>,
+    _optional_dependencies: &BTreeMap<String, String>,
     include_dev: bool,
 ) -> BTreeMap<String, String> {
     let mut root = dependencies.clone();
-
-    for (name, range) in optional_dependencies.iter() {
-        root.entry(name.clone()).or_insert(range.clone());
-    }
 
     if include_dev {
         for (name, range) in development_dependencies.iter() {

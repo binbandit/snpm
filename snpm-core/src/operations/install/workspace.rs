@@ -38,25 +38,6 @@ pub async fn install_workspace(
     }
 
     let registry_client = Client::new();
-    let root_dependencies = collect_workspace_root_deps(workspace, include_dev)?;
-
-    if root_dependencies.is_empty() {
-        console::summary(0, 0.0);
-        return Ok(InstallResult {
-            package_count: 0,
-            elapsed_seconds: 0.0,
-        });
-    }
-
-    let root_protocols: BTreeMap<String, RegistryProtocol> = root_dependencies
-        .iter()
-        .map(|(name, spec)| {
-            let protocol = super::manifest::detect_manifest_protocol(spec)
-                .unwrap_or_else(RegistryProtocol::npm);
-            (name.clone(), protocol)
-        })
-        .collect();
-
     let lockfile_path = workspace.root.join("snpm-lock.yaml");
 
     if frozen_lockfile || config.frozen_lockfile_default {
@@ -69,7 +50,37 @@ pub async fn install_workspace(
     }
 
     let (scenario, existing_lockfile) =
-        detect_workspace_scenario(workspace, &lockfile_path, &root_dependencies, config, force);
+        detect_workspace_scenario_early(workspace, &lockfile_path, config, force);
+
+    let (root_dependencies, root_protocols) = if matches!(scenario, InstallScenario::Hot) {
+        (BTreeMap::new(), BTreeMap::new())
+    } else {
+        let root_dependencies = collect_workspace_root_deps(workspace, include_dev)?;
+
+        if root_dependencies.is_empty() {
+            console::summary(0, 0.0);
+            return Ok(InstallResult {
+                package_count: 0,
+                elapsed_seconds: 0.0,
+            });
+        }
+
+        let root_protocols: BTreeMap<String, RegistryProtocol> = root_dependencies
+            .iter()
+            .map(|(name, spec)| {
+                let protocol = super::manifest::detect_manifest_protocol(spec)
+                    .unwrap_or_else(RegistryProtocol::npm);
+                (name.clone(), protocol)
+            })
+            .collect();
+
+        (root_dependencies, root_protocols)
+    };
+
+    let (scenario, existing_lockfile) = match scenario {
+        InstallScenario::Hot => (scenario, existing_lockfile),
+        _ => validate_lockfile_matches_manifest(scenario, existing_lockfile, &root_dependencies),
+    };
 
     let mut store_paths_map: BTreeMap<PackageId, PathBuf> = BTreeMap::new();
 
@@ -77,9 +88,7 @@ pub async fn install_workspace(
         InstallScenario::Hot => {
             console::step("Using cached install");
             let existing = existing_lockfile.expect("Hot scenario requires lockfile");
-            let graph = lockfile::to_graph(&existing);
-            
-            graph
+            lockfile::to_graph(&existing)
         }
 
         InstallScenario::WarmLinkOnly => {
@@ -269,10 +278,9 @@ async fn resolve_workspace_deps(
     Ok(graph)
 }
 
-fn detect_workspace_scenario(
+fn detect_workspace_scenario_early(
     workspace: &Workspace,
     lockfile_path: &Path,
-    manifest_root: &BTreeMap<String, String>,
     config: &SnpmConfig,
     force: bool,
 ) -> (InstallScenario, Option<lockfile::Lockfile>) {
@@ -284,15 +292,6 @@ fn detect_workspace_scenario(
         Ok(lockfile) => lockfile,
         Err(_) => return (InstallScenario::Cold, None),
     };
-
-    let mut lock_requested = BTreeMap::new();
-    for (name, dep) in existing.root.dependencies.iter() {
-        lock_requested.insert(name.clone(), dep.requested.clone());
-    }
-
-    if lock_requested != *manifest_root {
-        return (InstallScenario::Cold, Some(existing));
-    }
 
     let graph = lockfile::to_graph(&existing);
     let lockfile_hash = compute_lockfile_hash(&graph);
@@ -307,6 +306,27 @@ fn detect_workspace_scenario(
     }
 
     (InstallScenario::WarmPartialCache, Some(existing))
+}
+
+fn validate_lockfile_matches_manifest(
+    scenario: InstallScenario,
+    lockfile: Option<lockfile::Lockfile>,
+    manifest_dependencies: &BTreeMap<String, String>,
+) -> (InstallScenario, Option<lockfile::Lockfile>) {
+    if let Some(ref existing) = lockfile {
+        let lockfile_dependencies: BTreeMap<String, String> = existing
+            .root
+            .dependencies
+            .iter()
+            .map(|(name, dep)| (name.clone(), dep.requested.clone()))
+            .collect();
+
+        if lockfile_dependencies != *manifest_dependencies {
+            return (InstallScenario::Cold, lockfile);
+        }
+    }
+
+    (scenario, lockfile)
 }
 
 fn rebuild_virtual_store_paths(

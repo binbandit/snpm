@@ -78,15 +78,6 @@ pub async fn install_workspace(
             console::step("Using cached install");
             let existing = existing_lockfile.expect("Hot scenario requires lockfile");
             let graph = lockfile::to_graph(&existing);
-            let cache_check = check_store_cache(config, &graph);
-            store_paths_map = cache_check.cached;
-            
-            if !cache_check.missing.is_empty() {
-                return Err(SnpmError::StoreMissing {
-                    name: cache_check.missing[0].id.name.clone(),
-                    version: cache_check.missing[0].id.version.clone(),
-                });
-            }
             
             graph
         }
@@ -150,9 +141,13 @@ pub async fn install_workspace(
         source,
     })?;
 
-    console::step("Linking workspace");
-    let virtual_store_paths =
-        populate_virtual_store(&shared_virtual_store, &graph, &store_paths_map, config)?;
+    let virtual_store_paths = if matches!(scenario, InstallScenario::Hot) {
+        console::step("Validating workspace structure");
+        rebuild_virtual_store_paths(&shared_virtual_store, &graph)?
+    } else {
+        console::step("Linking workspace");
+        populate_virtual_store(&shared_virtual_store, &graph, &store_paths_map, config)?
+    };
 
     link_store_dependencies(&virtual_store_paths, &graph)?;
 
@@ -314,6 +309,22 @@ fn detect_workspace_scenario(
     (InstallScenario::WarmPartialCache, Some(existing))
 }
 
+fn rebuild_virtual_store_paths(
+    virtual_store_dir: &Path,
+    graph: &ResolutionGraph,
+) -> Result<BTreeMap<PackageId, PathBuf>> {
+    let mut paths = BTreeMap::new();
+    
+    for (id, _) in &graph.packages {
+        let safe_name = id.name.replace('/', "+");
+        let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
+        let package_location = virtual_id_dir.join("node_modules").join(&id.name);
+        paths.insert(id.clone(), package_location);
+    }
+    
+    Ok(paths)
+}
+
 fn populate_virtual_store(
     virtual_store_dir: &Path,
     graph: &ResolutionGraph,
@@ -329,22 +340,49 @@ fn populate_virtual_store(
         let safe_name = id.name.replace('/', "+");
         let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
         let package_location = virtual_id_dir.join("node_modules").join(&id.name);
+        let marker_file = virtual_id_dir.join(".snpm_linked");
 
         let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
             name: id.name.clone(),
             version: id.version.clone(),
         })?;
 
-        if !package_location.exists() {
-            if let Some(parent) = package_location.parent() {
-                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
+        if marker_file.is_file() {
+            if package_location.is_dir() && fs::read_dir(&package_location)
+                .ok()
+                .and_then(|mut d| d.next())
+                .is_some()
+            {
+                virtual_store_paths
+                    .lock()
+                    .unwrap()
+                    .insert((*id).clone(), package_location);
+                return Ok(());
             }
-
-            crate::linker::fs::link_dir(config, store_path, &package_location)?;
+            fs::remove_file(&marker_file).ok();
         }
+
+        if package_location.exists() {
+            if package_location.is_dir() {
+                fs::remove_dir_all(&package_location).ok();
+            } else {
+                fs::remove_file(&package_location).ok();
+            }
+        }
+
+        if let Some(parent) = package_location.parent() {
+            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+
+        crate::linker::fs::link_dir_fast(config, store_path, &package_location)?;
+        
+        fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
+            path: marker_file,
+            source,
+        })?;
 
         virtual_store_paths
             .lock()

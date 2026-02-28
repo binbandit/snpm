@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.2.27] - 2026-02-27
+## [2026.2.28] - 2026-02-28
 
 ### <!-- 0 -->🚀 Features
 
@@ -145,7 +145,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Bump npm package version ([5641c5c](https://github.com/binbandit/snpm/commit/5641c5c315cc18988eacde94102d283edd26cf60))
 - *(release)* Bump version to 2026.2.26 [skip ci] ([c8f0101](https://github.com/binbandit/snpm/commit/c8f010186879d0415f315f3402c298e254ed2b8c))
 - *(release)* Merge 2026.2.26 release [skip ci] ([13402bb](https://github.com/binbandit/snpm/commit/13402bbab7662853e2c581e62660977540a9d8df))
-- *(release)* Bump version to 2026.2.27 [skip ci] ([9c78ab4](https://github.com/binbandit/snpm/commit/9c78ab419027bb3321497df413b74daf8908e018))
+- *(release)* Bump version to 2026.2.27 [skip ci] ([73c69bd](https://github.com/binbandit/snpm/commit/73c69bd0c42729ef6d60e4e3800f4fe921b2d2aa))
+- *(release)* Merge 2026.2.27 release [skip ci] ([298b9cf](https://github.com/binbandit/snpm/commit/298b9cfc92d9ad248e47b6e2ef2aece7321ddd73))
+- *(release)* Bump version to 2026.2.28 [skip ci] ([454760a](https://github.com/binbandit/snpm/commit/454760a52cf6dbca0247f5d1b118d7be69f5702f))
 
 ## [2025.12.24] - 2025-12-24
 

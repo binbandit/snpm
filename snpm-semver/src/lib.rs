@@ -117,7 +117,7 @@ fn normalize_and_part(part: &str) -> String {
     }
 
     if tokens.len() == 3 && tokens[1] == "-" {
-        return part.to_string();
+        return expand_hyphen_range(tokens[0], tokens[2]);
     }
 
     let mut result = String::new();
@@ -134,6 +134,35 @@ fn normalize_and_part(part: &str) -> String {
         result.push_str(token);
     }
     result
+}
+
+/// The `semver` crate doesn't support npm hyphen ranges, so we expand them
+/// into standard comparator syntax before delegating. Partial upper bounds
+/// use exclusive `<` (next increment), full upper bounds use inclusive `<=`.
+fn expand_hyphen_range(lower: &str, upper: &str) -> String {
+    let lower_parts: Vec<&str> = lower.split('.').collect();
+    let upper_parts: Vec<&str> = upper.split('.').collect();
+
+    let lower_full = match lower_parts.len() {
+        1 => format!("{}.0.0", lower_parts[0]),
+        2 => format!("{}.{}.0", lower_parts[0], lower_parts[1]),
+        _ => lower.to_string(),
+    };
+
+    match upper_parts.len() {
+        1 => {
+            let major: u64 = upper_parts[0].parse().unwrap_or(0);
+            format!(">={}, <{}.0.0", lower_full, major + 1)
+        }
+        2 => {
+            let major = upper_parts[0];
+            let minor: u64 = upper_parts[1].parse().unwrap_or(0);
+            format!(">={}, <{}.{}.0", lower_full, major, minor + 1)
+        }
+        _ => {
+            format!(">={}, <={}", lower_full, upper)
+        }
+    }
 }
 
 fn adjust_node_default(input: &str) -> String {
@@ -227,5 +256,39 @@ mod tests {
         let higher = Version::parse("7.2.7").unwrap();
         assert!(set.matches(&exact));
         assert!(!set.matches(&higher));
+    }
+
+    #[test]
+    fn hyphen_range_major_only() {
+        // "1 - 2" means >=1.0.0 <3.0.0
+        let set = RangeSet::parse("1 - 2").unwrap();
+        assert!(set.matches(&Version::parse("1.0.0").unwrap()));
+        assert!(set.matches(&Version::parse("1.5.3").unwrap()));
+        assert!(set.matches(&Version::parse("2.0.0").unwrap()));
+        assert!(set.matches(&Version::parse("2.99.99").unwrap()));
+        assert!(!set.matches(&Version::parse("0.9.9").unwrap()));
+        assert!(!set.matches(&Version::parse("3.0.0").unwrap()));
+    }
+
+    #[test]
+    fn hyphen_range_major_minor() {
+        // "1.2 - 2.3" means >=1.2.0 <2.4.0
+        let set = RangeSet::parse("1.2 - 2.3").unwrap();
+        assert!(set.matches(&Version::parse("1.2.0").unwrap()));
+        assert!(set.matches(&Version::parse("1.9.0").unwrap()));
+        assert!(set.matches(&Version::parse("2.3.9").unwrap()));
+        assert!(!set.matches(&Version::parse("1.1.9").unwrap()));
+        assert!(!set.matches(&Version::parse("2.4.0").unwrap()));
+    }
+
+    #[test]
+    fn hyphen_range_full_versions() {
+        // "1.2.3 - 2.3.4" means >=1.2.3 <=2.3.4
+        let set = RangeSet::parse("1.2.3 - 2.3.4").unwrap();
+        assert!(set.matches(&Version::parse("1.2.3").unwrap()));
+        assert!(set.matches(&Version::parse("2.3.4").unwrap()));
+        assert!(set.matches(&Version::parse("2.0.0").unwrap()));
+        assert!(!set.matches(&Version::parse("1.2.2").unwrap()));
+        assert!(!set.matches(&Version::parse("2.3.5").unwrap()));
     }
 }

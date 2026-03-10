@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.3.9] - 2026-03-09
+## [2026.3.10] - 2026-03-10
 
 ### <!-- 0 -->🚀 Features
 
@@ -42,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - Resolve file: protocol paths relative to declaring package ([adc032c](https://github.com/binbandit/snpm/commit/adc032cadb365cbd12d1e5266ada87a766ed6b2b))
 - Exclude root-level optionalDependencies from resolution to prevent platform errors ([80832fc](https://github.com/binbandit/snpm/commit/80832fc6d895fbbeed7249d97d3273bdaee049d7))
 - Hot scenario must populate store paths to prevent missing package errors ([ec4d7ca](https://github.com/binbandit/snpm/commit/ec4d7caf1d97c9b78922321c39d580aac9c335fc))
+- *(semver)* Expand npm hyphen ranges before delegating to semver crate ([4224e26](https://github.com/binbandit/snpm/commit/4224e2676a6f9345a5d185ed7f7f8c1c87fa09f6))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -165,7 +166,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.3.7 release [skip ci] ([bc16159](https://github.com/binbandit/snpm/commit/bc161596ebc16171ef5dfd653e1378e399facb5c))
 - *(release)* Bump version to 2026.3.8 [skip ci] ([6b1bda6](https://github.com/binbandit/snpm/commit/6b1bda6b4e3ea5925d5ef2d2135d7e8a9e6e36e1))
 - *(release)* Merge 2026.3.8 release [skip ci] ([e526e5c](https://github.com/binbandit/snpm/commit/e526e5c971ae399a74ee82e37b28160e99f2f318))
-- *(release)* Bump version to 2026.3.9 [skip ci] ([33ef482](https://github.com/binbandit/snpm/commit/33ef4829c24bda9611d471d0edf9396ff3de5234))
+- *(release)* Bump version to 2026.3.9 [skip ci] ([c275c87](https://github.com/binbandit/snpm/commit/c275c87d7a31cef80e1c5c7d6a6bc86ee725c1e5))
+- *(release)* Merge 2026.3.9 release [skip ci] ([7faf52c](https://github.com/binbandit/snpm/commit/7faf52cf65cabaf6321b9c6bd0bd3c44c70739db))
+- *(release)* Bump version to 2026.3.10 [skip ci] ([cc4826b](https://github.com/binbandit/snpm/commit/cc4826ba2715164edb261e99b9be0d4cd63447f6))
 
 ## [2025.12.24] - 2025-12-24
 

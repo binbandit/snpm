@@ -197,6 +197,37 @@ fn is_plain_exact_version(s: &str) -> bool {
 
 pub use semver::Version;
 
+/// Some npm packages (notably AWS SDKs) publish versions with leading zeros
+/// like `30.100.00` that strict SemVer rejects. This parses leniently by
+/// stripping leading zeros before delegating to the `semver` crate.
+pub fn parse_version(input: &str) -> Result<Version, semver::Error> {
+    if let Ok(version) = Version::parse(input) {
+        return Ok(version);
+    }
+
+    Version::parse(&normalize_leading_zeros(input))
+}
+
+fn normalize_leading_zeros(input: &str) -> String {
+    let (version_part, suffix) = match input.find(|c| c == '-' || c == '+') {
+        Some(index) => (&input[..index], &input[index..]),
+        None => (input, ""),
+    };
+
+    let mut result = String::with_capacity(input.len());
+
+    for (i, segment) in version_part.split('.').enumerate() {
+        if i > 0 {
+            result.push('.');
+        }
+        let stripped = segment.trim_start_matches('0');
+        result.push_str(if stripped.is_empty() { "0" } else { stripped });
+    }
+
+    result.push_str(suffix);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +310,63 @@ mod tests {
         assert!(set.matches(&Version::parse("2.3.9").unwrap()));
         assert!(!set.matches(&Version::parse("1.1.9").unwrap()));
         assert!(!set.matches(&Version::parse("2.4.0").unwrap()));
+    }
+
+    #[test]
+    fn parse_version_strips_leading_zeros() {
+        let v = parse_version("30.100.00").unwrap();
+        assert_eq!(v.major, 30);
+        assert_eq!(v.minor, 100);
+        assert_eq!(v.patch, 0);
+    }
+
+    #[test]
+    fn parse_version_strips_leading_zeros_all_components() {
+        let v = parse_version("01.02.03").unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 2);
+        assert_eq!(v.patch, 3);
+    }
+
+    #[test]
+    fn parse_version_handles_all_zeros() {
+        let v = parse_version("00.00.00").unwrap();
+        assert_eq!(v.major, 0);
+        assert_eq!(v.minor, 0);
+        assert_eq!(v.patch, 0);
+    }
+
+    #[test]
+    fn parse_version_preserves_prerelease() {
+        let v = parse_version("01.02.03-alpha.1").unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 2);
+        assert_eq!(v.patch, 3);
+        assert_eq!(v.pre.as_str(), "alpha.1");
+    }
+
+    #[test]
+    fn parse_version_preserves_build_metadata() {
+        let v = parse_version("01.02.03+build.42").unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 2);
+        assert_eq!(v.patch, 3);
+        assert_eq!(v.build.as_str(), "build.42");
+    }
+
+    #[test]
+    fn parse_version_strict_still_works() {
+        let v = parse_version("1.2.3").unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 2);
+        assert_eq!(v.patch, 3);
+    }
+
+    #[test]
+    fn parse_version_matches_range_after_normalization() {
+        let set = RangeSet::parse("^30.100.0").unwrap();
+        let v = parse_version("30.100.00").unwrap();
+        assert!(set.matches(&v));
     }
 
     #[test]

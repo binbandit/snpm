@@ -6,7 +6,7 @@ pub fn validate_peers(graph: &ResolutionGraph) -> Result<()> {
     let mut versions_by_name = BTreeMap::new();
 
     for package in graph.packages.values() {
-        if let Ok(ver) = snpm_semver::Version::parse(&package.id.version) {
+        if let Ok(ver) = snpm_semver::parse_version(&package.id.version) {
             versions_by_name
                 .entry(package.id.name.clone())
                 .or_insert_with(Vec::new)

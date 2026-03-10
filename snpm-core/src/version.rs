@@ -1,7 +1,7 @@
 use crate::registry::RegistryPackage;
 use crate::registry::RegistryVersion;
 use crate::{Result, SnpmError};
-use snpm_semver::{RangeSet, Version};
+use snpm_semver::{RangeSet, Version, parse_version};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -42,7 +42,7 @@ pub fn select_version(
     let mut youngest_rejected: Option<(String, i64)> = None;
 
     for (version_str, meta) in package.versions.iter() {
-        let parsed = Version::parse(version_str);
+        let parsed = parse_version(version_str);
         if let Ok(ver) = parsed {
             if !ranges.matches(&ver) {
                 continue;

@@ -10,7 +10,7 @@ use crate::resolve::{self, PackageId, ResolutionGraph};
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 use rayon::prelude::*;
 use reqwest::Client;
-use snpm_semver::{RangeSet, Version};
+use snpm_semver::RangeSet;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -701,10 +701,11 @@ pub fn validate_workspace_spec(workspace: &Workspace, name: &str, spec: &str) ->
         reason: error.to_string(),
     })?;
 
-    let version_parsed = Version::parse(version).map_err(|error| SnpmError::Semver {
-        value: format!("{}@{}", name, version),
-        reason: error.to_string(),
-    })?;
+    let version_parsed =
+        snpm_semver::parse_version(version).map_err(|error| SnpmError::Semver {
+            value: format!("{}@{}", name, version),
+            reason: error.to_string(),
+        })?;
 
     if ranges.matches(&version_parsed) {
         Ok(())

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.3.10] - 2026-03-10
+## [2026.3.11] - 2026-03-11
 
 ### <!-- 0 -->🚀 Features
 
@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - Exclude root-level optionalDependencies from resolution to prevent platform errors ([80832fc](https://github.com/binbandit/snpm/commit/80832fc6d895fbbeed7249d97d3273bdaee049d7))
 - Hot scenario must populate store paths to prevent missing package errors ([ec4d7ca](https://github.com/binbandit/snpm/commit/ec4d7caf1d97c9b78922321c39d580aac9c335fc))
 - *(semver)* Expand npm hyphen ranges before delegating to semver crate ([4224e26](https://github.com/binbandit/snpm/commit/4224e2676a6f9345a5d185ed7f7f8c1c87fa09f6))
+- *(semver)* Handle versions with leading zeros like 30.100.00 ([f9a5361](https://github.com/binbandit/snpm/commit/f9a53611c5e70bcbd688cfaee51716cd4106b295))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -168,7 +169,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.3.8 release [skip ci] ([e526e5c](https://github.com/binbandit/snpm/commit/e526e5c971ae399a74ee82e37b28160e99f2f318))
 - *(release)* Bump version to 2026.3.9 [skip ci] ([c275c87](https://github.com/binbandit/snpm/commit/c275c87d7a31cef80e1c5c7d6a6bc86ee725c1e5))
 - *(release)* Merge 2026.3.9 release [skip ci] ([7faf52c](https://github.com/binbandit/snpm/commit/7faf52cf65cabaf6321b9c6bd0bd3c44c70739db))
-- *(release)* Bump version to 2026.3.10 [skip ci] ([cc4826b](https://github.com/binbandit/snpm/commit/cc4826ba2715164edb261e99b9be0d4cd63447f6))
+- *(release)* Bump version to 2026.3.10 [skip ci] ([1dd9c8a](https://github.com/binbandit/snpm/commit/1dd9c8a2306578216e30dafb053597818994edaa))
+- *(release)* Merge 2026.3.10 release [skip ci] ([2694e3a](https://github.com/binbandit/snpm/commit/2694e3a9d9feae04d313b7fff3fede9796da2b3d))
+- *(release)* Bump version to 2026.3.11 [skip ci] ([5691c32](https://github.com/binbandit/snpm/commit/5691c328b56b1fb86a08f790d75ea851a6f5e827))
 
 ## [2025.12.24] - 2025-12-24
 

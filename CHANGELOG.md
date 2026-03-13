@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.3.12] - 2026-03-12
+## [2026.3.13] - 2026-03-13
 
 ### <!-- 0 -->🚀 Features
 
@@ -69,6 +69,8 @@ All notable changes to this project will be documented in this file.
 - *(readme)* Restructure for clarity ([9369da9](https://github.com/binbandit/snpm/commit/9369da9fd3e506c9111170cdd06283a6d70ffbef))
 - *(readme)* Reposition as pnpm alternative in active development ([f65937a](https://github.com/binbandit/snpm/commit/f65937afa1ab0dd5ce2c40104c7701dd1d41e19e))
 - Add CONTRIBUTING.md with development philosophy ([7ef6307](https://github.com/binbandit/snpm/commit/7ef63070e28e604c36a4585e6062639b8482b70c))
+- *(agents)* Rewrite AGENTS.md with updated project snapshot and build principles ([7be47e9](https://github.com/binbandit/snpm/commit/7be47e9e637b39fa19ee8e3a14e09ef4c0b65771))
+- *(claude)* Add CLAUDE.md containing reference to AGENTS.md ([075c794](https://github.com/binbandit/snpm/commit/075c7941cc80dd56277879e06b58b9daa6ea4457))
 
 ### <!-- 4 -->⚡ Performance
 
@@ -173,7 +175,10 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.3.10 release [skip ci] ([2694e3a](https://github.com/binbandit/snpm/commit/2694e3a9d9feae04d313b7fff3fede9796da2b3d))
 - *(release)* Bump version to 2026.3.11 [skip ci] ([13c8176](https://github.com/binbandit/snpm/commit/13c8176bb5a04d16bc4913c10ad51d498c3e34d6))
 - *(release)* Merge 2026.3.11 release [skip ci] ([1caeed1](https://github.com/binbandit/snpm/commit/1caeed165adf8db660861b8ef6720b0f1ed607ce))
-- *(release)* Bump version to 2026.3.12 [skip ci] ([d9e8df1](https://github.com/binbandit/snpm/commit/d9e8df14961d9ef213c9ae61ba8fdfaf587ad613))
+- *(release)* Bump version to 2026.3.12 [skip ci] ([3849ef2](https://github.com/binbandit/snpm/commit/3849ef2c9e63b6858f90fc8632664bf1bbccbee3))
+- *(release)* Merge 2026.3.12 release [skip ci] ([b5ca012](https://github.com/binbandit/snpm/commit/b5ca01208ea5f3f69d671cc12da0b84657140ffa))
+- *(pkg)* Bump version to 2026.3.13 in npm-package/package.json ([8aa633f](https://github.com/binbandit/snpm/commit/8aa633f05a33dbdc0afd1b3297571409121232b5))
+- *(release)* Bump version to 2026.3.13 [skip ci] ([ff77d2c](https://github.com/binbandit/snpm/commit/ff77d2ca20a6c89e59add4bb50995c1bd73b9c4a))
 
 ## [2025.12.24] - 2025-12-24
 

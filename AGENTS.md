@@ -1,130 +1,183 @@
 # AGENTS.md
 
-This file serves as the **primary context and instruction manual** for autonomous agents working on the `snpm` (Speedy Node Package Manager) repository.
+This is the primary context file for autonomous coding agents working in the `snpm` repository.
 
-## 1. Vision
+## Project Snapshot
 
-`snpm` is a **drop‑in, modern replacement for npm/yarn/pnpm** that:
+`snpm` is a pnpm-compatible package manager written in Rust. The current implementation focuses on fast installs, deterministic lockfile behavior, workspace support, patching, and safety defaults (script blocking and package-age controls).
 
--   Feels familiar enough that developers can switch in minutes.
--   Is **fast by default** via a global cache, parallelism, and smart reuse.
--   Is **deterministic and reliable** via a simple, readable lockfile.
--   Has a **clean, beautiful implementation** in Rust with a strict **"no cleverness"** rule.
+## Workspace Crates
 
-**Goal:** We aren't trying to invent bizarre new workflows. We want the day‑to‑day "install deps, run scripts, update stuff, work in monorepos" story to be faster, simpler, and easier to maintain.
+- `snpm-cli`: user-facing CLI and subcommand routing.
+- `snpm-core`: install/resolve/link/store/config/auth/workspace/patch logic.
+- `snpm-semver`: npm-style semver parser/range matching.
+- `snpm-switch`: downloads/caches and runs the `snpm` version pinned by `packageManager`.
 
-## 2. Design Principles
+## Build and Development
 
-### Product Principles
+```bash
+# Build
+cargo build
 
-1.  **Familiar, not surprising**: Commands (`install`, `add`, `remove`, `run`) should match developer muscle memory.
-2.  **Fast for real projects**: Use global store, parallel network/disk options, and avoid unnecessary re-resolution.
-3.  **Deterministic installs**: Lockfile (`snpm-lock.yaml`) must be checked into git and guarantee repeatable installs.
-4.  **Monorepo‑ready**: Workspaces are first-class, not bolted on.
+# Run tests
+cargo test --workspace
 
-### Implementation Principles (Rust)
+# Run a single test
+cargo test --workspace test_name
 
-1.  **"No Cleverness" Rule**: Every line must have a clear purpose. No premature abstractions or generic frameworks.
-2.  **Self‑documenting code**: Avoid comments unless an algorithm is genuinely hard to follow. Names and structure should make intent obvious.
-3.  **Readable by mid‑level Rust devs**: No macros beyond standard derive. No `unsafe`. Avoid complex type magic.
-4.  **Stupid simple, not stupid**: Prefer obviously correct linear concurrency over "optimal" but complex logic.
+# Format (required before commit)
+cargo fmt --all
 
-## 3. High‑Level Architecture
+# Lint
+cargo clippy --all-targets --all-features
 
-### Crate Layout
+# Install locally
+cargo install --path snpm-cli --force
 
--   **`snpm-cli`**: CLI binary, argument parsing, wiring into core. Depends on `snpm-core`.
--   **`snpm-core`**: All actual logic (Config, Registry, Resolution, Store, Linking, Operations).
--   **`snpm-semver`**: Custom semver range parsing for npm-style ranges.
--   **`snpm-switch`**: Version manager for project-specific snpm versions.
+# Alternative task runner
+just install
+```
 
-### Core Modules (`snpm-core`)
+## CLI Command Surface (`snpm`)
 
--   **`config`**: `SnpmConfig`, directory handling, rc file parsing.
--   **`project`**: `Manifest` (package.json) parsing, project discovery.
--   **`workspace`**: Multi-project/monorepo support, catalog resolution.
--   **`registry`**: NPM registry API interaction (supports npm, jsr, custom registries).
--   **`resolve`**: Dependency resolution (Semver parsing, graph building, peer deps).
--   **`store`**: Global package cache management. Downloads and unpacks tarballs.
--   **`lockfile`**: `snpm-lock.yaml` reading/writing.
--   **`linker`**: Builds `node_modules` via virtual store (`.snpm/`). Supports hoisting modes.
--   **`operations`**: High-level commands (`install`, `add`, `remove`, `run`, `dlx`, `init`, `patch`, `clean`, etc.).
--   **`protocols`**: Protocol handlers (npm, file, git, jsr).
--   **`lifecycle`**: Install script execution with security controls.
--   **`error`**: Centralized `SnpmError` enum.
+Implemented top-level commands in `snpm-cli/src/cli.rs`:
 
-## 4. Core Flows
+- `install`
+- `add` (`--global` supported)
+- `remove` (`--global` supported)
+- `run`
+- `exec`
+- `init`
+- `dlx`
+- `upgrade`
+- `outdated`
+- `list`
+- `login`
+- `logout`
+- `config`
+- `patch` (`edit|commit|remove|list`)
+- `clean`
+- `audit`
 
-### 4.1 `snpm install`
+## snpm-core Module Map
 
-1.  **Discover**: Find project or workspace.
-2.  **Determine Roots**: Merge `dependencies`, `devDependencies` (if applicable), and CLI args.
-3.  **Resolve**:
-    -   If `include_dev == true` and lockfile matches manifest: Rebuild graph from lockfile (fast).
-    -   Else: Resolve from registry and write lockfile (if `include_dev == true`).
-4.  **Materialize Store**: Download and unpack missing packages to global store in parallel.
-5.  **Write Manifest**: Update `package.json` if packages were requested via CLI.
-6.  **Link**: Clear `node_modules` and reconstruct it using symlinks/copies from the store. Build `.bin` executables.
+Key modules exported by `snpm-core/src/lib.rs`:
 
-### 4.2 `snpm add`
+- `config`, `cache`, `registry`, `protocols`
+- `project`, `workspace`
+- `resolve`, `lockfile`, `store`, `linker`
+- `operations` (install/add/remove/upgrade/outdated/run/exec/dlx/global/auth/patch/audit/clean)
+- `lifecycle` (install script handling)
 
-Same as `install <pkg>...` but always includes dev deps (`include_dev = true`). Saves to `dependencies` (default) or `devDependencies` (if `-D` flag used).
+## Runtime Data Flow
 
-### 4.3 `snpm remove`
+1. CLI parses args and builds `SnpmConfig`.
+2. Operation discovers project/workspace and reads manifests.
+3. Resolver creates/updates dependency graph (from lockfile or registry metadata).
+4. Store ensures package data in global cache (`.snpm_complete` marker).
+5. Linker populates `node_modules/.snpm` virtual store and root links/binaries.
+6. Install writes `node_modules/.snpm-integrity` for fast hot-path checks.
 
-Removes names from manifest, writes `package.json`, then runs `install` to recompute graph and clean `node_modules`.
+## Lockfile and Integrity
 
-### 4.4 `snpm run`
+- Lockfile: `snpm-lock.yaml`, schema version `1`.
+- Root entries store `requested` range and resolved `version`.
+- Package entries store `name`, `version`, `tarball`, optional `integrity`, dependency map, optional `bundledDependencies`, and `hasBin`.
+- Lockfile is written only when `include_dev = true` (for example normal install/add; not production-only install).
+- Integrity file is `node_modules/.snpm-integrity` and stores a lockfile-derived hash.
 
-Looks up script in `manifest.scripts`, runs via `sh -c` (Unix) or `cmd /C` (Windows) with `node_modules/.bin` prepended to `PATH`.
+## Store, Cache, and Global Paths
 
-## 5. Data Formats
+`SnpmConfig` resolves `cache_dir` and `data_dir` using platform dirs, or `SNPM_HOME`:
 
-### Manifest (`package.json`)
+- If `SNPM_HOME` is set:
+  - cache: `$SNPM_HOME/cache`
+  - data: `$SNPM_HOME/data`
+- Otherwise (via `directories::ProjectDirs("io", "snpm", "snpm")`):
+  - macOS data: `~/Library/Application Support/io.snpm.snpm`
+  - Linux data: `~/.local/share/snpm`
+  - Windows data: `%LOCALAPPDATA%/snpm/snpm/data`
 
-Standard `package.json` structure.
--   `dependencies` / `devDependencies`: Semver ranges.
--   `scripts`: Command strings.
+Derived directories:
 
-### Lockfile (`snpm-lock.yaml`)
+- packages: `<data_dir>/packages`
+- metadata: `<data_dir>/metadata`
+- global installs: `<data_dir>/global`
+- global bins: `<data_dir>/bin`
 
--   **Format**: `version: 1`
--   **Root Deps**: `name -> { requested, version }`
--   **Packages**: Flat list of resolved packages (`name@version`) containing tarball URL, integrity, and dependencies.
+Package store layout:
 
-## 6. Global Store Design
+- `<packages_dir>/<name_with_slash_replaced_by_underscore>/<version>/...`
+- `.snpm_complete` marks successful extraction.
 
--   **Location**: `SnpmConfig::packages_dir()` (platform-specific cache dir).
--   **Structure**: `<packages_dir>/<sanitizedName>/<version>/...`
--   **Marker**: Uses `.snpm_complete` file to verify package integrity.
--   **Concurrency**: Populated in parallel using `join_all`.
+## Workspace and Catalog Conventions
 
-## 7. Roadmap & Agent Tasks
+Workspace discovery supports:
 
-Agents should refer to this roadmap when selecting tasks or prioritizing work.
+- `snpm-workspace.yaml`
+- `pnpm-workspace.yaml`
+- `package.json` `workspaces` field
 
-### Completed
--   [x] Full CLI (`install`, `add`, `remove`, `run`, `init`, `upgrade`, `outdated`, `dlx`, `exec`, `list`, `patch`, `clean`, `config`, `login`, `logout`)
--   [x] Global store with parallel downloads
--   [x] Lockfile read/write with `--frozen-lockfile` support
--   [x] Advanced semver support (including `||` ranges)
--   [x] Virtual store layout (`.snpm/`) with configurable hoisting
--   [x] First-class workspaces with catalog protocol
--   [x] Multiple link backends (auto, hardlink, symlink, copy)
--   [x] Protocol support (npm, file, git, jsr, workspace, catalog)
--   [x] Install script security (blocked by default)
--   [x] Minimum version age protection
--   [x] Global package installation (`-g` flag)
--   [x] Package patching (`snpm patch`)
+Catalog and overrides support:
 
-### Next Steps (Priorities)
-1.  **Publishing**: `snpm publish` with workspace support.
-2.  **Dependency Analysis**: `snpm why <package>` to explain dependency paths.
-3.  **Performance**: Smarter resolution graph reuse within workspaces.
+- `snpm-catalog.yaml`
+- `snpm-overrides.yaml`
 
-## 8. Workflow Reminders
+Workspace script policy fields in YAML:
 
--   **Build**: `cargo build`
--   **Test**: `cargo test`
--   **Format**: `cargo fmt` (Mandatory)
--   **Lint**: `cargo clippy`
+- `onlyBuiltDependencies`
+- `ignoredBuiltDependencies`
+
+## Config and Auth Sources
+
+Registry and install behavior is sourced from env and rc files.
+
+Read rc files from home and current-directory ancestry:
+
+- `.snpmrc`
+- `.npmrc`
+- `.pnpmrc`
+
+Important env vars include:
+
+- `SNPM_HOME`
+- `SNPM_ALLOW_SCRIPTS`
+- `SNPM_MIN_PACKAGE_AGE_DAYS`
+- `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS`
+- `SNPM_HOIST`
+- `SNPM_LINK_BACKEND`
+- `SNPM_STRICT_PEERS`
+- `SNPM_FROZEN_LOCKFILE`
+- `SNPM_REGISTRY_CONCURRENCY`
+- `SNPM_VERBOSE`
+- `SNPM_LOG_FILE`
+- npm-compatible registry/auth vars such as `NPM_CONFIG_REGISTRY`, `NODE_AUTH_TOKEN`, `NPM_TOKEN`
+
+`login`/`logout` persist auth to `~/.snpmrc`.
+
+## Protocol Support
+
+Resolver/registry path supports at least:
+
+- `npm`
+- `jsr` (resolved through npm-compatible metadata flow)
+- `file`
+- `git`
+
+## Operational Behaviors Worth Knowing
+
+- Install scenarios: `Hot`, `WarmLinkOnly`, `WarmPartialCache`, `Cold`.
+- `install --production` skips dev-only dependencies and avoids lockfile mutation.
+- `run`/`exec` perform lazy install unless `--skip-install` is used.
+- `dlx` supports `--offline` and `--prefer-offline`.
+- Link backend supports `auto`, `hardlink`, `symlink`, `copy`.
+- Hoisting modes are `none`, `single-version`, and `all`.
+
+## Code Style Rules
+
+Follow the repository's "no cleverness" rule:
+
+- Prefer straightforward, readable Rust over abstraction-heavy code.
+- Avoid `unsafe` and avoid complex macro-based magic.
+- Keep naming and control flow obvious to a mid-level Rust developer.
+- Add comments only for genuinely non-obvious logic.

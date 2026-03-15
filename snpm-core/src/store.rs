@@ -2,7 +2,10 @@ use crate::config::OfflineMode;
 use crate::console;
 use crate::resolve::types::ResolvedPackage;
 use crate::{Result, SnpmConfig, SnpmError};
+use base64::Engine;
 use flate2::read::GzDecoder;
+use sha1::Sha1;
+use sha2::{Digest, Sha256, Sha512};
 use std::fs;
 use std::io::Cursor;
 use std::io::ErrorKind;
@@ -88,6 +91,7 @@ pub async fn ensure_package_with_offline(
                 path: source_path.clone(),
                 source,
             })?;
+            verify_integrity(&package.tarball, package.integrity.as_deref(), &bytes)?;
             unpack_tarball(&pkg_dir, bytes)?;
         }
     } else {
@@ -101,6 +105,8 @@ pub async fn ensure_package_with_offline(
             bytes.len(),
             download_elapsed.as_secs_f64()
         ));
+
+        verify_integrity(&package.tarball, package.integrity.as_deref(), &bytes)?;
 
         let unpack_started = Instant::now();
         unpack_tarball(&pkg_dir, bytes)?;
@@ -134,12 +140,12 @@ fn sanitize_name(name: &str) -> String {
     name.replace('/', "_")
 }
 
-fn package_root_dir(pkg_dir: &PathBuf) -> PathBuf {
+fn package_root_dir(pkg_dir: &Path) -> PathBuf {
     let candidate = pkg_dir.join("package");
     if candidate.is_dir() {
         candidate
     } else {
-        pkg_dir.clone()
+        pkg_dir.to_path_buf()
     }
 }
 
@@ -150,8 +156,7 @@ async fn download_tarball(
 ) -> Result<Vec<u8>> {
     let mut request = client.get(url);
 
-    if let Some(token) = config.auth_token_for_url(url) {
-        let header_value = format!("Bearer {}", token);
+    if let Some(header_value) = config.authorization_header_for_url(url) {
         request = request.header("authorization", header_value);
     }
 
@@ -176,30 +181,91 @@ async fn download_tarball(
     Ok(bytes.to_vec())
 }
 
-fn unpack_tarball(pkg_dir: &PathBuf, data: Vec<u8>) -> Result<()> {
+fn verify_integrity(url: &str, integrity: Option<&str>, bytes: &[u8]) -> Result<()> {
+    let Some(integrity) = integrity.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+
+    let mut matched_supported = false;
+    let mut saw_supported = false;
+
+    for token in integrity.split_whitespace() {
+        let token = token.split('?').next().unwrap_or(token);
+        let Some((algorithm, expected_digest)) = token.split_once('-') else {
+            continue;
+        };
+
+        let actual = match algorithm {
+            "sha512" => {
+                saw_supported = true;
+                Sha512::digest(bytes).to_vec()
+            }
+            "sha256" => {
+                saw_supported = true;
+                Sha256::digest(bytes).to_vec()
+            }
+            "sha1" => {
+                saw_supported = true;
+                Sha1::digest(bytes).to_vec()
+            }
+            _ => continue,
+        };
+
+        let expected = base64::engine::general_purpose::STANDARD
+            .decode(expected_digest)
+            .map_err(|error| SnpmError::Tarball {
+                url: url.to_string(),
+                reason: format!("invalid integrity value: {error}"),
+            })?;
+
+        if actual == expected {
+            matched_supported = true;
+            break;
+        }
+    }
+
+    if !saw_supported {
+        console::warn(&format!(
+            "Skipping integrity verification for {}: unsupported algorithm",
+            url
+        ));
+        return Ok(());
+    }
+
+    if matched_supported {
+        Ok(())
+    } else {
+        Err(SnpmError::Tarball {
+            url: url.to_string(),
+            reason: "integrity verification failed".to_string(),
+        })
+    }
+}
+
+fn unpack_tarball(pkg_dir: &Path, data: Vec<u8>) -> Result<()> {
     let cursor = Cursor::new(data);
     let decoder = GzDecoder::new(cursor);
     let mut archive = Archive::new(decoder);
 
     let entries = archive.entries().map_err(|source| SnpmError::Archive {
-        path: pkg_dir.clone(),
+        path: pkg_dir.to_path_buf(),
         source,
     })?;
 
     for entry in entries {
         let mut entry = entry.map_err(|source| SnpmError::Archive {
-            path: pkg_dir.clone(),
+            path: pkg_dir.to_path_buf(),
             source,
         })?;
 
         let rel_path = entry.path().map_err(|source| SnpmError::Archive {
-            path: pkg_dir.clone(),
+            path: pkg_dir.to_path_buf(),
             source,
         })?;
 
         let Some(dest_path) = safe_join(pkg_dir, &rel_path) else {
             return Err(SnpmError::Archive {
-                path: pkg_dir.clone(),
+                path: pkg_dir.to_path_buf(),
                 source: std::io::Error::new(
                     ErrorKind::InvalidData,
                     format!(
@@ -213,7 +279,7 @@ fn unpack_tarball(pkg_dir: &PathBuf, data: Vec<u8>) -> Result<()> {
         let entry_type = entry.header().entry_type();
         if entry_type.is_symlink() || entry_type.is_hard_link() {
             return Err(SnpmError::Archive {
-                path: pkg_dir.clone(),
+                path: pkg_dir.to_path_buf(),
                 source: std::io::Error::new(
                     ErrorKind::InvalidData,
                     format!(
@@ -299,9 +365,11 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::unpack_tarball;
+    use super::{unpack_tarball, verify_integrity};
+    use base64::Engine;
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use sha2::{Digest, Sha512};
     use std::io::Write;
     use tar::{Builder, EntryType, Header};
     use tempfile::tempdir;
@@ -333,7 +401,7 @@ mod tests {
         });
 
         let temp = tempdir().unwrap();
-        let result = unpack_tarball(&temp.path().to_path_buf(), bytes);
+        let result = unpack_tarball(temp.path(), bytes);
         assert!(result.is_err());
     }
 
@@ -351,7 +419,31 @@ mod tests {
         });
 
         let temp = tempdir().unwrap();
-        let result = unpack_tarball(&temp.path().to_path_buf(), bytes);
+        let result = unpack_tarball(temp.path(), bytes);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn verifies_sha512_integrity() {
+        let bytes = b"hello world";
+        let digest = base64::engine::general_purpose::STANDARD.encode(Sha512::digest(bytes));
+        let integrity = format!("sha512-{}", digest);
+
+        assert!(
+            verify_integrity(
+                "https://registry.example.com/pkg.tgz",
+                Some(&integrity),
+                bytes
+            )
+            .is_ok()
+        );
+        assert!(
+            verify_integrity(
+                "https://registry.example.com/pkg.tgz",
+                Some(&integrity),
+                b"tampered"
+            )
+            .is_err()
+        );
     }
 }

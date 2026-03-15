@@ -28,6 +28,7 @@ type PackageMap = BTreeMap<PackageId, ResolvedPackage>;
 type PackageCache = BTreeMap<String, RegistryPackage>;
 
 /// Resolve dependencies with default online mode.
+#[allow(clippy::too_many_arguments)]
 pub async fn resolve<F, Fut>(
     config: &SnpmConfig,
     client: &Client,
@@ -42,11 +43,42 @@ where
     F: FnMut(ResolvedPackage) -> Fut + Send,
     Fut: std::future::Future<Output = Result<()>> + Send,
 {
+    resolve_with_optional_roots(
+        config,
+        client,
+        root_deps,
+        root_protocols,
+        &BTreeSet::new(),
+        min_age_days,
+        force,
+        overrides,
+        on_package,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn resolve_with_optional_roots<F, Fut>(
+    config: &SnpmConfig,
+    client: &Client,
+    root_deps: &BTreeMap<String, String>,
+    root_protocols: &BTreeMap<String, RegistryProtocol>,
+    optional_root_names: &BTreeSet<String>,
+    min_age_days: Option<u32>,
+    force: bool,
+    overrides: Option<&BTreeMap<String, String>>,
+    on_package: F,
+) -> Result<ResolutionGraph>
+where
+    F: FnMut(ResolvedPackage) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<()>> + Send,
+{
     resolve_with_offline(
         config,
         client,
         root_deps,
         root_protocols,
+        optional_root_names,
         min_age_days,
         force,
         overrides,
@@ -57,11 +89,13 @@ where
 }
 
 /// Resolve dependencies respecting offline mode.
+#[allow(clippy::too_many_arguments)]
 pub async fn resolve_with_offline<F, Fut>(
     config: &SnpmConfig,
     client: &Client,
     root_deps: &BTreeMap<String, String>,
     root_protocols: &BTreeMap<String, RegistryProtocol>,
+    optional_root_names: &BTreeSet<String>,
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
@@ -86,6 +120,7 @@ where
             client,
             root_deps,
             root_protocols,
+            optional_root_names,
             min_age_days,
             force,
             overrides,
@@ -129,11 +164,13 @@ where
     Ok(graph)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_resolver(
     config: &SnpmConfig,
     client: &Client,
     root_deps: &BTreeMap<String, String>,
     root_protocols: &BTreeMap<String, RegistryProtocol>,
+    optional_root_names: &BTreeSet<String>,
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
@@ -150,12 +187,13 @@ async fn run_resolver(
         let protocol = root_protocols.get(name).unwrap_or(default_protocol).clone();
         let name = name.clone();
         let range = range.clone();
+        let is_optional = optional_root_names.contains(&name);
         let packages = packages.clone();
         let package_cache = package_cache.clone();
         let semaphore = semaphore.clone();
 
         let task = async move {
-            let id = resolve_package(
+            let result = resolve_package(
                 config,
                 client,
                 &name,
@@ -170,14 +208,26 @@ async fn run_resolver(
                 semaphore,
                 offline_mode,
             )
-            .await?;
+            .await;
+
+            let id = match result {
+                Ok(id) => id,
+                Err(error) if is_optional => {
+                    console::warn(&format!(
+                        "Skipping optional dependency {}@{}: {}",
+                        name, range, error
+                    ));
+                    return Ok::<Option<(String, RootDependency)>, SnpmError>(None);
+                }
+                Err(error) => return Err(error),
+            };
 
             let root_dep = RootDependency {
                 requested: range,
                 resolved: id,
             };
 
-            Ok::<(String, RootDependency), SnpmError>((name, root_dep))
+            Ok::<Option<(String, RootDependency)>, SnpmError>(Some((name, root_dep)))
         };
 
         tasks.push(task);
@@ -188,8 +238,9 @@ async fn run_resolver(
     let mut root_dependencies = BTreeMap::new();
 
     for result in results {
-        let (name, dep) = result?;
-        root_dependencies.insert(name, dep);
+        if let Some((name, dep)) = result? {
+            root_dependencies.insert(name, dep);
+        }
     }
 
     done.store(true, Ordering::SeqCst);
@@ -249,6 +300,7 @@ where
     Ok::<(), SnpmError>(())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_recursion]
 async fn resolve_package(
     config: &SnpmConfig,
@@ -509,8 +561,6 @@ fn protocol_from_range(range: &str) -> RegistryProtocol {
         RegistryProtocol::git()
     } else if range.starts_with("jsr:") {
         RegistryProtocol::jsr()
-    } else if range.starts_with("npm:") {
-        RegistryProtocol::npm()
     } else {
         RegistryProtocol::npm()
     }

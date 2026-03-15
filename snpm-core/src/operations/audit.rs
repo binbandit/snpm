@@ -1,4 +1,3 @@
-use crate::config::AuthScheme;
 use crate::lockfile::{self, Lockfile};
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 use reqwest::Client;
@@ -601,12 +600,7 @@ async fn audit_lockfile(
         .json(&request);
 
     // Add auth with correct scheme (Bearer vs Basic)
-    if let Some(token) = config.auth_token_for_url(&audit_url) {
-        let scheme = config.auth_scheme_for_url(&audit_url);
-        let header_value = match scheme {
-            AuthScheme::Basic => format!("Basic {}", token),
-            AuthScheme::Bearer => format!("Bearer {}", token),
-        };
+    if let Some(header_value) = config.authorization_header_for_url(&audit_url) {
         req = req.header("Authorization", header_value);
     }
 

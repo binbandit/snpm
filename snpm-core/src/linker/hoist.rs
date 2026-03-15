@@ -79,7 +79,7 @@ fn link_shallow_package(
 pub fn effective_hoisting(config: &SnpmConfig, workspace: Option<&Workspace>) -> HoistingMode {
     if let Some(ws) = workspace
         && let Some(value) = ws.config.hoisting.as_deref()
-        && let Some(mode) = HoistingMode::from_str(value)
+        && let Some(mode) = HoistingMode::parse(value)
     {
         return mode;
     }

@@ -46,19 +46,13 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
         fs::remove_file(&lockfile_path)?;
     }
 
-    if let Some(mut workspace) = workspace {
-        if workspace.root == cwd {
-            operations::install_workspace(
-                config,
-                &mut workspace,
-                !args.production,
-                false,
-                args.force,
-            )
+    if let Some(mut workspace) = workspace
+        && workspace.root == cwd
+    {
+        operations::install_workspace(config, &mut workspace, !args.production, false, args.force)
             .await?;
 
-            return Ok(());
-        }
+        return Ok(());
     }
 
     let options = operations::InstallOptions {

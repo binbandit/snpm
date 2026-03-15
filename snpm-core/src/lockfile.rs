@@ -9,7 +9,10 @@ use std::path::Path;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LockRootDependency {
     pub requested: String,
-    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub optional: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,15 +48,28 @@ pub struct Lockfile {
     pub packages: BTreeMap<String, LockPackage>,
 }
 
-pub fn write(path: &Path, graph: &ResolutionGraph) -> Result<()> {
+pub fn write(
+    path: &Path,
+    graph: &ResolutionGraph,
+    optional_root_specs: &BTreeMap<String, String>,
+) -> Result<()> {
     let mut root_deps = BTreeMap::new();
 
     for (name, dep) in graph.root.dependencies.iter() {
         let entry = LockRootDependency {
             requested: dep.requested.clone(),
-            version: dep.resolved.version.clone(),
+            version: Some(dep.resolved.version.clone()),
+            optional: optional_root_specs.contains_key(name),
         };
         root_deps.insert(name.clone(), entry);
+    }
+
+    for (name, requested) in optional_root_specs {
+        root_deps.entry(name.clone()).or_insert(LockRootDependency {
+            requested: requested.clone(),
+            version: None,
+            optional: true,
+        });
     }
 
     let mut packages = BTreeMap::new();
@@ -163,9 +179,13 @@ pub fn to_graph(lockfile: &Lockfile) -> ResolutionGraph {
     let mut root_dependencies = BTreeMap::new();
 
     for (name, dep) in lockfile.root.dependencies.iter() {
+        let Some(version) = dep.version.as_ref() else {
+            continue;
+        };
+
         let id = PackageId {
             name: name.clone(),
-            version: dep.version.clone(),
+            version: version.clone(),
         };
         let root_dep = RootDependency {
             requested: dep.requested.clone(),
@@ -181,6 +201,38 @@ pub fn to_graph(lockfile: &Lockfile) -> ResolutionGraph {
     ResolutionGraph { root, packages }
 }
 
+pub fn root_specs_match(
+    lockfile: &Lockfile,
+    required: &BTreeMap<String, String>,
+    optional: &BTreeMap<String, String>,
+) -> bool {
+    if lockfile.root.dependencies.len() != required.len() + optional.len() {
+        return false;
+    }
+
+    for (name, requested) in required {
+        let Some(dep) = lockfile.root.dependencies.get(name) else {
+            return false;
+        };
+
+        if dep.requested != *requested || dep.version.is_none() || dep.optional {
+            return false;
+        }
+    }
+
+    for (name, requested) in optional {
+        let Some(dep) = lockfile.root.dependencies.get(name) else {
+            return false;
+        };
+
+        if dep.requested != *requested {
+            return false;
+        }
+    }
+
+    true
+}
+
 fn split_dep_key(key: &str) -> Option<(String, String)> {
     if let Some(idx) = key.rfind('@') {
         let (name, version_part) = key.split_at(idx);
@@ -188,5 +240,76 @@ fn split_dep_key(key: &str) -> Option<(String, String)> {
         Some((name.to_string(), version))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_specs_match_accepts_unresolved_optional_roots() {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: BTreeMap::from([
+                    (
+                        "required".to_string(),
+                        LockRootDependency {
+                            requested: "^1.0.0".to_string(),
+                            version: Some("1.2.3".to_string()),
+                            optional: false,
+                        },
+                    ),
+                    (
+                        "optional".to_string(),
+                        LockRootDependency {
+                            requested: "^2.0.0".to_string(),
+                            version: None,
+                            optional: true,
+                        },
+                    ),
+                ]),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let required = BTreeMap::from([("required".to_string(), "^1.0.0".to_string())]);
+        let optional = BTreeMap::from([("optional".to_string(), "^2.0.0".to_string())]);
+
+        assert!(root_specs_match(&lockfile, &required, &optional));
+    }
+
+    #[test]
+    fn to_graph_skips_unresolved_optional_roots() {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: BTreeMap::from([
+                    (
+                        "required".to_string(),
+                        LockRootDependency {
+                            requested: "^1.0.0".to_string(),
+                            version: Some("1.2.3".to_string()),
+                            optional: false,
+                        },
+                    ),
+                    (
+                        "optional".to_string(),
+                        LockRootDependency {
+                            requested: "^2.0.0".to_string(),
+                            version: None,
+                            optional: true,
+                        },
+                    ),
+                ]),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let graph = to_graph(&lockfile);
+
+        assert!(graph.root.dependencies.contains_key("required"));
+        assert!(!graph.root.dependencies.contains_key("optional"));
     }
 }

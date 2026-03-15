@@ -50,36 +50,7 @@ pub async fn fetch_package_with_offline(
         ),
     );
 
-    let mut auth_token = config.auth_token_for_url(&url).map(|t| t.to_string());
-
-    if auth_token.is_none()
-        && config.always_auth
-        && let Some(default_host) = crate::config::host_from_url(&config.default_registry)
-        && let Some(req_host) = crate::config::host_from_url(&url)
-        && req_host == default_host
-        && let Some(def_tok) = config.default_registry_auth_token.as_ref()
-    {
-        auth_token = Some(def_tok.clone());
-    }
-
-    if let Some(token) = auth_token {
-        // Decide scheme: default registry uses configured scheme; others default to Bearer
-        let mut use_basic = false;
-        if let Some(default_host) = crate::config::host_from_url(&config.default_registry)
-            && let Some(req_host) = crate::config::host_from_url(&url)
-            && req_host == default_host
-        {
-            use_basic = matches!(
-                config.default_registry_auth_scheme,
-                crate::config::AuthScheme::Basic
-            );
-        }
-
-        let header_value = if use_basic {
-            format!("Basic {}", token)
-        } else {
-            format!("Bearer {}", token)
-        };
+    if let Some(header_value) = config.authorization_header_for_url(&url) {
         request = request.header("authorization", header_value);
     }
 

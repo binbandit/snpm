@@ -31,3 +31,5 @@ tokio = { workspace = true, features = ["full"] }
 tempfile = "3.23.0"
 urlencoding = "2.1"
 base64 = "0.22"
+sha1 = "0.10"
+sha2 = "0.10"

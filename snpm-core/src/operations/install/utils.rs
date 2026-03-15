@@ -1,6 +1,6 @@
-use crate::Project;
 use crate::resolve::{PackageId, ResolutionGraph, ResolvedPackage};
 use crate::store;
+use crate::{Project, Workspace};
 use crate::{Result, SnpmConfig, SnpmError, lockfile};
 use futures::future::join_all;
 use reqwest::Client;
@@ -63,10 +63,17 @@ pub struct ScenarioResult {
     pub cache_check: Option<CacheCheckResult>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IntegrityState {
+    pub lockfile_hash: String,
+    pub patch_hash: String,
+}
+
 pub fn detect_install_scenario(
     project: &Project,
     lockfile_path: &Path,
-    manifest_root: &BTreeMap<String, String>,
+    required_root: &BTreeMap<String, String>,
+    optional_root: &BTreeMap<String, String>,
     config: &SnpmConfig,
     force: bool,
 ) -> ScenarioResult {
@@ -91,12 +98,7 @@ pub fn detect_install_scenario(
         }
     };
 
-    let mut lock_requested = BTreeMap::new();
-    for (name, dep) in existing.root.dependencies.iter() {
-        lock_requested.insert(name.clone(), dep.requested.clone());
-    }
-
-    if lock_requested != *manifest_root {
+    if !lockfile::root_specs_match(&existing, required_root, optional_root) {
         console::verbose("scenario: Cold (lockfile doesn't match manifest)");
         return ScenarioResult {
             scenario: InstallScenario::Cold,
@@ -106,9 +108,22 @@ pub fn detect_install_scenario(
     }
 
     let graph = lockfile::to_graph(&existing);
-    let lockfile_hash = compute_lockfile_hash(&graph);
+    let integrity_state = match build_project_integrity_state(project, &graph) {
+        Ok(state) => state,
+        Err(error) => {
+            console::warn(&format!(
+                "scenario: Cold (failed to compute install integrity state: {})",
+                error
+            ));
+            return ScenarioResult {
+                scenario: InstallScenario::Cold,
+                lockfile: Some(existing),
+                cache_check: None,
+            };
+        }
+    };
 
-    if !force && check_integrity_file(project, &lockfile_hash) {
+    if !force && check_integrity_file(project, &integrity_state) {
         console::verbose("scenario: Hot (lockfile + node_modules valid)");
         return ScenarioResult {
             scenario: InstallScenario::Hot,
@@ -265,32 +280,119 @@ pub fn compute_lockfile_hash(graph: &ResolutionGraph) -> String {
     format!("{:x}", hasher.finish())
 }
 
-pub fn check_integrity_file(project: &Project, lockfile_hash: &str) -> bool {
-    let integrity_path = project.root.join("node_modules/.snpm-integrity");
+pub fn build_project_integrity_state(
+    project: &Project,
+    graph: &ResolutionGraph,
+) -> Result<IntegrityState> {
+    Ok(IntegrityState {
+        lockfile_hash: compute_lockfile_hash(graph),
+        patch_hash: compute_project_patch_hash(project)?,
+    })
+}
+
+pub fn build_workspace_integrity_state(
+    workspace: &Workspace,
+    graph: &ResolutionGraph,
+) -> Result<IntegrityState> {
+    Ok(IntegrityState {
+        lockfile_hash: compute_lockfile_hash(graph),
+        patch_hash: compute_workspace_patch_hash(workspace)?,
+    })
+}
+
+pub fn compute_project_patch_hash(project: &Project) -> Result<String> {
+    let patched_dependencies = crate::patch::get_patched_dependencies(project);
+    if patched_dependencies.is_empty() {
+        return Ok("none".to_string());
+    }
+
+    let mut hasher = DefaultHasher::new();
+
+    for (key, rel_path) in patched_dependencies {
+        key.hash(&mut hasher);
+        rel_path.hash(&mut hasher);
+
+        let patch_path = project.root.join(&rel_path);
+        if patch_path.is_file() {
+            let bytes = fs::read(&patch_path).map_err(|source| SnpmError::ReadFile {
+                path: patch_path,
+                source,
+            })?;
+            bytes.hash(&mut hasher);
+        } else {
+            "__missing__".hash(&mut hasher);
+        }
+    }
+
+    Ok(format!("{:x}", hasher.finish()))
+}
+
+pub fn compute_workspace_patch_hash(workspace: &Workspace) -> Result<String> {
+    let mut hasher = DefaultHasher::new();
+    let mut has_any_patches = false;
+    let mut projects: Vec<&Project> = workspace.projects.iter().collect();
+    projects.sort_by(|a, b| a.root.cmp(&b.root));
+
+    for project in projects {
+        let patch_hash = compute_project_patch_hash(project)?;
+        if patch_hash != "none" {
+            has_any_patches = true;
+        }
+
+        project.root.hash(&mut hasher);
+        patch_hash.hash(&mut hasher);
+    }
+
+    if has_any_patches {
+        Ok(format!("{:x}", hasher.finish()))
+    } else {
+        Ok("none".to_string())
+    }
+}
+
+pub fn check_integrity_file(project: &Project, state: &IntegrityState) -> bool {
+    check_integrity_path(&project.root.join("node_modules"), state)
+}
+
+pub fn write_integrity_file(project: &Project, state: &IntegrityState) -> Result<()> {
+    write_integrity_path(&project.root.join("node_modules"), state)
+}
+
+pub fn check_integrity_path(node_modules: &Path, state: &IntegrityState) -> bool {
+    let integrity_path = node_modules.join(".snpm-integrity");
 
     match fs::read_to_string(&integrity_path) {
         Ok(content) => {
-            let expected = format!("lockfile: {}\n", lockfile_hash);
-            content == expected
+            content == integrity_content(state)
+                || (state.patch_hash == "none" && content == legacy_integrity_content(state))
         }
         Err(_) => false,
     }
 }
 
-pub fn write_integrity_file(project: &Project, lockfile_hash: &str) -> Result<()> {
-    let node_modules = project.root.join("node_modules");
-
+pub fn write_integrity_path(node_modules: &Path, state: &IntegrityState) -> Result<()> {
     if !node_modules.is_dir() {
         return Ok(());
     }
 
     let integrity_path = node_modules.join(".snpm-integrity");
-    let content = format!("lockfile: {}\n", lockfile_hash);
+    let content = integrity_content(state);
 
     fs::write(&integrity_path, content).map_err(|source| SnpmError::WriteFile {
         path: integrity_path,
         source,
     })
+}
+
+fn integrity_content(state: &IntegrityState) -> String {
+    format!(
+        "lockfile: {}\npatches: {}\n",
+        state.lockfile_hash, state.patch_hash
+    )
+}
+
+fn legacy_integrity_content(state: &IntegrityState) -> String {
+    format!("lockfile: {}\n", state.lockfile_hash)
 }
 
 pub fn can_any_scripts_run(config: &SnpmConfig, workspace: Option<&crate::Workspace>) -> bool {

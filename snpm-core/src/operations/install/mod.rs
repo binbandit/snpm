@@ -53,6 +53,7 @@ pub async fn install(
     for (name, range) in requested_ranges_raw {
         if project.manifest.dependencies.contains_key(&name)
             || project.manifest.dev_dependencies.contains_key(&name)
+            || project.manifest.optional_dependencies.contains_key(&name)
         {
             continue;
         }
@@ -108,6 +109,7 @@ pub async fn install(
 
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
+    let mut local_optional_deps = BTreeSet::new();
     let mut manifest_protocols = BTreeMap::new();
 
     let dependencies = apply_specs(
@@ -124,19 +126,33 @@ pub async fn install(
         &mut local_dev_deps,
         Some(&mut manifest_protocols),
     )?;
+    let optional_dependencies = apply_specs(
+        &project.manifest.optional_dependencies,
+        workspace.as_ref(),
+        catalog.as_ref(),
+        &mut local_optional_deps,
+        Some(&mut manifest_protocols),
+    )?;
 
-    let manifest_root = if let Some(workspace) = workspace.as_ref() {
-        collect_workspace_root_deps(workspace, options.include_dev)?
+    let root_specs = if let Some(workspace) = workspace.as_ref() {
+        collect_workspace_root_specs(workspace, options.include_dev)?
     } else {
-        build_project_manifest_root(
+        build_project_root_specs(
             &dependencies,
             &development_dependencies,
-            &project.manifest.optional_dependencies,
+            &optional_dependencies,
             options.include_dev,
         )
     };
 
+    let manifest_root = root_specs.required.clone();
+    let optional_root_names: BTreeSet<String> = root_specs.optional.keys().cloned().collect();
+
     let mut root_dependencies = manifest_root.clone();
+
+    for (name, range) in root_specs.optional.iter() {
+        root_dependencies.insert(name.clone(), range.clone());
+    }
 
     for (name, range) in additions.iter() {
         root_dependencies.insert(name.clone(), range.clone());
@@ -151,7 +167,7 @@ pub async fn install(
 
     let mut root_protocols = BTreeMap::new();
 
-    for name in manifest_root.keys() {
+    for name in manifest_root.keys().chain(root_specs.optional.keys()) {
         if let Some(protocol) = manifest_protocols.get(name) {
             root_protocols.insert(name.clone(), protocol.clone());
         } else {
@@ -210,13 +226,8 @@ pub async fn install(
         }
 
         let existing = lockfile::read(&lockfile_path)?;
-        let mut lock_requested = BTreeMap::new();
 
-        for (name, dep) in existing.root.dependencies.iter() {
-            lock_requested.insert(name.clone(), dep.requested.clone());
-        }
-
-        if lock_requested != manifest_root {
+        if !lockfile::root_specs_match(&existing, &manifest_root, &root_specs.optional) {
             return Err(SnpmError::Lockfile {
                 path: lockfile_path.clone(),
                 reason:
@@ -233,6 +244,7 @@ pub async fn install(
             project,
             &lockfile_path,
             &manifest_root,
+            &root_specs.optional,
             config,
             options.force,
         )
@@ -334,11 +346,12 @@ pub async fn install(
             let progress_count = Arc::new(AtomicUsize::new(0));
             let progress_total = Arc::new(AtomicUsize::new(root_dependencies.len()));
 
-            let graph = resolve::resolve(
+            let graph = resolve::resolve_with_optional_roots(
                 config,
                 &registry_client,
                 &root_dependencies,
                 &root_protocols,
+                &optional_root_names,
                 config.min_package_age_days,
                 options.force,
                 Some(&overrides),
@@ -424,7 +437,7 @@ pub async fn install(
             }
 
             if options.include_dev {
-                lockfile::write(&lockfile_path, &graph)?;
+                lockfile::write(&lockfile_path, &graph, &root_specs.optional)?;
             }
 
             console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
@@ -449,8 +462,8 @@ pub async fn install(
     } else if lockfile_reused_unchanged && !options.force {
         console::verbose("lockfile reused without changes; checking existing node_modules");
 
-        let lockfile_hash = compute_lockfile_hash(&graph);
-        if check_integrity_file(project, &lockfile_hash) {
+        let integrity_state = build_project_integrity_state(project, &graph)?;
+        if check_integrity_file(project, &integrity_state) {
             should_link = false;
             early_exit = true;
 
@@ -476,16 +489,17 @@ pub async fn install(
             workspace.as_ref(),
             &local_deps,
             &local_dev_deps,
+            &local_optional_deps,
             options.include_dev,
         )?;
 
-        let patches_applied = apply_patches(project)?;
+        let patches_applied = apply_patches(project, &store_paths_map)?;
         if patches_applied > 0 {
             console::verbose(&format!("applied {} patches", patches_applied));
         }
 
-        let lockfile_hash = compute_lockfile_hash(&graph);
-        write_integrity_file(project, &lockfile_hash)?;
+        let integrity_state = build_project_integrity_state(project, &graph)?;
+        write_integrity_file(project, &integrity_state)?;
 
         console::verbose(&format!(
             "linking completed in {:.3}s",
@@ -683,7 +697,9 @@ pub async fn outdated(
         let existing = lockfile::read(&lockfile_path)?;
 
         for (name, dep) in existing.root.dependencies.iter() {
-            current_versions.insert(name.clone(), dep.version.clone());
+            if let Some(version) = dep.version.as_ref() {
+                current_versions.insert(name.clone(), version.clone());
+            }
         }
     }
 
@@ -855,18 +871,41 @@ pub async fn upgrade(
     Ok(())
 }
 
-fn apply_patches(project: &Project) -> Result<usize> {
+fn apply_patches(
+    project: &Project,
+    store_paths: &BTreeMap<crate::resolve::PackageId, std::path::PathBuf>,
+) -> Result<usize> {
     let patches = super::patch::get_patches_to_apply(project)?;
 
     if patches.is_empty() {
         return Ok(0);
     }
 
-    let node_modules = project.root.join("node_modules");
     let mut applied = 0;
 
     for (name, version, patch_path) in &patches {
-        let package_dir = node_modules.join(name);
+        let package_id = crate::resolve::PackageId {
+            name: name.clone(),
+            version: version.clone(),
+        };
+        let store_path = match store_paths.get(&package_id) {
+            Some(path) => path,
+            None => {
+                console::warn(&format!(
+                    "Patch for {}@{} skipped: package missing from cache graph",
+                    name, version
+                ));
+                continue;
+            }
+        };
+        let safe_name = name.replace('/', "+");
+        let package_dir = project
+            .root
+            .join("node_modules")
+            .join(".snpm")
+            .join(format!("{}@{}", safe_name, version))
+            .join("node_modules")
+            .join(name);
 
         if !package_dir.exists() {
             console::warn(&format!(
@@ -882,6 +921,8 @@ fn apply_patches(project: &Project) -> Result<usize> {
             version,
             patch_path.display()
         ));
+
+        patch::materialize_patch_target(&package_dir, store_path)?;
 
         match patch::apply_patch(&package_dir, patch_path) {
             Ok(()) => {

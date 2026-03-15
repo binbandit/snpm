@@ -1,3 +1,4 @@
+use crate::linker::fs::copy_dir;
 use crate::{Project, Result, SnpmError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -164,16 +165,19 @@ pub fn create_patch(
 }
 
 fn run_diff(original: &Path, modified: &Path, package_name: &str) -> Result<String> {
+    let original = original.canonicalize().map_err(|source| SnpmError::Io {
+        path: original.to_path_buf(),
+        source,
+    })?;
+    let modified = modified.canonicalize().map_err(|source| SnpmError::Io {
+        path: modified.to_path_buf(),
+        source,
+    })?;
+
     let output = Command::new("diff")
-        .args([
-            "-ruN",
-            "--label",
-            &format!("a/{}", package_name),
-            "--label",
-            &format!("b/{}", package_name),
-        ])
-        .arg(original)
-        .arg(modified)
+        .args(["-ruN"])
+        .arg(&original)
+        .arg(&modified)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -182,7 +186,70 @@ fn run_diff(original: &Path, modified: &Path, package_name: &str) -> Result<Stri
             reason: "diff command not found - please install diffutils".to_string(),
         })?;
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    match output.status.code() {
+        Some(0 | 1) => Ok(rewrite_diff_paths(
+            &String::from_utf8_lossy(&output.stdout),
+            &original,
+            &modified,
+        )),
+        _ => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(SnpmError::PatchCreate {
+                name: package_name.to_string(),
+                reason: if stderr.is_empty() {
+                    "diff command failed".to_string()
+                } else {
+                    stderr
+                },
+            })
+        }
+    }
+}
+
+fn rewrite_diff_paths(content: &str, original_root: &Path, modified_root: &Path) -> String {
+    let mut rewritten = String::new();
+
+    for line in content.lines() {
+        let line = rewrite_patch_header(line, "--- ", original_root, "a")
+            .or_else(|| rewrite_patch_header(line, "+++ ", modified_root, "b"))
+            .unwrap_or_else(|| line.to_string());
+        rewritten.push_str(&line);
+        rewritten.push('\n');
+    }
+
+    rewritten
+}
+
+fn rewrite_patch_header(line: &str, marker: &str, root: &Path, prefix: &str) -> Option<String> {
+    let rest = line.strip_prefix(marker)?;
+    if rest == "/dev/null" || rest.starts_with("/dev/null\t") {
+        return Some(line.to_string());
+    }
+
+    let (path_text, suffix) = match rest.split_once('\t') {
+        Some((path_text, suffix)) => (path_text, Some(suffix)),
+        None => (rest, None),
+    };
+
+    let relative = Path::new(path_text).strip_prefix(root).ok()?;
+    let mut rewritten = format!("{marker}{prefix}/{}", normalize_patch_path(relative));
+
+    if let Some(suffix) = suffix {
+        rewritten.push('\t');
+        rewritten.push_str(suffix);
+    }
+
+    Some(rewritten)
+}
+
+fn normalize_patch_path(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn filter_session_marker(content: &str) -> String {
@@ -211,10 +278,15 @@ pub fn apply_patch(target_dir: &Path, patch_path: &Path) -> Result<()> {
         });
     }
 
+    let current_dir = target_dir.canonicalize().map_err(|source| SnpmError::Io {
+        path: target_dir.to_path_buf(),
+        source,
+    })?;
+
     let output = Command::new("patch")
         .args(["-p1", "-i"])
         .arg(patch_path)
-        .current_dir(target_dir)
+        .current_dir(&current_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -231,6 +303,31 @@ pub fn apply_patch(target_dir: &Path, patch_path: &Path) -> Result<()> {
             reason: String::from_utf8_lossy(&output.stderr).to_string(),
         })
     }
+}
+
+pub fn materialize_patch_target(target_dir: &Path, store_path: &Path) -> Result<()> {
+    if let Ok(meta) = target_dir.symlink_metadata() {
+        if meta.is_dir() && !meta.file_type().is_symlink() {
+            fs::remove_dir_all(target_dir).map_err(|source| SnpmError::Io {
+                path: target_dir.to_path_buf(),
+                source,
+            })?;
+        } else {
+            fs::remove_file(target_dir).map_err(|source| SnpmError::Io {
+                path: target_dir.to_path_buf(),
+                source,
+            })?;
+        }
+    }
+
+    if let Some(parent) = target_dir.parent() {
+        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+
+    copy_dir(store_path, target_dir)
 }
 
 pub fn remove_patch(project: &Project, package_name: &str) -> Result<Option<PathBuf>> {
@@ -367,4 +464,95 @@ fn copy_directory(src: &Path, dst: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_patch, materialize_patch_target, rewrite_diff_paths, run_diff};
+    use std::fs;
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+    use tempfile::tempdir;
+
+    #[test]
+    fn rewrite_diff_paths_rebases_headers() {
+        let original = Path::new("/tmp/original");
+        let modified = Path::new("/tmp/modified");
+        let diff = "\
+--- /tmp/original/lib/index.js\t2026-03-15 13:00:00\n\
++++ /tmp/modified/lib/index.js\t2026-03-15 13:00:01\n\
+@@ -1 +1 @@\n\
+-old\n\
++new\n\
+";
+
+        let rewritten = rewrite_diff_paths(diff, original, modified);
+
+        assert!(rewritten.contains("--- a/lib/index.js\t2026-03-15 13:00:00"));
+        assert!(rewritten.contains("+++ b/lib/index.js\t2026-03-15 13:00:01"));
+    }
+
+    #[test]
+    fn generated_patch_applies_to_package_directory() {
+        if !command_available("diff") || !command_available("patch") {
+            return;
+        }
+
+        let temp = tempdir().expect("tempdir");
+        let original = temp.path().join("original");
+        let modified = temp.path().join("modified");
+        let target = temp.path().join("target");
+        let patch_path = temp.path().join("dep-opt.patch");
+
+        fs::create_dir_all(original.join("lib")).expect("create original");
+        fs::create_dir_all(modified.join("lib")).expect("create modified");
+
+        fs::write(original.join("lib/index.js"), "module.exports = 'old';\n").expect("write");
+        fs::write(modified.join("lib/index.js"), "module.exports = 'new';\n").expect("write");
+
+        let diff = run_diff(&original, &modified, "dep-opt").expect("run diff");
+        assert!(diff.contains("--- a/lib/index.js"));
+        assert!(diff.contains("+++ b/lib/index.js"));
+
+        fs::write(&patch_path, diff).expect("write patch");
+        fs::create_dir_all(target.join("lib")).expect("create target");
+        fs::write(target.join("lib/index.js"), "module.exports = 'old';\n").expect("write");
+
+        apply_patch(&target, &patch_path).expect("apply patch");
+
+        let patched = fs::read_to_string(target.join("lib/index.js")).expect("read target");
+        assert_eq!(patched, "module.exports = 'new';\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn materialize_patch_target_replaces_symlink_with_copy() {
+        let temp = tempdir().expect("tempdir");
+        let store = temp.path().join("store");
+        let target = temp.path().join("virtual-store/package");
+
+        fs::create_dir_all(&store).expect("create store");
+        fs::write(store.join("index.js"), "module.exports = 'store';\n").expect("write store");
+
+        fs::create_dir_all(target.parent().expect("parent")).expect("create parent");
+        std::os::unix::fs::symlink(&store, &target).expect("create symlink");
+
+        materialize_patch_target(&target, &store).expect("materialize");
+
+        let metadata = fs::symlink_metadata(&target).expect("metadata");
+        assert!(!metadata.file_type().is_symlink());
+        assert_eq!(
+            fs::read_to_string(target.join("index.js")).expect("read target"),
+            "module.exports = 'store';\n"
+        );
+    }
+
+    fn command_available(command: &str) -> bool {
+        Command::new(command)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok()
+    }
 }

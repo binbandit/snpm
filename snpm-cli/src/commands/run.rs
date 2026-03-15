@@ -30,13 +30,12 @@ pub async fn run(args: RunArgs, config: &SnpmConfig) -> Result<()> {
         let workspace = Workspace::discover(&cwd)?
             .ok_or_else(|| anyhow!("snpm run -r/--filter used outside a workspace"))?;
 
-        if !args.skip_install {
-            if let Some(first_project) = workspace.projects.first() {
-                if operations::is_stale(first_project) {
-                    let mut project_clone = first_project.clone();
-                    operations::lazy_install(config, &mut project_clone).await?;
-                }
-            }
+        if !args.skip_install
+            && let Some(first_project) = workspace.projects.first()
+            && operations::is_stale(first_project)
+        {
+            let mut project_clone = first_project.clone();
+            operations::lazy_install(config, &mut project_clone).await?;
         }
 
         operations::run_workspace_scripts(&workspace, &args.script, &args.filter, &args.args)?;

@@ -55,7 +55,7 @@ pub enum LinkBackend {
 }
 
 impl LinkBackend {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.to_ascii_lowercase().as_str() {
             "auto" | "default" => Some(LinkBackend::Auto),
             "hardlink" | "hardlinks" | "hard" => Some(LinkBackend::Hardlink),
@@ -74,7 +74,7 @@ pub enum HoistingMode {
 }
 
 impl HoistingMode {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.to_ascii_lowercase().as_str() {
             "none" | "off" | "false" | "disabled" => Some(HoistingMode::None),
             "single" | "single-version" | "safe" => Some(HoistingMode::SingleVersion),
@@ -108,18 +108,17 @@ impl SnpmConfig {
         let min_package_age_days = read_min_package_age_from_env();
         let min_package_cache_age_days = read_min_package_cache_age_from_env();
 
-        let (
-            runtime_config_default_registry,
-            scoped_registries,
-            registry_auth,
-            runtime_config_default_auth_token,
-            runtime_config_hoisting,
-            runtime_config_default_auth_basic,
-        ) = read_registry_config();
+        let runtime_config = read_registry_config();
+        let runtime_config_default_auth_basic = runtime_config.default_auth_basic;
 
-        let mut default_registry = runtime_config_default_registry;
-        let mut default_registry_auth_token = runtime_config_default_auth_token;
-        let mut hoisting = runtime_config_hoisting.unwrap_or(HoistingMode::SingleVersion);
+        let mut default_registry = runtime_config.default_registry;
+        let scoped_registries = runtime_config.scoped;
+        let registry_auth = runtime_config.registry_auth;
+        let registry_auth_schemes = runtime_config.registry_auth_schemes;
+        let mut default_registry_auth_token = runtime_config.default_auth_token;
+        let mut hoisting = runtime_config
+            .hoisting
+            .unwrap_or(HoistingMode::SingleVersion);
         let mut link_backend = LinkBackend::Auto;
         let mut strict_peers = false;
         let mut frozen_lockfile_default = false;
@@ -169,13 +168,13 @@ impl SnpmConfig {
 
         if let Ok(value) = env::var("SNPM_HOIST") {
             let trimmed = value.trim();
-            if let Some(mode) = HoistingMode::from_str(trimmed) {
+            if let Some(mode) = HoistingMode::parse(trimmed) {
                 hoisting = mode;
             }
         }
 
         if let Ok(value) = env::var("SNPM_LINK_BACKEND")
-            && let Some(backend) = LinkBackend::from_str(value.trim())
+            && let Some(backend) = LinkBackend::parse(value.trim())
         {
             link_backend = backend;
         }
@@ -201,10 +200,10 @@ impl SnpmConfig {
             .or_else(|_| env::var("npm_config_always_auth"))
             .or_else(|_| env::var("SNPM_ALWAYS_AUTH"))
         {
-            let on = match value.trim().to_ascii_lowercase().as_str() {
-                "1" | "true" | "yes" | "y" | "on" => true,
-                _ => false,
-            };
+            let on = matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "y" | "on"
+            );
             if on {
                 always_auth = true;
             }
@@ -240,7 +239,7 @@ impl SnpmConfig {
             } else {
                 default_registry_auth_scheme
             },
-            registry_auth_schemes: BTreeMap::new(),
+            registry_auth_schemes,
             hoisting,
             link_backend,
             strict_peers,
@@ -292,5 +291,62 @@ impl SnpmConfig {
             return *scheme;
         }
         self.default_registry_auth_scheme
+    }
+
+    pub fn authorization_header_for_url(&self, url: &str) -> Option<String> {
+        let token = self.auth_token_for_url(url)?;
+        let scheme = self.auth_scheme_for_url(url);
+
+        Some(match scheme {
+            AuthScheme::Bearer => format!("Bearer {}", token),
+            AuthScheme::Basic => format!("Basic {}", token),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::PathBuf;
+
+    #[test]
+    fn authorization_header_uses_scoped_basic_auth() {
+        let mut registry_auth = BTreeMap::new();
+        registry_auth.insert(
+            "registry.example.com".to_string(),
+            "dXNlcjpwYXNz".to_string(),
+        );
+
+        let mut registry_auth_schemes = BTreeMap::new();
+        registry_auth_schemes.insert("registry.example.com".to_string(), AuthScheme::Basic);
+
+        let config = SnpmConfig {
+            cache_dir: PathBuf::from("/tmp/cache"),
+            data_dir: PathBuf::from("/tmp/data"),
+            allow_scripts: BTreeSet::new(),
+            min_package_age_days: None,
+            min_package_cache_age_days: None,
+            default_registry: "https://registry.npmjs.org/".to_string(),
+            scoped_registries: BTreeMap::new(),
+            registry_auth,
+            default_registry_auth_token: None,
+            default_registry_auth_scheme: AuthScheme::Bearer,
+            registry_auth_schemes,
+            hoisting: HoistingMode::SingleVersion,
+            link_backend: LinkBackend::Auto,
+            strict_peers: false,
+            frozen_lockfile_default: false,
+            always_auth: false,
+            registry_concurrency: 64,
+            verbose: false,
+            log_file: None,
+        };
+
+        let header = config
+            .authorization_header_for_url("https://registry.example.com/pkg.tgz")
+            .expect("header");
+
+        assert_eq!(header, "Basic dXNlcjpwYXNz");
     }
 }

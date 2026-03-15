@@ -48,21 +48,20 @@ pub async fn run(arguments: InstallArgs, config: &SnpmConfig) -> Result<()> {
         };
         operations::install(config, project, options).await?;
     } else {
-        if arguments.packages.is_empty() {
-            if let Some(mut workspace) = Workspace::discover(&current_directory)? {
-                if workspace.root == current_directory {
-                    operations::install_workspace(
-                        config,
-                        &mut workspace,
-                        !arguments.production,
-                        arguments.frozen_lockfile,
-                        arguments.force,
-                    )
-                    .await?;
+        if arguments.packages.is_empty()
+            && let Some(mut workspace) = Workspace::discover(&current_directory)?
+            && workspace.root == current_directory
+        {
+            operations::install_workspace(
+                config,
+                &mut workspace,
+                !arguments.production,
+                arguments.frozen_lockfile,
+                arguments.force,
+            )
+            .await?;
 
-                    return Ok(());
-                }
-            }
+            return Ok(());
         }
 
         let mut project = Project::discover(&current_directory)?;

@@ -1,7 +1,8 @@
 use crate::{Result, SnpmConfig, SnpmError, Workspace};
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, ffi::OsStr};
 
@@ -10,14 +11,33 @@ pub fn run_install_scripts(
     workspace: Option<&Workspace>,
     project_root: &Path,
 ) -> Result<Vec<String>> {
-    let node_modules = project_root.join("node_modules");
+    run_install_scripts_for_projects(config, workspace, &[project_root])
+}
 
-    if !node_modules.is_dir() {
-        return Ok(Vec::new());
+pub fn run_install_scripts_for_projects(
+    config: &SnpmConfig,
+    workspace: Option<&Workspace>,
+    project_roots: &[&Path],
+) -> Result<Vec<String>> {
+    let mut blocked = Vec::new();
+    let mut blocked_seen = BTreeSet::new();
+    let mut visited_dirs = BTreeSet::<PathBuf>::new();
+
+    for project_root in project_roots {
+        let node_modules = project_root.join("node_modules");
+
+        if node_modules.is_dir() {
+            walk_node_modules(
+                config,
+                workspace,
+                &node_modules,
+                &mut blocked,
+                &mut blocked_seen,
+                &mut visited_dirs,
+            )?;
+        }
     }
 
-    let mut blocked = Vec::new();
-    walk_node_modules(config, workspace, &node_modules, &mut blocked)?;
     Ok(blocked)
 }
 
@@ -69,22 +89,25 @@ fn walk_node_modules(
     workspace: Option<&Workspace>,
     dir: &Path,
     blocked: &mut Vec<String>,
+    blocked_seen: &mut BTreeSet<String>,
+    visited_dirs: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
-    for entry in fs::read_dir(dir).map_err(|source| SnpmError::ReadFile {
-        path: dir.to_path_buf(),
+    let scan_dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if !visited_dirs.insert(scan_dir.clone()) {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(&scan_dir).map_err(|source| SnpmError::ReadFile {
+        path: scan_dir.clone(),
         source,
     })? {
         let entry = entry.map_err(|source| SnpmError::ReadFile {
-            path: dir.to_path_buf(),
+            path: scan_dir.clone(),
             source,
         })?;
         let path = entry.path();
-        let file_type = entry.file_type().map_err(|source| SnpmError::ReadFile {
-            path: path.clone(),
-            source,
-        })?;
 
-        if !file_type.is_dir() {
+        if !path.is_dir() {
             continue;
         }
 
@@ -92,17 +115,43 @@ fn walk_node_modules(
             continue;
         }
 
-        let manifest_path = path.join("package.json");
+        let visit_path = fs::canonicalize(&path).unwrap_or(path.clone());
+        let manifest_path = visit_path.join("package.json");
 
         if manifest_path.is_file() {
-            run_package_scripts(config, workspace, &path, &manifest_path, blocked)?;
+            if !visited_dirs.insert(visit_path.clone()) {
+                continue;
+            }
 
-            let nested = path.join("node_modules");
+            run_package_scripts(
+                config,
+                workspace,
+                &visit_path,
+                &manifest_path,
+                blocked,
+                blocked_seen,
+            )?;
+
+            let nested = visit_path.join("node_modules");
             if nested.is_dir() {
-                walk_node_modules(config, workspace, &nested, blocked)?;
+                walk_node_modules(
+                    config,
+                    workspace,
+                    &nested,
+                    blocked,
+                    blocked_seen,
+                    visited_dirs,
+                )?;
             }
         } else {
-            walk_node_modules(config, workspace, &path, blocked)?;
+            walk_node_modules(
+                config,
+                workspace,
+                &visit_path,
+                blocked,
+                blocked_seen,
+                visited_dirs,
+            )?;
         }
     }
 
@@ -115,6 +164,7 @@ fn run_package_scripts(
     pkg_root: &Path,
     manifest_path: &Path,
     blocked: &mut Vec<String>,
+    blocked_seen: &mut BTreeSet<String>,
 ) -> Result<()> {
     let data = fs::read_to_string(manifest_path).map_err(|source| SnpmError::ReadFile {
         path: manifest_path.to_path_buf(),
@@ -149,7 +199,9 @@ fn run_package_scripts(
     }
 
     if !is_dep_script_allowed(config, workspace, &name) {
-        blocked.push(name);
+        if blocked_seen.insert(name.clone()) {
+            blocked.push(name);
+        }
         return Ok(());
     }
 

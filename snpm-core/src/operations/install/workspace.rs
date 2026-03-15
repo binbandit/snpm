@@ -1,10 +1,14 @@
 use crate::console;
+use crate::lifecycle;
 use crate::linker::{bins::link_bins, fs::symlink_dir_entry};
 use crate::lockfile;
 use crate::operations::install::utils::{
-    InstallResult, InstallScenario, check_store_cache, compute_lockfile_hash,
-    materialize_missing_packages, materialize_store,
+    InstallResult, InstallScenario, build_workspace_integrity_state, can_any_scripts_run,
+    check_integrity_path, check_store_cache, compute_project_patch_hash,
+    materialize_missing_packages, materialize_store, write_integrity_path,
 };
+use crate::operations::patch::get_patches_to_apply;
+use crate::patch;
 use crate::registry::RegistryProtocol;
 use crate::resolve::{self, PackageId, ResolutionGraph};
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
@@ -19,7 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tokio::task::JoinHandle;
 
-use super::manifest::apply_specs;
+use super::manifest::{RootSpecSet, apply_specs, build_project_root_specs};
 
 pub async fn install_workspace(
     config: &SnpmConfig,
@@ -40,47 +44,47 @@ pub async fn install_workspace(
     let registry_client = Client::new();
     let lockfile_path = workspace.root.join("snpm-lock.yaml");
 
-    if frozen_lockfile || config.frozen_lockfile_default {
-        if !lockfile_path.is_file() {
-            return Err(SnpmError::Lockfile {
-                path: lockfile_path,
-                reason: "frozen-lockfile requested but snpm-lock.yaml is missing".into(),
-            });
-        }
+    if (frozen_lockfile || config.frozen_lockfile_default) && !lockfile_path.is_file() {
+        return Err(SnpmError::Lockfile {
+            path: lockfile_path,
+            reason: "frozen-lockfile requested but snpm-lock.yaml is missing".into(),
+        });
     }
 
     let (scenario, existing_lockfile) =
         detect_workspace_scenario_early(workspace, &lockfile_path, config, force);
 
-    let (root_dependencies, root_protocols) = if matches!(scenario, InstallScenario::Hot) {
-        (BTreeMap::new(), BTreeMap::new())
-    } else {
-        let root_dependencies = collect_workspace_root_deps(workspace, include_dev)?;
+    let root_specs = collect_workspace_root_specs(workspace, include_dev)?;
+    let mut root_dependencies = root_specs.required.clone();
 
-        if root_dependencies.is_empty() {
-            console::summary(0, 0.0);
-            return Ok(InstallResult {
-                package_count: 0,
-                elapsed_seconds: 0.0,
-            });
-        }
+    for (name, range) in root_specs.optional.iter() {
+        root_dependencies.insert(name.clone(), range.clone());
+    }
 
-        let root_protocols: BTreeMap<String, RegistryProtocol> = root_dependencies
-            .iter()
-            .map(|(name, spec)| {
-                let protocol = super::manifest::detect_manifest_protocol(spec)
-                    .unwrap_or_else(RegistryProtocol::npm);
-                (name.clone(), protocol)
-            })
-            .collect();
+    if root_dependencies.is_empty() {
+        console::summary(0, 0.0);
+        return Ok(InstallResult {
+            package_count: 0,
+            elapsed_seconds: 0.0,
+        });
+    }
 
-        (root_dependencies, root_protocols)
-    };
+    let root_protocols: BTreeMap<String, RegistryProtocol> = root_dependencies
+        .iter()
+        .map(|(name, spec)| {
+            let protocol = super::manifest::detect_manifest_protocol(spec)
+                .unwrap_or_else(RegistryProtocol::npm);
+            (name.clone(), protocol)
+        })
+        .collect();
+    let optional_root_names: BTreeSet<String> = root_specs.optional.keys().cloned().collect();
 
-    let (scenario, existing_lockfile) = match scenario {
-        InstallScenario::Hot => (scenario, existing_lockfile),
-        _ => validate_lockfile_matches_manifest(scenario, existing_lockfile, &root_dependencies),
-    };
+    let (scenario, existing_lockfile) = validate_lockfile_matches_manifest(
+        scenario,
+        existing_lockfile,
+        &root_specs.required,
+        &root_specs.optional,
+    );
 
     let mut store_paths_map: BTreeMap<PackageId, PathBuf> = BTreeMap::new();
 
@@ -124,6 +128,7 @@ pub async fn install_workspace(
                 &registry_client,
                 &root_dependencies,
                 &root_protocols,
+                &optional_root_names,
                 force,
                 &mut store_paths_map,
             )
@@ -134,7 +139,7 @@ pub async fn install_workspace(
             }
 
             if include_dev {
-                lockfile::write(&lockfile_path, &graph)?;
+                lockfile::write(&lockfile_path, &graph, &root_specs.optional)?;
             }
 
             console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
@@ -170,8 +175,38 @@ pub async fn install_workspace(
         )
     })?;
 
-    let lockfile_hash = compute_lockfile_hash(&graph);
-    write_workspace_integrity(&workspace.root, &lockfile_hash)?;
+    let patches_applied = apply_workspace_patches(workspace, &store_paths_map)?;
+    if patches_applied > 0 {
+        console::verbose(&format!("applied {} workspace patches", patches_applied));
+    }
+
+    let blocked_scripts = if can_any_scripts_run(config, Some(workspace)) {
+        let roots: Vec<&Path> = workspace
+            .projects
+            .iter()
+            .map(|project| project.root.as_path())
+            .collect();
+        let blocked = lifecycle::run_install_scripts_for_projects(config, Some(workspace), &roots)?;
+
+        for project in &workspace.projects {
+            lifecycle::run_project_scripts(config, Some(workspace), &project.root)?;
+        }
+
+        blocked
+    } else {
+        Vec::new()
+    };
+
+    let workspace_integrity = build_workspace_integrity_state(workspace, &graph)?;
+    write_workspace_integrity(&workspace.root, &workspace_integrity)?;
+
+    for project in &workspace.projects {
+        let project_integrity = super::utils::IntegrityState {
+            lockfile_hash: workspace_integrity.lockfile_hash.clone(),
+            patch_hash: compute_project_patch_hash(project)?,
+        };
+        write_integrity_path(&project.root.join("node_modules"), &project_integrity)?;
+    }
 
     if include_dev {
         console::step("Saved lockfile");
@@ -185,6 +220,11 @@ pub async fn install_workspace(
 
     console::summary(package_count, seconds);
 
+    if !blocked_scripts.is_empty() {
+        println!();
+        console::blocked_scripts(&blocked_scripts);
+    }
+
     Ok(InstallResult {
         package_count,
         elapsed_seconds: seconds,
@@ -196,6 +236,7 @@ async fn resolve_workspace_deps(
     client: &Client,
     root_deps: &BTreeMap<String, String>,
     root_protocols: &BTreeMap<String, RegistryProtocol>,
+    optional_root_names: &BTreeSet<String>,
     force: bool,
     store_paths: &mut BTreeMap<PackageId, PathBuf>,
 ) -> Result<ResolutionGraph> {
@@ -216,11 +257,12 @@ async fn resolve_workspace_deps(
         let config_clone = config.clone();
         let client_clone = client.clone();
 
-        resolve::resolve(
+        resolve::resolve_with_optional_roots(
             config,
             client,
             root_deps,
             root_protocols,
+            optional_root_names,
             min_age,
             force,
             None,
@@ -294,9 +336,12 @@ fn detect_workspace_scenario_early(
     };
 
     let graph = lockfile::to_graph(&existing);
-    let lockfile_hash = compute_lockfile_hash(&graph);
+    let integrity_state = match build_workspace_integrity_state(workspace, &graph) {
+        Ok(state) => state,
+        Err(_) => return (InstallScenario::Cold, Some(existing)),
+    };
 
-    if !force && check_workspace_integrity(&workspace.root, &lockfile_hash) {
+    if !force && check_workspace_integrity(&workspace.root, &integrity_state) {
         return (InstallScenario::Hot, Some(existing));
     }
 
@@ -311,19 +356,13 @@ fn detect_workspace_scenario_early(
 fn validate_lockfile_matches_manifest(
     scenario: InstallScenario,
     lockfile: Option<lockfile::Lockfile>,
-    manifest_dependencies: &BTreeMap<String, String>,
+    required_root: &BTreeMap<String, String>,
+    optional_root: &BTreeMap<String, String>,
 ) -> (InstallScenario, Option<lockfile::Lockfile>) {
-    if let Some(ref existing) = lockfile {
-        let lockfile_dependencies: BTreeMap<String, String> = existing
-            .root
-            .dependencies
-            .iter()
-            .map(|(name, dep)| (name.clone(), dep.requested.clone()))
-            .collect();
-
-        if lockfile_dependencies != *manifest_dependencies {
-            return (InstallScenario::Cold, lockfile);
-        }
+    if let Some(ref existing) = lockfile
+        && !lockfile::root_specs_match(existing, required_root, optional_root)
+    {
+        return (InstallScenario::Cold, lockfile);
     }
 
     (scenario, lockfile)
@@ -335,7 +374,7 @@ fn rebuild_virtual_store_paths(
 ) -> Result<BTreeMap<PackageId, PathBuf>> {
     let mut paths = BTreeMap::new();
 
-    for (id, _) in &graph.packages {
+    for id in graph.packages.keys() {
         let safe_name = id.name.replace('/', "+");
         let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
         let package_location = virtual_id_dir.join("node_modules").join(&id.name);
@@ -459,7 +498,8 @@ fn link_project_dependencies(
         source,
     })?;
 
-    let (workspace_deps, workspace_dev_deps) = collect_workspace_protocol_deps(project);
+    let (workspace_deps, workspace_dev_deps, workspace_optional_deps) =
+        collect_workspace_protocol_deps(project);
 
     link_external_deps(
         &project.manifest.dependencies,
@@ -479,16 +519,27 @@ fn link_project_dependencies(
         )?;
     }
 
+    link_external_deps(
+        &project.manifest.optional_dependencies,
+        &workspace_optional_deps,
+        graph,
+        virtual_store_paths,
+        &node_modules,
+    )?;
+
     link_local_workspace_deps(
         project,
         Some(workspace),
         &workspace_deps,
         &workspace_dev_deps,
+        &workspace_optional_deps,
         include_dev,
     )
 }
 
-fn collect_workspace_protocol_deps(project: &Project) -> (BTreeSet<String>, BTreeSet<String>) {
+fn collect_workspace_protocol_deps(
+    project: &Project,
+) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>) {
     let deps = project
         .manifest
         .dependencies
@@ -505,7 +556,15 @@ fn collect_workspace_protocol_deps(project: &Project) -> (BTreeSet<String>, BTre
         .map(|(k, _)| k.clone())
         .collect();
 
-    (deps, dev_deps)
+    let optional_deps = project
+        .manifest
+        .optional_dependencies
+        .iter()
+        .filter(|(_, v)| v.starts_with("workspace:"))
+        .map(|(k, _)| k.clone())
+        .collect();
+
+    (deps, dev_deps, optional_deps)
 }
 
 fn link_external_deps(
@@ -555,32 +614,113 @@ fn create_symlink(target: &Path, destination: &Path) -> Result<()> {
     })
 }
 
-fn check_workspace_integrity(workspace_root: &Path, lockfile_hash: &str) -> bool {
-    let integrity_path = workspace_root.join("node_modules/.snpm-integrity");
-    match fs::read_to_string(&integrity_path) {
-        Ok(content) => content == format!("lockfile: {}\n", lockfile_hash),
-        Err(_) => false,
+fn apply_workspace_patches(
+    workspace: &Workspace,
+    store_paths: &BTreeMap<PackageId, PathBuf>,
+) -> Result<usize> {
+    let mut patches_to_apply = BTreeMap::<(String, String), (PathBuf, PathBuf)>::new();
+
+    for project in &workspace.projects {
+        for (name, version, patch_path) in get_patches_to_apply(project)? {
+            let safe_name = name.replace('/', "+");
+            let package_dir = project
+                .root
+                .join("node_modules")
+                .join(".snpm")
+                .join(format!("{}@{}", safe_name, version))
+                .join("node_modules")
+                .join(&name);
+
+            if !package_dir.exists() {
+                console::warn(&format!(
+                    "Patch for {}@{} skipped: package not installed in {}",
+                    name,
+                    version,
+                    project.root.display()
+                ));
+                continue;
+            }
+
+            let key = (name.clone(), version.clone());
+            if let Some((existing_patch, _)) = patches_to_apply.get(&key) {
+                if existing_patch != &patch_path {
+                    return Err(SnpmError::WorkspaceConfig {
+                        path: workspace.root.clone(),
+                        reason: format!(
+                            "conflicting patches configured for {}@{} across workspace projects",
+                            name, version
+                        ),
+                    });
+                }
+                continue;
+            }
+
+            patches_to_apply.insert(key, (patch_path, package_dir));
+        }
     }
+
+    let mut applied = 0;
+
+    for ((name, version), (patch_path, package_dir)) in patches_to_apply {
+        let package_id = PackageId {
+            name: name.clone(),
+            version: version.clone(),
+        };
+        let Some(store_path) = store_paths.get(&package_id) else {
+            console::warn(&format!(
+                "Patch for {}@{} skipped: package missing from cache graph",
+                name, version
+            ));
+            continue;
+        };
+
+        patch::materialize_patch_target(&package_dir, store_path)?;
+
+        match patch::apply_patch(&package_dir, &patch_path) {
+            Ok(()) => applied += 1,
+            Err(error) => {
+                console::warn(&format!(
+                    "Failed to apply patch for {}@{}: {}",
+                    name, version, error
+                ));
+            }
+        }
+    }
+
+    Ok(applied)
 }
 
-fn write_workspace_integrity(workspace_root: &Path, lockfile_hash: &str) -> Result<()> {
-    let node_modules = workspace_root.join("node_modules");
-    if !node_modules.is_dir() {
-        return Ok(());
-    }
-    let integrity_path = node_modules.join(".snpm-integrity");
-    let content = format!("lockfile: {}\n", lockfile_hash);
-    fs::write(&integrity_path, content).map_err(|source| SnpmError::WriteFile {
-        path: integrity_path,
-        source,
-    })
+fn check_workspace_integrity(workspace_root: &Path, state: &super::utils::IntegrityState) -> bool {
+    check_integrity_path(&workspace_root.join("node_modules"), state)
+}
+
+fn write_workspace_integrity(
+    workspace_root: &Path,
+    state: &super::utils::IntegrityState,
+) -> Result<()> {
+    write_integrity_path(&workspace_root.join("node_modules"), state)
 }
 
 pub fn collect_workspace_root_deps(
     workspace: &Workspace,
     include_dev: bool,
 ) -> Result<BTreeMap<String, String>> {
-    let mut combined = BTreeMap::new();
+    let root_specs = collect_workspace_root_specs(workspace, include_dev)?;
+    let mut combined = root_specs.required;
+
+    for (name, range) in root_specs.optional {
+        combined.entry(name).or_insert(range);
+    }
+
+    Ok(combined)
+}
+
+pub fn collect_workspace_root_specs(
+    workspace: &Workspace,
+    include_dev: bool,
+) -> Result<RootSpecSet> {
+    let mut required = BTreeMap::new();
+    let mut optional = BTreeMap::new();
 
     for member in workspace.projects.iter() {
         let mut local = BTreeSet::new();
@@ -591,34 +731,57 @@ pub fn collect_workspace_root_deps(
             &mut local,
             None,
         )?;
+        let mut local_optional = BTreeSet::new();
+        let optional_dependencies = apply_specs(
+            &member.manifest.optional_dependencies,
+            Some(workspace),
+            None,
+            &mut local_optional,
+            None,
+        )?;
 
-        for (name, range) in dependencies.iter() {
-            insert_workspace_root_dep(&mut combined, &workspace.root, &member.root, name, range)?;
-        }
-
-        if include_dev {
+        let development_dependencies = if include_dev {
             let mut local_development = BTreeSet::new();
-            let development_dependencies = apply_specs(
+            apply_specs(
                 &member.manifest.dev_dependencies,
                 Some(workspace),
                 None,
                 &mut local_development,
                 None,
-            )?;
+            )?
+        } else {
+            BTreeMap::new()
+        };
 
-            for (name, range) in development_dependencies.iter() {
-                insert_workspace_root_dep(
-                    &mut combined,
-                    &workspace.root,
-                    &member.root,
-                    name,
-                    range,
-                )?;
+        let member_specs = build_project_root_specs(
+            &dependencies,
+            &development_dependencies,
+            &optional_dependencies,
+            include_dev,
+        );
+
+        for (name, range) in member_specs.required.iter() {
+            insert_workspace_root_dep(&mut required, &workspace.root, &member.root, name, range)?;
+        }
+
+        for (name, range) in member_specs.optional.iter() {
+            if let Some(existing) = required.get(name) {
+                if existing != range {
+                    return Err(SnpmError::WorkspaceConfig {
+                        path: workspace.root.clone(),
+                        reason: format!(
+                            "dependency {name} has conflicting ranges {existing} and {range} across workspace projects"
+                        ),
+                    });
+                }
+                continue;
             }
+
+            insert_workspace_root_dep(&mut optional, &workspace.root, &member.root, name, range)?;
         }
     }
 
-    Ok(combined)
+    Ok(RootSpecSet { required, optional })
 }
 
 pub fn insert_workspace_root_dep(
@@ -724,9 +887,10 @@ pub fn link_local_workspace_deps(
     workspace: Option<&Workspace>,
     local_deps: &BTreeSet<String>,
     local_dev_deps: &BTreeSet<String>,
+    local_optional_deps: &BTreeSet<String>,
     include_dev: bool,
 ) -> Result<()> {
-    if local_deps.is_empty() && local_dev_deps.is_empty() {
+    if local_deps.is_empty() && local_dev_deps.is_empty() && local_optional_deps.is_empty() {
         return Ok(());
     }
 
@@ -742,7 +906,11 @@ pub fn link_local_workspace_deps(
 
     let node_modules = project.root.join("node_modules");
 
-    for name in local_deps.iter().chain(local_dev_deps.iter()) {
+    for name in local_deps
+        .iter()
+        .chain(local_dev_deps.iter())
+        .chain(local_optional_deps.iter())
+    {
         let only_dev = local_dev_deps.contains(name) && !local_deps.contains(name);
         if !include_dev && only_dev {
             continue;
@@ -759,13 +927,13 @@ pub fn link_local_workspace_deps(
 
         let dest = node_modules.join(name);
 
-        if let Some(parent) = dest.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
+        if let Some(parent) = dest.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                path: parent.to_path_buf(),
+                source,
+            })?;
         }
 
         if dest.exists() {

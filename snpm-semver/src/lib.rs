@@ -209,7 +209,7 @@ pub fn parse_version(input: &str) -> Result<Version, semver::Error> {
 }
 
 fn normalize_leading_zeros(input: &str) -> String {
-    let (version_part, suffix) = match input.find(|c| c == '-' || c == '+') {
+    let (version_part, suffix) = match input.find(['-', '+']) {
         Some(index) => (&input[..index], &input[index..]),
         None => (input, ""),
     };

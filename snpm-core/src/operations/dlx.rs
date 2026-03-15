@@ -6,7 +6,7 @@ use crate::store;
 use crate::{Project, Result, SnpmConfig, SnpmError};
 use futures::lock::Mutex;
 use reqwest::Client;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
@@ -71,6 +71,7 @@ pub async fn dlx_with_offline(
         &registry_client,
         &root_deps,
         &root_protocols,
+        &BTreeSet::new(),
         config.min_package_age_days,
         true,
         None,

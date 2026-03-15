@@ -8,6 +8,12 @@ use std::path::PathBuf;
 
 use super::workspace::validate_workspace_spec;
 
+#[derive(Debug, Clone)]
+pub struct RootSpecSet {
+    pub required: BTreeMap<String, String>,
+    pub optional: BTreeMap<String, String>,
+}
+
 pub fn write_manifest(
     project: &mut Project,
     graph: &ResolutionGraph,
@@ -72,18 +78,39 @@ pub fn write_manifest(
 pub fn build_project_manifest_root(
     dependencies: &BTreeMap<String, String>,
     development_dependencies: &BTreeMap<String, String>,
-    _optional_dependencies: &BTreeMap<String, String>,
+    optional_dependencies: &BTreeMap<String, String>,
     include_dev: bool,
 ) -> BTreeMap<String, String> {
-    let mut root = dependencies.clone();
+    build_project_root_specs(
+        dependencies,
+        development_dependencies,
+        optional_dependencies,
+        include_dev,
+    )
+    .required
+}
+
+pub fn build_project_root_specs(
+    dependencies: &BTreeMap<String, String>,
+    development_dependencies: &BTreeMap<String, String>,
+    optional_dependencies: &BTreeMap<String, String>,
+    include_dev: bool,
+) -> RootSpecSet {
+    let mut required = dependencies.clone();
 
     if include_dev {
         for (name, range) in development_dependencies.iter() {
-            root.entry(name.clone()).or_insert(range.clone());
+            required.entry(name.clone()).or_insert(range.clone());
         }
     }
 
-    root
+    let optional = optional_dependencies.clone();
+
+    for name in optional.keys() {
+        required.remove(name);
+    }
+
+    RootSpecSet { required, optional }
 }
 
 pub fn apply_specs(
@@ -285,5 +312,26 @@ pub fn parse_spec(spec: &str) -> (String, String) {
         (name.to_string(), requested)
     } else {
         (spec.to_string(), "latest".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_project_root_specs;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn optional_dependencies_override_required_roots() {
+        let dependencies = BTreeMap::from([("left-pad".to_string(), "^1.0.0".to_string())]);
+        let optional = BTreeMap::from([("left-pad".to_string(), "^2.0.0".to_string())]);
+
+        let root_specs =
+            build_project_root_specs(&dependencies, &BTreeMap::new(), &optional, false);
+
+        assert!(root_specs.required.is_empty());
+        assert_eq!(
+            root_specs.optional.get("left-pad").map(String::as_str),
+            Some("^2.0.0")
+        );
     }
 }

@@ -5,7 +5,8 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use super::install::{
-    InstallOptions, apply_specs, build_project_manifest_root, collect_workspace_root_deps,
+    InstallOptions, apply_specs, build_project_integrity_state, build_project_root_specs,
+    check_integrity_file, collect_workspace_root_specs,
 };
 
 pub enum StalenessReason {
@@ -42,15 +43,15 @@ pub fn check_staleness(project: &Project, workspace: Option<&Workspace>) -> Stal
     }
 
     let integrity_path = node_modules.join(".snpm-integrity");
-    let integrity_content = match fs::read_to_string(&integrity_path) {
-        Ok(content) => content,
+    match fs::read_to_string(&integrity_path) {
+        Ok(_) => {}
         Err(_) => {
             return StalenessCheck {
                 is_stale: true,
                 reason: Some(StalenessReason::NoIntegrityFile),
             };
         }
-    };
+    }
 
     let existing_lockfile = match lockfile::read(&lockfile_path) {
         Ok(lockfile) => lockfile,
@@ -62,7 +63,7 @@ pub fn check_staleness(project: &Project, workspace: Option<&Workspace>) -> Stal
         }
     };
 
-    let manifest_root = match build_manifest_root(project, workspace) {
+    let manifest_specs = match build_manifest_root(project, workspace) {
         Ok(root) => root,
         Err(_) => {
             return StalenessCheck {
@@ -72,12 +73,11 @@ pub fn check_staleness(project: &Project, workspace: Option<&Workspace>) -> Stal
         }
     };
 
-    let mut lock_requested = std::collections::BTreeMap::new();
-    for (name, dep) in existing_lockfile.root.dependencies.iter() {
-        lock_requested.insert(name.clone(), dep.requested.clone());
-    }
-
-    if lock_requested != manifest_root {
+    if !lockfile::root_specs_match(
+        &existing_lockfile,
+        &manifest_specs.required,
+        &manifest_specs.optional,
+    ) {
         return StalenessCheck {
             is_stale: true,
             reason: Some(StalenessReason::ManifestChanged),
@@ -85,10 +85,17 @@ pub fn check_staleness(project: &Project, workspace: Option<&Workspace>) -> Stal
     }
 
     let graph = lockfile::to_graph(&existing_lockfile);
-    let lockfile_hash = super::install::compute_lockfile_hash(&graph);
-    let expected = format!("lockfile: {}\n", lockfile_hash);
+    let integrity_state = match build_project_integrity_state(project, &graph) {
+        Ok(state) => state,
+        Err(_) => {
+            return StalenessCheck {
+                is_stale: true,
+                reason: Some(StalenessReason::IntegrityMismatch),
+            };
+        }
+    };
 
-    if integrity_content != expected {
+    if !check_integrity_file(project, &integrity_state) {
         return StalenessCheck {
             is_stale: true,
             reason: Some(StalenessReason::IntegrityMismatch),
@@ -104,7 +111,7 @@ pub fn check_staleness(project: &Project, workspace: Option<&Workspace>) -> Stal
 fn build_manifest_root(
     project: &Project,
     workspace: Option<&Workspace>,
-) -> Result<std::collections::BTreeMap<String, String>> {
+) -> Result<super::install::RootSpecSet> {
     let catalog = if workspace.is_none() {
         CatalogConfig::load(&project.root)?
     } else {
@@ -113,6 +120,7 @@ fn build_manifest_root(
 
     let mut local_deps = BTreeSet::new();
     let mut local_dev_deps = BTreeSet::new();
+    let mut local_optional_deps = BTreeSet::new();
 
     let dependencies = apply_specs(
         &project.manifest.dependencies,
@@ -129,14 +137,21 @@ fn build_manifest_root(
         &mut local_dev_deps,
         None,
     )?;
+    let optional_dependencies = apply_specs(
+        &project.manifest.optional_dependencies,
+        workspace,
+        catalog.as_ref(),
+        &mut local_optional_deps,
+        None,
+    )?;
 
     if let Some(ws) = workspace {
-        collect_workspace_root_deps(ws, true)
+        collect_workspace_root_specs(ws, true)
     } else {
-        Ok(build_project_manifest_root(
+        Ok(build_project_root_specs(
             &dependencies,
             &development_dependencies,
-            &project.manifest.optional_dependencies,
+            &optional_dependencies,
             true,
         ))
     }
@@ -176,10 +191,7 @@ pub async fn lazy_install(config: &SnpmConfig, project: &mut Project) -> Result<
 }
 
 pub fn is_stale(project: &Project) -> bool {
-    let workspace = match Workspace::discover(&project.root) {
-        Ok(ws) => ws,
-        Err(_) => None,
-    };
+    let workspace = Workspace::discover(&project.root).unwrap_or_default();
 
     check_staleness(project, workspace.as_ref()).is_stale
 }

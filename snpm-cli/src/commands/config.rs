@@ -118,7 +118,7 @@ fn print_token_map(label: &str, values: &BTreeMap<String, String>) {
     }
 
     console::info(&format!("  {}:", label));
-    for (key, _value) in values {
+    for key in values.keys() {
         console::info(&format!("    {}: set", key));
     }
 }

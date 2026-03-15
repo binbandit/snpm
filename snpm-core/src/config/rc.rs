@@ -1,4 +1,4 @@
-use super::HoistingMode;
+use super::{AuthScheme, HoistingMode};
 use directories::BaseDirs;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -141,20 +141,22 @@ pub fn read_min_package_cache_age_from_env() -> Option<u32> {
     Some(7)
 }
 
-pub fn read_registry_config() -> (
-    String,
-    BTreeMap<String, String>,
-    BTreeMap<String, String>,
-    Option<String>,
-    Option<HoistingMode>,
-    bool,
-) {
-    let mut default_registry = "https://registry.npmjs.org/".to_string();
-    let mut scoped = BTreeMap::new();
-    let mut registry_auth = BTreeMap::new();
-    let mut default_auth_token = None;
-    let mut hoisting = None;
-    let mut rc_default_auth_basic = false;
+#[derive(Default)]
+pub struct RegistryConfig {
+    pub default_registry: String,
+    pub scoped: BTreeMap<String, String>,
+    pub registry_auth: BTreeMap<String, String>,
+    pub registry_auth_schemes: BTreeMap<String, AuthScheme>,
+    pub default_auth_token: Option<String>,
+    pub hoisting: Option<HoistingMode>,
+    pub default_auth_basic: bool,
+}
+
+pub fn read_registry_config() -> RegistryConfig {
+    let mut config = RegistryConfig {
+        default_registry: "https://registry.npmjs.org/".to_string(),
+        ..RegistryConfig::default()
+    };
 
     if let Some(base) = BaseDirs::new() {
         let home = base.home_dir();
@@ -162,15 +164,7 @@ pub fn read_registry_config() -> (
 
         for rc_name in rc_files.iter() {
             let path = home.join(rc_name);
-            apply_rc_file(
-                &path,
-                &mut default_registry,
-                &mut scoped,
-                &mut registry_auth,
-                &mut default_auth_token,
-                &mut hoisting,
-                &mut rc_default_auth_basic,
-            );
+            apply_rc_file(&path, &mut config);
         }
     }
 
@@ -183,15 +177,7 @@ pub fn read_registry_config() -> (
         for rc_name in rc_files.iter() {
             let path = dir.join(rc_name);
 
-            apply_rc_file(
-                &path,
-                &mut default_registry,
-                &mut scoped,
-                &mut registry_auth,
-                &mut default_auth_token,
-                &mut hoisting,
-                &mut rc_default_auth_basic,
-            );
+            apply_rc_file(&path, &mut config);
         }
 
         directory = dir.parent().map(|p| p.to_path_buf());
@@ -200,25 +186,10 @@ pub fn read_registry_config() -> (
         }
     }
 
-    (
-        default_registry,
-        scoped,
-        registry_auth,
-        default_auth_token,
-        hoisting,
-        rc_default_auth_basic,
-    )
+    config
 }
 
-pub fn apply_rc_file(
-    path: &Path,
-    default_registry: &mut String,
-    scoped: &mut BTreeMap<String, String>,
-    registry_auth: &mut BTreeMap<String, String>,
-    default_auth_token: &mut Option<String>,
-    hoisting: &mut Option<HoistingMode>,
-    default_auth_basic: &mut bool,
-) {
+pub fn apply_rc_file(path: &Path, config: &mut RegistryConfig) {
     if !path.is_file() {
         return;
     }
@@ -241,25 +212,32 @@ pub fn apply_rc_file(
 
                 if key == "registry" {
                     if !value.is_empty() {
-                        *default_registry = normalize_registry_url(&value);
+                        config.default_registry = normalize_registry_url(&value);
                     }
                 } else if key == "snpm-hoist" || key == "snpm.hoist" || key == "snpm_hoist" {
-                    if let Some(mode) = HoistingMode::from_str(&value) {
-                        *hoisting = Some(mode);
+                    if let Some(mode) = HoistingMode::parse(&value) {
+                        config.hoisting = Some(mode);
                     }
                 } else if let Some(scope) = key.strip_suffix(":registry") {
                     let scope = scope.trim();
                     if !scope.is_empty() && !value.is_empty() {
-                        scoped.insert(scope.to_string(), normalize_registry_url(&value));
+                        config
+                            .scoped
+                            .insert(scope.to_string(), normalize_registry_url(&value));
                     }
                 } else if let Some(rest) = key.strip_prefix("//") {
-                    let host_and_path = if let Some(prefix) = rest.strip_suffix("/:_authToken") {
-                        prefix
-                    } else if let Some(prefix) = rest.strip_suffix(":_authToken") {
-                        prefix
-                    } else {
-                        ""
-                    };
+                    let (host_and_path, auth_scheme) =
+                        if let Some(prefix) = rest.strip_suffix("/:_authToken") {
+                            (prefix, Some(AuthScheme::Bearer))
+                        } else if let Some(prefix) = rest.strip_suffix(":_authToken") {
+                            (prefix, Some(AuthScheme::Bearer))
+                        } else if let Some(prefix) = rest.strip_suffix("/:_auth") {
+                            (prefix, Some(AuthScheme::Basic))
+                        } else if let Some(prefix) = rest.strip_suffix(":_auth") {
+                            (prefix, Some(AuthScheme::Basic))
+                        } else {
+                            ("", None)
+                        };
 
                     if !host_and_path.is_empty() {
                         let raw_host = host_and_path
@@ -280,18 +258,23 @@ pub fn apply_rc_file(
                         }
 
                         if !host.is_empty() && !value.is_empty() {
-                            registry_auth.insert(host.to_string(), value);
+                            config.registry_auth.insert(host.to_string(), value);
+                            if let Some(scheme) = auth_scheme {
+                                config
+                                    .registry_auth_schemes
+                                    .insert(host.to_string(), scheme);
+                            }
                         }
                     }
                 } else if key == "_authToken" {
                     if !value.is_empty() {
-                        *default_auth_token = Some(value);
+                        config.default_auth_token = Some(value);
                     }
                 } else if key == "_auth" {
                     // Support legacy _auth entries (basic auth). Store as default token and mark scheme
                     if !value.is_empty() {
-                        *default_auth_token = Some(value);
-                        *default_auth_basic = true;
+                        config.default_auth_token = Some(value);
+                        config.default_auth_basic = true;
                     }
                 } else if key == "always-auth" || key == "always_auth" || key == "always.auth" {
                     let value = value.trim().to_ascii_lowercase();
@@ -337,4 +320,38 @@ pub(crate) fn host_from_url(url: &str) -> Option<String> {
     }
 
     if host.is_empty() { None } else { Some(host) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn parses_scoped_basic_auth_entries() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(
+            file.path(),
+            "//registry.example.com/:_auth=dGVzdDp0b2tlbg==\n",
+        )
+        .unwrap();
+
+        let mut config = RegistryConfig::default();
+
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(
+            config
+                .registry_auth
+                .get("registry.example.com")
+                .map(String::as_str),
+            Some("dGVzdDp0b2tlbg==")
+        );
+        assert_eq!(
+            config.registry_auth_schemes.get("registry.example.com"),
+            Some(&AuthScheme::Basic)
+        );
+        assert!(config.default_auth_token.is_none());
+        assert!(!config.default_auth_basic);
+    }
 }

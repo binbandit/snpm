@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.3.14] - 2026-03-14
+## [2026.3.15] - 2026-03-15
 
 ### <!-- 0 -->🚀 Features
 
@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - *(core)* Add lockfile-based why dependency analysis ([758634d](https://github.com/binbandit/snpm/commit/758634de83f19b620fa0baad8cf94bf61815f7d5))
 - *(cli)* Add why command with json and depth options ([0f03b93](https://github.com/binbandit/snpm/commit/0f03b9316126110dae86cc531566205c302667b6))
 - Add optionalDependencies support to package.json parsing ([5685938](https://github.com/binbandit/snpm/commit/56859388460ad0e70676580e86bc7e5be0b8085c))
+- *(cli-switch)* Add version override flags ([7cfdf00](https://github.com/binbandit/snpm/commit/7cfdf004fe27dcb5f9f0b580b6695b1ee286a70e))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -51,6 +52,7 @@ All notable changes to this project will be documented in this file.
 - *(config)* Remove unused runtime config module ([a0f5214](https://github.com/binbandit/snpm/commit/a0f52146f6e32a0ff2d18e61f054760557f31b8c))
 - *(linker)* Introduce virtual store layout ([7257ea3](https://github.com/binbandit/snpm/commit/7257ea341a0a6d3f1fe103b4a6104a028a0987c8))
 - *(linker)* Remove unused import ([41fe443](https://github.com/binbandit/snpm/commit/41fe443e618001c41c112cc0cf4c285a89206071))
+- *(cli-core)* Simplify workspace handling ([89aeed0](https://github.com/binbandit/snpm/commit/89aeed0faa30bbf74e25110f82560c228f371a4f))
 
 ### <!-- 3 -->📚 Documentation
 
@@ -180,7 +182,9 @@ All notable changes to this project will be documented in this file.
 - *(pkg)* Bump version to 2026.3.13 in npm-package/package.json ([8aa633f](https://github.com/binbandit/snpm/commit/8aa633f05a33dbdc0afd1b3297571409121232b5))
 - *(release)* Bump version to 2026.3.13 [skip ci] ([35fb11c](https://github.com/binbandit/snpm/commit/35fb11ccff4c6f488f1070f72515d28f362a46f7))
 - *(release)* Merge 2026.3.13 release [skip ci] ([115d939](https://github.com/binbandit/snpm/commit/115d9393fab3f34fe280ee80790a071bf04bc0d6))
-- *(release)* Bump version to 2026.3.14 [skip ci] ([41f7de8](https://github.com/binbandit/snpm/commit/41f7de88700f3560ebfca99edc3fc4d878d509dc))
+- *(release)* Bump version to 2026.3.14 [skip ci] ([09dcf0c](https://github.com/binbandit/snpm/commit/09dcf0c79b3162b7d9eba2230190aea754e23c33))
+- *(release)* Merge 2026.3.14 release [skip ci] ([f4b0c34](https://github.com/binbandit/snpm/commit/f4b0c345b874c3c621bee192d8b16ee4b19ce867))
+- *(release)* Bump version to 2026.3.15 [skip ci] ([bb892b9](https://github.com/binbandit/snpm/commit/bb892b9e0e85874e4b9e5f460a3f7caf20ae8368))
 
 ## [2025.12.24] - 2025-12-24
 

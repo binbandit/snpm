@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use clap::{Args, ValueEnum};
 use snpm_core::{SnpmConfig, SnpmError, console, operations};
 use std::env;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
 pub enum AuthTypeArg {
@@ -156,7 +156,7 @@ fn read_password(prompt: &str) -> Result<String> {
     print!("{prompt}");
     io::stdout().flush()?;
 
-    let password = if atty::is(atty::Stream::Stdin) {
+    let password = if std::io::stdin().is_terminal() {
         rpassword::read_password()?
     } else {
         let mut input = String::new();

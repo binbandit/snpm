@@ -3,7 +3,6 @@ use clap::{Args, ValueEnum};
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::collections::HashSet;
 use std::env;
-use std::process;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputFormat {
@@ -100,7 +99,7 @@ pub async fn run(args: AuditArgs, config: &SnpmConfig) -> Result<()> {
     };
 
     if has_vulnerabilities {
-        process::exit(1);
+        anyhow::bail!("vulnerabilities found");
     }
 
     Ok(())

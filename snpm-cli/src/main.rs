@@ -12,7 +12,7 @@ use cli::{Cli, Command};
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
-        console::error(&format!("{error}"));
+        console::error(&format!("{error:#}"));
         process::exit(1);
     }
 }

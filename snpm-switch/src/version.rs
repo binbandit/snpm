@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use tar::Archive;
 
 pub fn ensure_version(version: &str) -> anyhow::Result<PathBuf> {
-    let version_dir = config::versions_dir().join(version);
+    let version_dir = config::versions_dir()?.join(version);
     let complete_marker = version_dir.join(".snpm_complete");
     let binary_path = binary_path_for_version(&version_dir);
 
@@ -50,7 +50,7 @@ pub fn ensure_latest() -> anyhow::Result<PathBuf> {
 }
 
 pub fn list_cached_versions() -> anyhow::Result<Vec<String>> {
-    let versions_dir = config::versions_dir();
+    let versions_dir = config::versions_dir()?;
 
     if !versions_dir.is_dir() {
         return Ok(Vec::new());
@@ -74,7 +74,7 @@ pub fn list_cached_versions() -> anyhow::Result<Vec<String>> {
 }
 
 pub fn clear_cache() -> anyhow::Result<()> {
-    let versions_dir = config::versions_dir();
+    let versions_dir = config::versions_dir()?;
 
     if versions_dir.is_dir() {
         fs::remove_dir_all(&versions_dir)?;

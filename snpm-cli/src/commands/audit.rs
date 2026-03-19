@@ -21,11 +21,11 @@ pub struct AuditArgs {
     pub audit_level: Option<String>,
 
     /// Only audit production dependencies (no devDependencies)
-    #[arg(long, short = 'P')]
+    #[arg(long, short = 'P', conflicts_with = "dev")]
     pub prod: bool,
 
     /// Only audit devDependencies
-    #[arg(long, short = 'D')]
+    #[arg(long, short = 'D', conflicts_with = "prod")]
     pub dev: bool,
 
     /// Output format (table, json, sarif)

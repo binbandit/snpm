@@ -97,6 +97,9 @@ pub enum SnpmError {
     #[error("Authentication error: {reason}")]
     Auth { reason: String },
 
+    #[error("One-time password required")]
+    OtpRequired,
+
     #[error("I/O error at {path:?}: {source}")]
     Io {
         path: PathBuf,

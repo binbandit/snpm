@@ -106,7 +106,7 @@ async fn authenticate(
         {
             Ok(result) => return Ok(result),
 
-            Err(SnpmError::Auth { reason }) if reason == "OTP required" => {
+            Err(SnpmError::OtpRequired) => {
                 // Recover credentials that were entered during the prompt closure
                 if cached_credentials.is_none() {
                     if let Some(creds) = captured_credentials.lock().unwrap().take() {

@@ -321,9 +321,7 @@ async fn handle_couch_response(
         let body = response.text().await.unwrap_or_default();
 
         if status == StatusCode::UNAUTHORIZED && body.contains("one-time pass") {
-            return Err(SnpmError::Auth {
-                reason: "OTP required".into(),
-            });
+            return Err(SnpmError::OtpRequired);
         }
 
         return Err(SnpmError::Auth {

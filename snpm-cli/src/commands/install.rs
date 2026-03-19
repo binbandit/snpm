@@ -35,7 +35,7 @@ pub async fn run(arguments: InstallArgs, config: &SnpmConfig) -> Result<()> {
             .iter_mut()
             .find(|project| project.manifest.name.as_deref() == Some(workspace_name.as_str()))
             .ok_or_else(|| {
-                anyhow::anyhow!(format!("workspace project {workspace_name} not found"))
+                anyhow::anyhow!("workspace project {workspace_name} not found")
             })?;
 
         let options = operations::InstallOptions {

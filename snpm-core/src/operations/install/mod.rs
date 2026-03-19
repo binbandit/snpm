@@ -7,10 +7,9 @@ use crate::registry::RegistryProtocol;
 use crate::resolve;
 use crate::store;
 use crate::workspace::{CatalogConfig, OverridesConfig};
-use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, http};
 
 use futures::lock::Mutex;
-use reqwest::Client;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,7 +41,7 @@ pub async fn install(
         options.force,
     ));
 
-    let registry_client = Client::new();
+    let registry_client = http::create_client()?;
 
     let (requested_ranges_raw, requested_protocols_raw) =
         parse_requested_with_protocol(&options.requested);
@@ -602,7 +601,7 @@ pub async fn outdated(
 ) -> Result<Vec<OutdatedEntry>> {
     let workspace = Workspace::discover(&project.root)?;
 
-    let registry_client = Client::new();
+    let registry_client = http::create_client()?;
 
     let overrides = if let Some(ref workspace_reference) = workspace {
         match OverridesConfig::load(&workspace_reference.root)? {

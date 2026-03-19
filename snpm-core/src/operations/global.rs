@@ -2,8 +2,7 @@ use crate::linker::bins::link_bins;
 use crate::linker::fs::link_dir;
 use crate::resolve;
 use crate::store;
-use crate::{Result, SnpmConfig, SnpmError, console};
-use reqwest::Client;
+use crate::{Result, SnpmConfig, SnpmError, console, http};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
@@ -13,7 +12,7 @@ pub async fn install_global(config: &SnpmConfig, packages: Vec<String>) -> Resul
         return Ok(());
     }
 
-    let client = Client::new();
+    let client = http::create_client()?;
     let global_dir = config.global_dir();
     let global_bin_dir = config.global_bin_dir();
 

@@ -1,7 +1,7 @@
-use crate::{Result, SnpmConfig, SnpmError};
+use crate::{Result, SnpmConfig, SnpmError, http};
 use base64::Engine;
 use directories::BaseDirs;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -73,7 +73,7 @@ where
 }
 
 async fn web_login(registry: &str, opener: OpenerFn) -> Result<AuthResult> {
-    let client = Client::new();
+    let client = http::create_client()?;
     let endpoint = format!("{}/-/v1/login", registry.trim_end_matches('/'));
 
     let response = client
@@ -126,7 +126,7 @@ async fn web_login(registry: &str, opener: OpenerFn) -> Result<AuthResult> {
     poll_for_token(&client, &init.done_url).await
 }
 
-async fn poll_for_token(client: &Client, done_url: &str) -> Result<AuthResult> {
+async fn poll_for_token(client: &reqwest::Client, done_url: &str) -> Result<AuthResult> {
     #[derive(Deserialize)]
     struct TokenResponse {
         token: Option<String>,
@@ -193,7 +193,7 @@ async fn couch_login(
     password: &str,
     otp: Option<&str>,
 ) -> Result<AuthResult> {
-    let client = Client::new();
+    let client = http::create_client()?;
     let endpoint = format!(
         "{}/-/user/org.couchdb.user:{}",
         registry.trim_end_matches('/'),
@@ -240,7 +240,7 @@ async fn couch_login_existing_user(
     password: &str,
     otp: Option<&str>,
 ) -> Result<AuthResult> {
-    let client = Client::new();
+    let client = http::create_client()?;
     let user_url = format!(
         "{}/-/user/org.couchdb.user:{}",
         registry.trim_end_matches('/'),

@@ -2,6 +2,7 @@ pub mod cache;
 pub mod config;
 pub mod console;
 pub mod error;
+pub mod http;
 pub mod lifecycle;
 pub mod linker;
 pub mod lockfile;

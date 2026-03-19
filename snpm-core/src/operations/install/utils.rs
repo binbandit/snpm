@@ -1,9 +1,8 @@
 use crate::resolve::{PackageId, ResolutionGraph, ResolvedPackage};
 use crate::store;
-use crate::{Project, Workspace};
+use crate::{Project, Workspace, http};
 use crate::{Result, SnpmConfig, SnpmError, lockfile};
 use futures::future::join_all;
-use reqwest::Client;
 use std::collections::BTreeMap;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -195,7 +194,7 @@ pub async fn materialize_missing_packages(
         return Ok(BTreeMap::new());
     }
 
-    let client = Client::new();
+    let client = http::create_client()?;
     let total = missing.len();
     let progress_count = Arc::new(AtomicUsize::new(0));
     let mut futures = Vec::with_capacity(total);
@@ -232,7 +231,7 @@ pub async fn materialize_store(
     config: &SnpmConfig,
     graph: &ResolutionGraph,
 ) -> Result<BTreeMap<PackageId, PathBuf>> {
-    let client = Client::new();
+    let client = http::create_client()?;
     let mut futures = Vec::new();
 
     for package in graph.packages.values() {

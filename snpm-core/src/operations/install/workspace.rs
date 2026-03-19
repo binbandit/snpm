@@ -11,9 +11,8 @@ use crate::operations::patch::get_patches_to_apply;
 use crate::patch;
 use crate::registry::RegistryProtocol;
 use crate::resolve::{self, PackageId, ResolutionGraph};
-use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, http};
 use rayon::prelude::*;
-use reqwest::Client;
 use snpm_semver::RangeSet;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -41,7 +40,7 @@ pub async fn install_workspace(
         });
     }
 
-    let registry_client = Client::new();
+    let registry_client = http::create_client()?;
     let lockfile_path = workspace.root.join("snpm-lock.yaml");
 
     if (frozen_lockfile || config.frozen_lockfile_default) && !lockfile_path.is_file() {
@@ -233,7 +232,7 @@ pub async fn install_workspace(
 
 async fn resolve_workspace_deps(
     config: &SnpmConfig,
-    client: &Client,
+    client: &reqwest::Client,
     root_deps: &BTreeMap<String, String>,
     root_protocols: &BTreeMap<String, RegistryProtocol>,
     optional_root_names: &BTreeSet<String>,

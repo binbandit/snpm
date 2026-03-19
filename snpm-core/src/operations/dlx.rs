@@ -3,9 +3,8 @@ use crate::console;
 use crate::linker;
 use crate::resolve;
 use crate::store;
-use crate::{Project, Result, SnpmConfig, SnpmError};
+use crate::{Project, Result, SnpmConfig, SnpmError, http};
 use futures::lock::Mutex;
-use reqwest::Client;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
@@ -42,7 +41,7 @@ pub async fn dlx_with_offline(
     let mut root_deps = BTreeMap::new();
     root_deps.insert(name.clone(), range.clone());
 
-    let registry_client = Client::new();
+    let registry_client = http::create_client()?;
 
     console::step("Resolving package for dlx");
 

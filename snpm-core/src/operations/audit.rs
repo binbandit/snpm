@@ -1,6 +1,5 @@
 use crate::lockfile::{self, Lockfile};
-use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
-use reqwest::Client;
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, http};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -584,9 +583,7 @@ async fn audit_lockfile(
     dev_names: &HashSet<String>,
     options: &AuditOptions,
 ) -> Result<AuditResult> {
-    let client = Client::builder()
-        .build()
-        .map_err(|source| SnpmError::HttpClient { source })?;
+    let client = http::create_client()?;
 
     let request = build_audit_request(lockfile, project_name, dev_names, options);
     let total_packages = lockfile.packages.len();

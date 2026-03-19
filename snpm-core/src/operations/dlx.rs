@@ -216,23 +216,4 @@ fn run_bin(bin_path: &PathBuf, arguments: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn parse_spec(spec: &str) -> (String, String) {
-    if let Some(without_at) = spec.strip_prefix('@') {
-        if let Some(index) = without_at.rfind('@') {
-            let (scope_and_name, range) = without_at.split_at(index);
-            let name = format!("@{}", scope_and_name);
-            let requested = range.trim_start_matches('@').to_string();
-            return (name, requested);
-        } else {
-            return (spec.to_string(), "latest".to_string());
-        }
-    }
-
-    if let Some(index) = spec.rfind('@') {
-        let (name, range) = spec.split_at(index);
-        let requested = range.trim_start_matches('@').to_string();
-        (name.to_string(), requested)
-    } else {
-        (spec.to_string(), "latest".to_string())
-    }
-}
+use super::install::manifest::parse_spec;

@@ -47,10 +47,10 @@ fn check_platform_list(list: &[String], current: &str) -> bool {
 
     // If any negation matches the current platform, it's excluded
     for entry in list {
-        if let Some(negated) = entry.strip_prefix('!') {
-            if negated == current {
-                return false;
-            }
+        if let Some(negated) = entry.strip_prefix('!')
+            && negated == current
+        {
+            return false;
         }
     }
 

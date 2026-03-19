@@ -58,6 +58,19 @@ async fn run() -> Result<()> {
         Command::Clean(args) => commands::clean::run(args, &config).await?,
         Command::Audit(args) => commands::audit::run(args, &config).await?,
         Command::Why(args) => commands::why::run(args).await?,
+        Command::Script(args) => {
+            let mut iter = args.into_iter();
+            let script = iter.next().expect("external subcommand must have a name");
+            let extra_args: Vec<String> = iter.collect();
+            let run_args = commands::run::RunArgs {
+                script,
+                recursive: false,
+                filter: vec![],
+                skip_install: false,
+                args: extra_args,
+            };
+            commands::run::run(run_args, &config).await?
+        }
     }
 
     Ok(())

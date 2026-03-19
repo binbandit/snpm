@@ -57,14 +57,23 @@ fn parse_internal(original: &str) -> Result<RangeSet, Error> {
         && let Some(colon) = s.find(':')
     {
         let after = &s[colon + 1..];
-        if let Some(at) = after.rfind('@') {
-            let version = after[at + 1..].trim();
+        // For scoped packages like @scope/pkg@^1.0.0, we need to find the
+        // version separator '@' that comes after the scope. Skip the leading
+        // '@' if it's a scoped package.
+        let search_from = if after.starts_with('@') {
+            after.find('/').map(|i| i + 1).unwrap_or(1)
+        } else {
+            0
+        };
+        if let Some(at) = after[search_from..].rfind('@') {
+            let version = after[search_from + at + 1..].trim();
             if version.is_empty() {
                 s = "*";
             } else {
                 s = version;
             }
         } else {
+            // No version separator found (e.g. "npm:@scope/pkg" or "npm:pkg")
             s = "*";
         }
     }
@@ -187,8 +196,17 @@ fn is_plain_exact_version(s: &str) -> bool {
         return false;
     }
 
-    if s.contains('*') || s.contains('x') || s.contains('X') {
+    if s.contains('*') {
         return false;
+    }
+
+    // Check for x/X wildcard only in version number segments (before any prerelease/build suffix).
+    // Don't reject versions like "1.2.3-experimental" that contain 'x' in prerelease tags.
+    let version_part = s.split(['-', '+']).next().unwrap_or(s);
+    for segment in version_part.split('.') {
+        if segment.eq_ignore_ascii_case("x") {
+            return false;
+        }
     }
 
     let dot_count = s.chars().filter(|&c| c == '.').count();
@@ -201,6 +219,9 @@ pub use semver::Version;
 /// like `30.100.00` that strict SemVer rejects. This parses leniently by
 /// stripping leading zeros before delegating to the `semver` crate.
 pub fn parse_version(input: &str) -> Result<Version, semver::Error> {
+    // Strip v/V prefix (common in npm ecosystem, e.g. git tags)
+    let input = input.strip_prefix('v').or_else(|| input.strip_prefix('V')).unwrap_or(input);
+
     if let Ok(version) = Version::parse(input) {
         return Ok(version);
     }

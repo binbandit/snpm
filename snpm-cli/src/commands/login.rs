@@ -78,6 +78,9 @@ async fn authenticate(
         let opener = create_opener();
 
         let credentials = cached_credentials.clone();
+        let captured_credentials = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let captured_for_closure = captured_credentials.clone();
+
         let prompt = move || -> snpm_core::Result<operations::Credentials> {
             if let Some(creds) = credentials {
                 return Ok(creds);
@@ -90,10 +93,12 @@ async fn authenticate(
                 reason: e.to_string(),
             })?;
 
-            Ok(operations::Credentials {
+            let creds = operations::Credentials {
                 username: Some(username),
                 password: Some(password),
-            })
+            };
+            *captured_for_closure.lock().unwrap() = Some(creds.clone());
+            Ok(creds)
         };
 
         match operations::login_with_fallback(registry, auth_type, opener, prompt, otp.as_deref())
@@ -102,11 +107,16 @@ async fn authenticate(
             Ok(result) => return Ok(result),
 
             Err(SnpmError::Auth { reason }) if reason == "OTP required" => {
+                // Recover credentials that were entered during the prompt closure
                 if cached_credentials.is_none() {
-                    cached_credentials = Some(operations::Credentials {
-                        username: Some(read_line("Username: ")?),
-                        password: Some(read_password("Password: ")?),
-                    });
+                    if let Some(creds) = captured_credentials.lock().unwrap().take() {
+                        cached_credentials = Some(creds);
+                    } else {
+                        cached_credentials = Some(operations::Credentials {
+                            username: Some(read_line("Username: ")?),
+                            password: Some(read_password("Password: ")?),
+                        });
+                    }
                 }
                 otp = Some(prompt_otp()?);
             }

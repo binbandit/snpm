@@ -6,6 +6,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+/// Current lockfile schema version.
+const LOCKFILE_VERSION: u32 = 1;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LockRootDependency {
     pub requested: String,
@@ -97,7 +100,7 @@ pub fn write(
     }
 
     let lockfile = Lockfile {
-        version: 1,
+        version: LOCKFILE_VERSION,
         root: LockRoot {
             dependencies: root_deps,
         },
@@ -127,6 +130,16 @@ pub fn read(path: &Path) -> Result<Lockfile> {
         path: path.to_path_buf(),
         reason: err.to_string(),
     })?;
+
+    if lockfile.version != LOCKFILE_VERSION {
+        return Err(SnpmError::Lockfile {
+            path: path.to_path_buf(),
+            reason: format!(
+                "unsupported lockfile version {} (expected {}), delete the lockfile and reinstall",
+                lockfile.version, LOCKFILE_VERSION
+            ),
+        });
+    }
 
     Ok(lockfile)
 }

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, console, operations};
 use std::env;
@@ -21,7 +21,7 @@ pub async fn run(args: RemoveArgs, config: &SnpmConfig) -> Result<()> {
 
     console::header("remove", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
     let mut project = Project::discover(&cwd)?;
     operations::remove(config, &mut project, args.packages).await?;
 

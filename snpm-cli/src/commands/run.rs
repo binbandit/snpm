@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::env;
@@ -24,7 +24,7 @@ pub struct RunArgs {
 pub async fn run(args: RunArgs, config: &SnpmConfig) -> Result<()> {
     console::header(&format!("run {}", args.script), env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
 
     if args.recursive || !args.filter.is_empty() {
         let workspace = Workspace::discover(&cwd)?

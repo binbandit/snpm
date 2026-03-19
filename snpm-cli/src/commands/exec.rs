@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::env;
@@ -27,7 +27,7 @@ pub struct ExecArgs {
 pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
     console::header(&format!("exec {}", args.command), env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
 
     let options = operations::ExecOptions {
         command: &args.command,

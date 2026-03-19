@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::env;
@@ -30,7 +30,7 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
 
     console::header("add", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
 
     if let Some(workspace_name) = args.workspace {
         let mut workspace = Workspace::discover(&cwd)?

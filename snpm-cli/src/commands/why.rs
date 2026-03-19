@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use serde::Serialize;
 use snpm_core::{Project, Workspace, console, operations};
@@ -29,7 +29,7 @@ pub async fn run(args: WhyArgs) -> Result<()> {
         console::header("why", env!("CARGO_PKG_VERSION"));
     }
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
 
     if let Some(workspace) = Workspace::discover(&cwd)?
         && workspace.root == cwd

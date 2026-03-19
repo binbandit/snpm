@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::env;
@@ -24,7 +24,7 @@ pub struct InstallArgs {
 pub async fn run(arguments: InstallArgs, config: &SnpmConfig) -> Result<()> {
     console::header("install", env!("CARGO_PKG_VERSION"));
 
-    let current_directory = env::current_dir()?;
+    let current_directory = env::current_dir().context("failed to determine current directory")?;
 
     if let Some(workspace_name) = arguments.workspace {
         let mut workspace = Workspace::discover(&current_directory)?

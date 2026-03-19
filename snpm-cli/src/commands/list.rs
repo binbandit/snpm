@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, console};
 use std::env;
@@ -69,7 +69,7 @@ fn list_global(config: &SnpmConfig) -> Result<()> {
 }
 
 fn list_local() -> Result<()> {
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
     let project = Project::discover(&cwd)?;
 
     let deps = &project.manifest.dependencies;

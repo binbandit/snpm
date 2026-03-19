@@ -19,7 +19,7 @@ pub struct UpgradeArgs {
 pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
     console::header("upgrade", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
 
     if !args.packages.is_empty() {
         let mut project = Project::discover(&cwd)?;

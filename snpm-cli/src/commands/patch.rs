@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use snpm_core::{
     Project, SnpmConfig, console,
@@ -51,7 +51,7 @@ pub async fn run(args: PatchArgs, _config: &SnpmConfig) -> Result<()> {
 async fn run_edit(package: &str) -> Result<()> {
     console::header("patch edit", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
     let project = Project::discover(&cwd)?;
 
     console::step(&format!("Preparing {} for patching...", package));
@@ -77,7 +77,7 @@ async fn run_edit(package: &str) -> Result<()> {
 async fn run_commit(path: &Path) -> Result<()> {
     console::header("patch commit", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
     let project = Project::discover(&cwd)?;
 
     if !path.exists() {
@@ -106,7 +106,7 @@ async fn run_commit(path: &Path) -> Result<()> {
 async fn run_remove(package: &str) -> Result<()> {
     console::header("patch remove", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
     let project = Project::discover(&cwd)?;
 
     console::step(&format!("Removing patch for {}...", package));
@@ -133,7 +133,7 @@ async fn run_remove(package: &str) -> Result<()> {
 async fn run_list() -> Result<()> {
     console::header("patch list", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
     let project = Project::discover(&cwd)?;
 
     let patches = list_project_patches(&project)?;

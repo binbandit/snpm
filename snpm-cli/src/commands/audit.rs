@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::collections::HashSet;
@@ -60,7 +60,7 @@ pub struct AuditArgs {
 pub async fn run(args: AuditArgs, config: &SnpmConfig) -> Result<()> {
     console::header("audit", env!("CARGO_PKG_VERSION"));
 
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir().context("failed to determine current directory")?;
 
     let audit_level = args
         .audit_level

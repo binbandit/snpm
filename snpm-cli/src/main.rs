@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use snpm_core::{SnpmConfig, console};
 use std::{env, process};
@@ -27,7 +27,7 @@ async fn run() -> Result<()> {
     if verbose || config.verbose || config.log_file.is_some() {
         config.verbose = true;
 
-        let cwd = env::current_dir()?;
+        let cwd = env::current_dir().context("failed to determine current directory")?;
         let log_path = config
             .log_file
             .clone()

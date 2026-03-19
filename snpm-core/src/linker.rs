@@ -77,7 +77,9 @@ fn populate_virtual_store(
             })?;
 
             if symlink_is_correct(&package_location, store_path) {
-                let mut paths = virtual_store_paths.lock().unwrap();
+                let mut paths = virtual_store_paths
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 paths.insert((*id).clone(), package_location);
                 return Ok(());
             }
@@ -100,14 +102,19 @@ fn populate_virtual_store(
             link_dir_fast(config, store_path, &package_location)?;
 
             {
-                let mut paths = virtual_store_paths.lock().unwrap();
+                let mut paths = virtual_store_paths
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 paths.insert((*id).clone(), package_location);
             }
 
             Ok(())
         })?;
 
-    let result = virtual_store_paths.lock().unwrap().clone();
+    let result = virtual_store_paths
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     Ok(Arc::new(result))
 }
 
@@ -120,11 +127,29 @@ fn link_virtual_dependencies(
     packages
         .par_iter()
         .try_for_each(|(id, package)| -> Result<()> {
-            let package_location = virtual_store_paths.get(id).unwrap();
-            let package_node_modules = package_location.parent().unwrap();
+            let package_location =
+                virtual_store_paths
+                    .get(id)
+                    .ok_or_else(|| SnpmError::GraphMissing {
+                        name: id.name.clone(),
+                        version: id.version.clone(),
+                    })?;
+            let package_node_modules =
+                package_location
+                    .parent()
+                    .ok_or_else(|| SnpmError::GraphMissing {
+                        name: id.name.clone(),
+                        version: id.version.clone(),
+                    })?;
 
             for (dep_name, dep_id) in &package.dependencies {
-                let dep_target = virtual_store_paths.get(dep_id).unwrap();
+                let dep_target =
+                    virtual_store_paths
+                        .get(dep_id)
+                        .ok_or_else(|| SnpmError::GraphMissing {
+                            name: dep_id.name.clone(),
+                            version: dep_id.version.clone(),
+                        })?;
                 let dep_link = package_node_modules.join(dep_name);
 
                 if symlink_is_correct(&dep_link, dep_target) {

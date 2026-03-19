@@ -415,7 +415,7 @@ fn populate_virtual_store(
             {
                 virtual_store_paths
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .insert((*id).clone(), package_location);
                 return Ok(());
             }
@@ -446,16 +446,17 @@ fn populate_virtual_store(
 
         virtual_store_paths
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert((*id).clone(), package_location);
 
         Ok(())
     })?;
 
-    Ok(Arc::try_unwrap(virtual_store_paths)
-        .unwrap()
-        .into_inner()
-        .unwrap())
+    let mutex = Arc::try_unwrap(virtual_store_paths)
+        .map_err(|_| SnpmError::TaskJoin {
+            reason: "virtual store paths Arc still has multiple owners".into(),
+        })?;
+    Ok(mutex.into_inner().unwrap_or_else(|e| e.into_inner()))
 }
 
 fn link_store_dependencies(
@@ -465,19 +466,45 @@ fn link_store_dependencies(
     let packages: Vec<_> = graph.packages.iter().collect();
 
     packages.par_iter().try_for_each(|(id, package)| {
-        let package_location = virtual_store_paths.get(id).unwrap();
-        let package_node_modules = package_location.parent().unwrap();
+        let package_location =
+            virtual_store_paths
+                .get(id)
+                .ok_or_else(|| SnpmError::GraphMissing {
+                    name: id.name.clone(),
+                    version: id.version.clone(),
+                })?;
+        let package_node_modules =
+            package_location
+                .parent()
+                .ok_or_else(|| SnpmError::GraphMissing {
+                    name: id.name.clone(),
+                    version: id.version.clone(),
+                })?;
 
         for (dep_name, dep_id) in &package.dependencies {
-            let dep_target = virtual_store_paths.get(dep_id).unwrap();
+            let dep_target =
+                virtual_store_paths
+                    .get(dep_id)
+                    .ok_or_else(|| SnpmError::GraphMissing {
+                        name: dep_id.name.clone(),
+                        version: dep_id.version.clone(),
+                    })?;
             let dep_link = package_node_modules.join(dep_name);
 
             if let Some(parent) = dep_link.parent() {
-                fs::create_dir_all(parent).ok();
+                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
             }
 
             if !dep_link.exists() {
-                symlink_dir_entry(dep_target, &dep_link).ok();
+                symlink_dir_entry(dep_target, &dep_link).map_err(|source| {
+                    SnpmError::WriteFile {
+                        path: dep_link.clone(),
+                        source,
+                    }
+                })?;
             }
         }
         Ok::<(), SnpmError>(())

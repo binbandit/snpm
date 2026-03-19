@@ -125,8 +125,8 @@ impl SnpmConfig {
         let mut registry_concurrency = 64;
         // Default to Bearer; may switch to Basic if _auth detected or token looks like Basic credentials
         let mut default_registry_auth_scheme = AuthScheme::Bearer;
-        // Honor always-auth default (can be overridden by env below)
-        let mut always_auth = false;
+        // Honor always-auth from rc files (can be overridden by env below)
+        let mut always_auth = runtime_config.always_auth;
 
         if let Ok(value) =
             env::var("NPM_CONFIG_REGISTRY").or_else(|_| env::var("npm_config_registry"))

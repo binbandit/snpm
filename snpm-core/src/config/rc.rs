@@ -150,6 +150,7 @@ pub struct RegistryConfig {
     pub default_auth_token: Option<String>,
     pub hoisting: Option<HoistingMode>,
     pub default_auth_basic: bool,
+    pub always_auth: bool,
 }
 
 pub fn read_registry_config() -> RegistryConfig {
@@ -282,11 +283,8 @@ pub fn apply_rc_file(path: &Path, config: &mut RegistryConfig) {
                     }
                 } else if key == "always-auth" || key == "always_auth" || key == "always.auth" {
                     let value = value.trim().to_ascii_lowercase();
-                    let on = matches!(value.as_str(), "1" | "true" | "yes" | "y" | "on");
-                    if on {
-                        // This flag is applied in from_env() defaults
-                        // Kept here for symmetry with pnpm configs
-                    }
+                    config.always_auth =
+                        matches!(value.as_str(), "1" | "true" | "yes" | "y" | "on");
                 }
             }
         }

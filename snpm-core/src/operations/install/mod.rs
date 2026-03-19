@@ -41,8 +41,6 @@ pub async fn install(
         options.force,
     ));
 
-    let registry_client = http::create_client()?;
-
     let (requested_ranges_raw, requested_protocols_raw) =
         parse_requested_with_protocol(&options.requested);
 
@@ -252,13 +250,16 @@ pub async fn install(
             scenario: InstallScenario::Cold,
             lockfile: None,
             cache_check: None,
+            graph: None,
+            integrity_state: None,
         }
     };
     let scenario = scenario_result.scenario;
-    let existing_lockfile = scenario_result.lockfile;
+    let _existing_lockfile = scenario_result.lockfile;
     let precomputed_cache = scenario_result.cache_check;
+    let precomputed_graph = scenario_result.graph;
+    let precomputed_integrity = scenario_result.integrity_state;
 
-    let mut lockfile_reused_unchanged = false;
     let mut early_exit = false;
     let mut store_paths_map: BTreeMap<crate::resolve::PackageId, std::path::PathBuf> =
         BTreeMap::new();
@@ -266,15 +267,11 @@ pub async fn install(
     let graph = match scenario {
         InstallScenario::Hot => {
             early_exit = true;
-            lockfile_reused_unchanged = true;
-            let existing = existing_lockfile.expect("Hot scenario requires lockfile");
-            lockfile::to_graph(&existing)
+            precomputed_graph.expect("Hot scenario requires graph")
         }
 
         InstallScenario::WarmLinkOnly => {
-            lockfile_reused_unchanged = true;
-            let existing = existing_lockfile.expect("WarmLinkOnly scenario requires lockfile");
-            let graph = lockfile::to_graph(&existing);
+            let graph = precomputed_graph.expect("WarmLinkOnly scenario requires graph");
 
             // Use precomputed cache from scenario detection (avoids double computation)
             let cache_check = precomputed_cache.expect("WarmLinkOnly requires cache check");
@@ -290,9 +287,7 @@ pub async fn install(
         }
 
         InstallScenario::WarmPartialCache => {
-            lockfile_reused_unchanged = true;
-            let existing = existing_lockfile.expect("WarmPartialCache scenario requires lockfile");
-            let graph = lockfile::to_graph(&existing);
+            let graph = precomputed_graph.expect("WarmPartialCache scenario requires graph");
 
             // Use precomputed cache from scenario detection (avoids double computation)
             let cache_check = precomputed_cache.expect("WarmPartialCache requires cache check");
@@ -327,6 +322,8 @@ pub async fn install(
         InstallScenario::Cold => {
             console::step("Resolving dependencies");
             console::verbose("cold path: full resolution required");
+
+            let registry_client = http::create_client()?;
 
             let store_paths = Arc::new(Mutex::new(BTreeMap::<
                 crate::resolve::PackageId,
@@ -458,18 +455,6 @@ pub async fn install(
     if early_exit {
         should_link = false;
         console::verbose("using early exit path (warm path optimization)");
-    } else if lockfile_reused_unchanged && !options.force {
-        console::verbose("lockfile reused without changes; checking existing node_modules");
-
-        let integrity_state = build_project_integrity_state(project, &graph)?;
-        if check_integrity_file(project, &integrity_state) {
-            should_link = false;
-            early_exit = true;
-
-            console::verbose(
-                "node_modules is up to date; taking early exit path (warm path optimization)",
-            );
-        }
     }
 
     if should_link {
@@ -497,7 +482,10 @@ pub async fn install(
             console::verbose(&format!("applied {} patches", patches_applied));
         }
 
-        let integrity_state = build_project_integrity_state(project, &graph)?;
+        let integrity_state = match precomputed_integrity {
+            Some(state) => state,
+            None => build_project_integrity_state(project, &graph)?,
+        };
         write_integrity_file(project, &integrity_state)?;
 
         console::verbose(&format!(

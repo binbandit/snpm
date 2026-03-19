@@ -2,6 +2,7 @@ use super::fs::copy_dir;
 use super::fs::link_dir_fast;
 use crate::resolve::{PackageId, ResolutionGraph};
 use crate::{HoistingMode, Project, Result, SnpmConfig, SnpmError, Workspace, lifecycle};
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -25,26 +26,32 @@ pub fn hoist_packages(
         ids_by_name.entry(&id.name).or_default().push(id);
     }
 
-    for (name, ids) in ids_by_name {
-        let should_hoist = match mode {
-            HoistingMode::None => false,
-            HoistingMode::SingleVersion => ids.len() == 1,
-            HoistingMode::All => !ids.is_empty(),
-        };
+    let to_hoist: Vec<_> = ids_by_name
+        .iter()
+        .filter_map(|(name, ids)| {
+            let should_hoist = match mode {
+                HoistingMode::None => false,
+                HoistingMode::SingleVersion => ids.len() == 1,
+                HoistingMode::All => !ids.is_empty(),
+            };
 
-        if !should_hoist {
-            continue;
-        }
+            if should_hoist {
+                Some((*name, ids[0]))
+            } else {
+                None
+            }
+        })
+        .collect();
 
-        let id = ids[0];
+    to_hoist.par_iter().try_for_each(|(name, id)| {
         let dest = root_node_modules.join(name);
 
         if dest.exists() {
-            continue;
+            return Ok(());
         }
 
-        link_shallow_package(config, workspace, id, &dest, store_paths)?;
-    }
+        link_shallow_package(config, workspace, id, &dest, store_paths)
+    })?;
 
     Ok(())
 }

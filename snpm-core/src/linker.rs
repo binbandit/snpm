@@ -8,7 +8,7 @@ use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use bins::link_bins;
 use fs::{copy_dir, link_dir_fast, symlink_dir_entry, symlink_is_correct};
@@ -38,7 +38,7 @@ pub fn link(
 
     link_root_dependencies(&root_deps_to_link, &virtual_store_paths, &root_node_modules)?;
 
-    link_root_bins(&root_deps_to_link, &root_node_modules)?;
+    link_root_bins(&root_deps_to_link, &root_node_modules, graph)?;
 
     if let HoistingMode::None = effective_hoisting(config, workspace) {
         return Ok(());
@@ -61,12 +61,11 @@ fn populate_virtual_store(
     config: &SnpmConfig,
 ) -> Result<Arc<BTreeMap<PackageId, PathBuf>>> {
     let virtual_store_dir = root_node_modules.join(".snpm");
-    let virtual_store_paths = Arc::new(Mutex::new(BTreeMap::new()));
     let packages: Vec<_> = graph.packages.iter().collect();
 
-    packages
+    let results: Vec<Result<(PackageId, PathBuf)>> = packages
         .par_iter()
-        .try_for_each(|(id, _package)| -> Result<()> {
+        .map(|(id, _package)| -> Result<(PackageId, PathBuf)> {
             let safe_name = id.name.replace('/', "+");
             let virtual_id_dir = virtual_store_dir.join(format!("{}@{}", safe_name, id.version));
             let package_location = virtual_id_dir.join("node_modules").join(&id.name);
@@ -77,11 +76,7 @@ fn populate_virtual_store(
             })?;
 
             if symlink_is_correct(&package_location, store_path) {
-                let mut paths = virtual_store_paths
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                paths.insert((*id).clone(), package_location);
-                return Ok(());
+                return Ok(((*id).clone(), package_location));
             }
 
             if let Ok(meta) = package_location.symlink_metadata() {
@@ -101,21 +96,16 @@ fn populate_virtual_store(
 
             link_dir_fast(config, store_path, &package_location)?;
 
-            {
-                let mut paths = virtual_store_paths
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                paths.insert((*id).clone(), package_location);
-            }
+            Ok(((*id).clone(), package_location))
+        })
+        .collect();
 
-            Ok(())
-        })?;
-
-    let result = virtual_store_paths
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
-    Ok(Arc::new(result))
+    let mut map = BTreeMap::new();
+    for result in results {
+        let (id, path) = result?;
+        map.insert(id, path);
+    }
+    Ok(Arc::new(map))
 }
 
 fn link_virtual_dependencies(
@@ -164,9 +154,7 @@ fn link_virtual_dependencies(
                     }
                 }
 
-                if let Some(parent) = dep_link.parent()
-                    && !parent.exists()
-                {
+                if let Some(parent) = dep_link.parent() {
                     std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
                         path: parent.to_path_buf(),
                         source,
@@ -231,15 +219,6 @@ fn link_root_dependencies(
                 return Ok(());
             }
 
-            if let Some(parent) = dest.parent()
-                && !parent.exists()
-            {
-                std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
-
             if let Ok(meta) = dest.symlink_metadata() {
                 if meta.is_dir() && !meta.file_type().is_symlink() {
                     std::fs::remove_dir_all(&dest).ok();
@@ -256,8 +235,15 @@ fn link_root_dependencies(
 fn link_root_bins(
     root_deps: &[(&String, &RootDependency)],
     root_node_modules: &Path,
+    graph: &ResolutionGraph,
 ) -> Result<()> {
-    root_deps.par_iter().for_each(|(name, _dep)| {
+    root_deps.par_iter().for_each(|(name, dep)| {
+        // Skip packages that don't declare any bin entries
+        if let Some(pkg) = graph.packages.get(&dep.resolved)
+            && !pkg.has_bin
+        {
+            return;
+        }
         let dest = root_node_modules.join(name);
         if let Err(e) = link_bins(&dest, root_node_modules, name) {
             crate::console::warn(&format!("failed to link bins for {}: {}", name, e));

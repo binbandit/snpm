@@ -6,7 +6,6 @@ use futures::future::join_all;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -60,6 +59,8 @@ pub struct ScenarioResult {
     pub scenario: InstallScenario,
     pub lockfile: Option<lockfile::Lockfile>,
     pub cache_check: Option<CacheCheckResult>,
+    pub graph: Option<crate::resolve::ResolutionGraph>,
+    pub integrity_state: Option<IntegrityState>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +83,8 @@ pub fn detect_install_scenario(
             scenario: InstallScenario::Cold,
             lockfile: None,
             cache_check: None,
+            graph: None,
+            integrity_state: None,
         };
     }
 
@@ -93,6 +96,8 @@ pub fn detect_install_scenario(
                 scenario: InstallScenario::Cold,
                 lockfile: None,
                 cache_check: None,
+                graph: None,
+                integrity_state: None,
             };
         }
     };
@@ -103,6 +108,8 @@ pub fn detect_install_scenario(
             scenario: InstallScenario::Cold,
             lockfile: Some(existing),
             cache_check: None,
+            graph: None,
+            integrity_state: None,
         };
     }
 
@@ -118,6 +125,8 @@ pub fn detect_install_scenario(
                 scenario: InstallScenario::Cold,
                 lockfile: Some(existing),
                 cache_check: None,
+                graph: None,
+                integrity_state: None,
             };
         }
     };
@@ -128,6 +137,8 @@ pub fn detect_install_scenario(
             scenario: InstallScenario::Hot,
             lockfile: Some(existing),
             cache_check: None,
+            graph: Some(graph),
+            integrity_state: Some(integrity_state),
         };
     }
 
@@ -144,6 +155,8 @@ pub fn detect_install_scenario(
             scenario: InstallScenario::WarmLinkOnly,
             lockfile: Some(existing),
             cache_check: Some(cache_check),
+            graph: Some(graph),
+            integrity_state: Some(integrity_state),
         };
     }
 
@@ -157,29 +170,47 @@ pub fn detect_install_scenario(
         scenario: InstallScenario::WarmPartialCache,
         lockfile: Some(existing),
         cache_check: Some(cache_check),
+        graph: Some(graph),
+        integrity_state: Some(integrity_state),
     }
 }
 
 pub fn check_store_cache(config: &SnpmConfig, graph: &ResolutionGraph) -> CacheCheckResult {
+    use rayon::prelude::*;
+
     let base = config.packages_dir();
+    let packages: Vec<_> = graph.packages.values().collect();
+
+    let results: Vec<_> = packages
+        .par_iter()
+        .map(|package| {
+            let name_dir = package.id.name.replace('/', "_");
+            let package_directory = base.join(&name_dir).join(&package.id.version);
+            let marker = package_directory.join(".snpm_complete");
+
+            if marker.is_file() {
+                let candidate = package_directory.join("package");
+                let root = if candidate.is_dir() {
+                    candidate
+                } else {
+                    package_directory
+                };
+                (Some((package.id.clone(), root)), None)
+            } else {
+                (None, Some((*package).clone()))
+            }
+        })
+        .collect();
+
     let mut cached = BTreeMap::new();
     let mut missing = Vec::new();
 
-    for package in graph.packages.values() {
-        let name_dir = package.id.name.replace('/', "_");
-        let package_directory = base.join(&name_dir).join(&package.id.version);
-        let marker = package_directory.join(".snpm_complete");
-
-        if marker.is_file() {
-            let candidate = package_directory.join("package");
-            let root = if candidate.is_dir() {
-                candidate
-            } else {
-                package_directory
-            };
-            cached.insert(package.id.clone(), root);
-        } else {
-            missing.push(package.clone());
+    for (hit, miss) in results {
+        if let Some((id, path)) = hit {
+            cached.insert(id, path);
+        }
+        if let Some(package) = miss {
+            missing.push(package);
         }
     }
 
@@ -263,19 +294,17 @@ pub fn compute_lockfile_hash(graph: &ResolutionGraph) -> String {
     let mut hasher = Sha256::new();
 
     for (name, dep) in graph.root.dependencies.iter() {
-        let _ = write!(
-            hasher,
-            "{}{}{}{}",
-            name, dep.requested, dep.resolved.name, dep.resolved.version
-        );
+        hasher.update(name.as_bytes());
+        hasher.update(dep.requested.as_bytes());
+        hasher.update(dep.resolved.name.as_bytes());
+        hasher.update(dep.resolved.version.as_bytes());
     }
 
     for (id, package) in graph.packages.iter() {
-        let _ = write!(
-            hasher,
-            "{}{}{}{}",
-            id.name, id.version, package.id.name, package.id.version
-        );
+        hasher.update(id.name.as_bytes());
+        hasher.update(id.version.as_bytes());
+        hasher.update(package.id.name.as_bytes());
+        hasher.update(package.id.version.as_bytes());
     }
 
     format!("{:x}", hasher.finalize())
@@ -310,7 +339,8 @@ pub fn compute_project_patch_hash(project: &Project) -> Result<String> {
     let mut hasher = Sha256::new();
 
     for (key, rel_path) in patched_dependencies {
-        let _ = write!(hasher, "{}{}", key, rel_path);
+        hasher.update(key.as_bytes());
+        hasher.update(rel_path.as_bytes());
 
         let patch_path = project.root.join(&rel_path);
         if patch_path.is_file() {
@@ -320,7 +350,7 @@ pub fn compute_project_patch_hash(project: &Project) -> Result<String> {
             })?;
             hasher.update(&bytes);
         } else {
-            let _ = write!(hasher, "__missing__");
+            hasher.update(b"__missing__");
         }
     }
 
@@ -339,7 +369,8 @@ pub fn compute_workspace_patch_hash(workspace: &Workspace) -> Result<String> {
             has_any_patches = true;
         }
 
-        let _ = write!(hasher, "{}{}", project.root.display(), patch_hash);
+        hasher.update(project.root.display().to_string().as_bytes());
+        hasher.update(patch_hash.as_bytes());
     }
 
     if has_any_patches {

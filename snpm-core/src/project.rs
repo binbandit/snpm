@@ -111,11 +111,12 @@ impl Project {
     }
 
     pub fn write_manifest(&self, manifest: &Manifest) -> Result<()> {
-        let data =
+        let mut data =
             serde_json::to_string_pretty(manifest).map_err(|e| SnpmError::SerializeJson {
                 path: self.manifest_path.clone(),
                 reason: e.to_string(),
             })?;
+        data.push('\n');
 
         fs::write(&self.manifest_path, data).map_err(|source| SnpmError::WriteFile {
             path: self.manifest_path.clone(),

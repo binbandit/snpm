@@ -132,4 +132,7 @@ pub enum SnpmError {
 
     #[error("Lockfile required for audit. Run `snpm install` first.")]
     AuditLockfileRequired,
+
+    #[error("Internal error: {reason}")]
+    Internal { reason: String },
 }

@@ -453,7 +453,7 @@ fn populate_virtual_store(
     })?;
 
     let mutex = Arc::try_unwrap(virtual_store_paths)
-        .map_err(|_| SnpmError::TaskJoin {
+        .map_err(|_| SnpmError::Internal {
             reason: "virtual store paths Arc still has multiple owners".into(),
         })?;
     Ok(mutex.into_inner().unwrap_or_else(|e| e.into_inner()))

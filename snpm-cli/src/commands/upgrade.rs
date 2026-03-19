@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::env;
@@ -34,26 +34,27 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
         return Ok(());
     }
 
-    let mut project = Project::discover(&cwd)?;
     let workspace = Workspace::discover(&cwd)?;
 
     let lockfile_path = workspace
         .as_ref()
         .map(|w| w.root.join("snpm-lock.yaml"))
-        .unwrap_or_else(|| project.root.join("snpm-lock.yaml"));
+        .unwrap_or_else(|| cwd.join("snpm-lock.yaml"));
 
     if lockfile_path.is_file() {
-        fs::remove_file(&lockfile_path)?;
+        fs::remove_file(&lockfile_path).with_context(|| {
+            format!("failed to remove lockfile {}", lockfile_path.display())
+        })?;
     }
 
-    if let Some(mut workspace) = workspace
-        && workspace.root == cwd
-    {
+    if let Some(mut workspace) = workspace {
         operations::install_workspace(config, &mut workspace, !args.production, false, args.force)
             .await?;
 
         return Ok(());
     }
+
+    let mut project = Project::discover(&cwd)?;
 
     let options = operations::InstallOptions {
         requested: Vec::new(),

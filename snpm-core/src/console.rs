@@ -179,11 +179,15 @@ pub fn summary(count: usize, seconds: f32) {
         format!("{:.2}s", seconds)
     };
     let noun = if count == 1 { "package" } else { "packages" };
-    let speed = count as f32 / seconds;
-    let speed_str = if speed >= 1.0 {
-        format!("{:.0} packages/s", speed)
+    let speed_str = if seconds > 0.0 {
+        let speed = count as f32 / seconds;
+        if speed >= 1.0 {
+            format!("{:.0} packages/s", speed)
+        } else {
+            format!("{:.1} packages/s", speed)
+        }
     } else {
-        format!("{:.1} packages/s", speed)
+        String::new()
     };
     println!(
         "{} {} installed {} {}",

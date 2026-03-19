@@ -259,7 +259,9 @@ fn link_root_bins(
 ) -> Result<()> {
     root_deps.par_iter().for_each(|(name, _dep)| {
         let dest = root_node_modules.join(name);
-        let _ = link_bins(&dest, root_node_modules, name);
+        if let Err(e) = link_bins(&dest, root_node_modules, name) {
+            crate::console::warn(&format!("failed to link bins for {}: {}", name, e));
+        }
     });
     Ok(())
 }

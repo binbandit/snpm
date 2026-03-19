@@ -146,23 +146,25 @@ impl SnpmConfig {
             }
         }
 
+        // Bearer token env vars — these are always used as Bearer auth
         if let Ok(token) = env::var("NODE_AUTH_TOKEN")
             .or_else(|_| env::var("NPM_TOKEN"))
             .or_else(|_| env::var("SNPM_AUTH_TOKEN"))
-            .or_else(|_| env::var("NPM_CONFIG__AUTH"))
-            .or_else(|_| env::var("npm_config__auth"))
         {
             let trimmed = token.trim();
             if !trimmed.is_empty() {
                 default_registry_auth_token = Some(trimmed.to_string());
-                // Heuristic: if token contains ':' or looks base64, prefer Basic to align with _auth semantics
-                let looks_basic = trimmed.contains(':')
-                    || trimmed
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || "+/=_-.".contains(c));
-                if looks_basic {
-                    default_registry_auth_scheme = AuthScheme::Basic;
-                }
+                default_registry_auth_scheme = AuthScheme::Bearer;
+            }
+        }
+        // _auth env vars — these contain base64-encoded credentials for Basic auth
+        else if let Ok(token) =
+            env::var("NPM_CONFIG__AUTH").or_else(|_| env::var("npm_config__auth"))
+        {
+            let trimmed = token.trim();
+            if !trimmed.is_empty() {
+                default_registry_auth_token = Some(trimmed.to_string());
+                default_registry_auth_scheme = AuthScheme::Basic;
             }
         }
 

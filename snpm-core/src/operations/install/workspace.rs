@@ -308,12 +308,12 @@ async fn resolve_workspace_deps(
     };
 
     for handle in handles {
-        handle
+        let result = handle
             .await
             .map_err(|e| SnpmError::StoreTask {
                 reason: e.to_string(),
-            })?
-            .ok();
+            })?;
+        result?;
     }
 
     *store_paths = paths.lock().await.clone();

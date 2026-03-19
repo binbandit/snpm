@@ -437,7 +437,8 @@ fn print_sarif(results: &[operations::AuditResult]) -> Result<bool> {
 // ============================================================================
 
 fn use_color() -> bool {
-    env::var_os("NO_COLOR").is_none()
+    use std::io::IsTerminal;
+    env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
 }
 
 fn paint(code: &str, text: &str) -> String {

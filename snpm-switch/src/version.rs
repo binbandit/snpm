@@ -8,20 +8,38 @@ use tar::Archive;
 
 pub fn ensure_version(version: &str) -> anyhow::Result<PathBuf> {
     let version_dir = config::versions_dir().join(version);
+    let complete_marker = version_dir.join(".snpm_complete");
     let binary_path = binary_path_for_version(&version_dir);
 
-    if binary_path.is_file() {
+    if complete_marker.is_file() && binary_path.is_file() {
         return Ok(binary_path);
     }
 
-    download_version(version, &version_dir)?;
+    // Download to a temporary directory, then atomically rename to avoid
+    // partial/corrupt binaries from interrupted or concurrent downloads.
+    let temp_dir = version_dir.with_extension("tmp");
+    if temp_dir.exists() {
+        fs::remove_dir_all(&temp_dir)?;
+    }
 
-    if !binary_path.is_file() {
+    download_version(version, &temp_dir)?;
+
+    let temp_binary = binary_path_for_version(&temp_dir);
+    if !temp_binary.is_file() {
         anyhow::bail!(
             "Downloaded snpm {} but binary not found at expected path",
             version
         );
     }
+
+    // Write completion marker before rename
+    fs::write(temp_dir.join(".snpm_complete"), [])?;
+
+    // Replace the version directory atomically
+    if version_dir.exists() {
+        fs::remove_dir_all(&version_dir)?;
+    }
+    fs::rename(&temp_dir, &version_dir)?;
 
     Ok(binary_path)
 }
@@ -285,7 +303,10 @@ fn extract_zip(data: &[u8], destination: &Path) -> anyhow::Result<()> {
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let file_name = file.name();
+        let file_name = Path::new(file.name())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
 
         if file_name == "snpm" || file_name == "snpm.exe" {
             let dest_path = destination.join(file_name);

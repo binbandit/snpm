@@ -220,7 +220,10 @@ pub use semver::Version;
 /// stripping leading zeros before delegating to the `semver` crate.
 pub fn parse_version(input: &str) -> Result<Version, semver::Error> {
     // Strip v/V prefix (common in npm ecosystem, e.g. git tags)
-    let input = input.strip_prefix('v').or_else(|| input.strip_prefix('V')).unwrap_or(input);
+    let input = input
+        .strip_prefix('v')
+        .or_else(|| input.strip_prefix('V'))
+        .unwrap_or(input);
 
     if let Ok(version) = Version::parse(input) {
         return Ok(version);

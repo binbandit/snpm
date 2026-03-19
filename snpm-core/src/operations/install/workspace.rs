@@ -307,11 +307,9 @@ async fn resolve_workspace_deps(
     };
 
     for handle in handles {
-        let result = handle
-            .await
-            .map_err(|e| SnpmError::StoreTask {
-                reason: e.to_string(),
-            })?;
+        let result = handle.await.map_err(|e| SnpmError::StoreTask {
+            reason: e.to_string(),
+        })?;
         result?;
     }
 
@@ -451,10 +449,9 @@ fn populate_virtual_store(
         Ok(())
     })?;
 
-    let mutex = Arc::try_unwrap(virtual_store_paths)
-        .map_err(|_| SnpmError::Internal {
-            reason: "virtual store paths Arc still has multiple owners".into(),
-        })?;
+    let mutex = Arc::try_unwrap(virtual_store_paths).map_err(|_| SnpmError::Internal {
+        reason: "virtual store paths Arc still has multiple owners".into(),
+    })?;
     Ok(mutex.into_inner().unwrap_or_else(|e| e.into_inner()))
 }
 

@@ -42,9 +42,8 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
         .unwrap_or_else(|| cwd.join("snpm-lock.yaml"));
 
     if lockfile_path.is_file() {
-        fs::remove_file(&lockfile_path).with_context(|| {
-            format!("failed to remove lockfile {}", lockfile_path.display())
-        })?;
+        fs::remove_file(&lockfile_path)
+            .with_context(|| format!("failed to remove lockfile {}", lockfile_path.display()))?;
     }
 
     if let Some(mut workspace) = workspace {

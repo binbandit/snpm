@@ -3,8 +3,8 @@ use crate::store;
 use crate::{Project, Workspace, http};
 use crate::{Result, SnpmConfig, SnpmError, lockfile};
 use futures::future::join_all;
-use std::collections::BTreeMap;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -263,13 +263,19 @@ pub fn compute_lockfile_hash(graph: &ResolutionGraph) -> String {
     let mut hasher = Sha256::new();
 
     for (name, dep) in graph.root.dependencies.iter() {
-        let _ = write!(hasher, "{}{}{}{}",
-            name, dep.requested, dep.resolved.name, dep.resolved.version);
+        let _ = write!(
+            hasher,
+            "{}{}{}{}",
+            name, dep.requested, dep.resolved.name, dep.resolved.version
+        );
     }
 
     for (id, package) in graph.packages.iter() {
-        let _ = write!(hasher, "{}{}{}{}",
-            id.name, id.version, package.id.name, package.id.version);
+        let _ = write!(
+            hasher,
+            "{}{}{}{}",
+            id.name, id.version, package.id.name, package.id.version
+        );
     }
 
     format!("{:x}", hasher.finalize())

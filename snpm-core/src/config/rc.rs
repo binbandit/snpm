@@ -171,18 +171,22 @@ pub fn read_registry_config() -> RegistryConfig {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let rc_files = [".snpmrc", ".npmrc", ".pnpmrc"];
 
-    // Walk up parent directories to root to respect rc precedence across nested workspaces
+    // Collect ancestor directories from CWD to root, then apply in reverse
+    // (root first, CWD last) so that closest-to-project rc files take precedence
+    let mut ancestors = Vec::new();
     let mut directory = Some(cwd.clone());
     while let Some(dir) = directory {
-        for rc_name in rc_files.iter() {
-            let path = dir.join(rc_name);
-
-            apply_rc_file(&path, &mut config);
-        }
-
+        ancestors.push(dir.clone());
         directory = dir.parent().map(|p| p.to_path_buf());
         if directory.as_ref().map(|d| d == &dir).unwrap_or(true) {
             break;
+        }
+    }
+
+    for dir in ancestors.iter().rev() {
+        for rc_name in rc_files.iter() {
+            let path = dir.join(rc_name);
+            apply_rc_file(&path, &mut config);
         }
     }
 

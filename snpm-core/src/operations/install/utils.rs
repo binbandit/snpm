@@ -5,9 +5,9 @@ use crate::{Result, SnpmConfig, SnpmError, lockfile};
 use futures::future::join_all;
 use reqwest::Client;
 use std::collections::BTreeMap;
-use std::collections::hash_map::DefaultHasher;
+use sha2::{Digest, Sha256};
 use std::fs;
-use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -261,23 +261,19 @@ pub async fn materialize_store(
 }
 
 pub fn compute_lockfile_hash(graph: &ResolutionGraph) -> String {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = Sha256::new();
 
     for (name, dep) in graph.root.dependencies.iter() {
-        name.hash(&mut hasher);
-        dep.requested.hash(&mut hasher);
-        dep.resolved.name.hash(&mut hasher);
-        dep.resolved.version.hash(&mut hasher);
+        let _ = write!(hasher, "{}{}{}{}",
+            name, dep.requested, dep.resolved.name, dep.resolved.version);
     }
 
     for (id, package) in graph.packages.iter() {
-        id.name.hash(&mut hasher);
-        id.version.hash(&mut hasher);
-        package.id.name.hash(&mut hasher);
-        package.id.version.hash(&mut hasher);
+        let _ = write!(hasher, "{}{}{}{}",
+            id.name, id.version, package.id.name, package.id.version);
     }
 
-    format!("{:x}", hasher.finish())
+    format!("{:x}", hasher.finalize())
 }
 
 pub fn build_project_integrity_state(
@@ -306,11 +302,10 @@ pub fn compute_project_patch_hash(project: &Project) -> Result<String> {
         return Ok("none".to_string());
     }
 
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = Sha256::new();
 
     for (key, rel_path) in patched_dependencies {
-        key.hash(&mut hasher);
-        rel_path.hash(&mut hasher);
+        let _ = write!(hasher, "{}{}", key, rel_path);
 
         let patch_path = project.root.join(&rel_path);
         if patch_path.is_file() {
@@ -318,17 +313,17 @@ pub fn compute_project_patch_hash(project: &Project) -> Result<String> {
                 path: patch_path,
                 source,
             })?;
-            bytes.hash(&mut hasher);
+            hasher.update(&bytes);
         } else {
-            "__missing__".hash(&mut hasher);
+            let _ = write!(hasher, "__missing__");
         }
     }
 
-    Ok(format!("{:x}", hasher.finish()))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn compute_workspace_patch_hash(workspace: &Workspace) -> Result<String> {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = Sha256::new();
     let mut has_any_patches = false;
     let mut projects: Vec<&Project> = workspace.projects.iter().collect();
     projects.sort_by(|a, b| a.root.cmp(&b.root));
@@ -339,12 +334,11 @@ pub fn compute_workspace_patch_hash(workspace: &Workspace) -> Result<String> {
             has_any_patches = true;
         }
 
-        project.root.hash(&mut hasher);
-        patch_hash.hash(&mut hasher);
+        let _ = write!(hasher, "{}{}", project.root.display(), patch_hash);
     }
 
     if has_any_patches {
-        Ok(format!("{:x}", hasher.finish()))
+        Ok(format!("{:x}", hasher.finalize()))
     } else {
         Ok("none".to_string())
     }

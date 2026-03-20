@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.3.19] - 2026-03-19
+## [2026.3.20] - 2026-03-20
 
 ### <!-- 0 -->🚀 Features
 
@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - *(cli)* Add why command with json and depth options ([0f03b93](https://github.com/binbandit/snpm/commit/0f03b9316126110dae86cc531566205c302667b6))
 - Add optionalDependencies support to package.json parsing ([5685938](https://github.com/binbandit/snpm/commit/56859388460ad0e70676580e86bc7e5be0b8085c))
 - *(cli-switch)* Add version override flags ([7cfdf00](https://github.com/binbandit/snpm/commit/7cfdf004fe27dcb5f9f0b580b6695b1ee286a70e))
+- *(snpm-cli)* Introduce Script external subcommand to invoke package.json scripts via run with forwarded args ([17a6abf](https://github.com/binbandit/snpm/commit/17a6abfc70aa1b78f51f888c31e259e713d5e6b5))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -45,6 +46,36 @@ All notable changes to this project will be documented in this file.
 - Hot scenario must populate store paths to prevent missing package errors ([ec4d7ca](https://github.com/binbandit/snpm/commit/ec4d7caf1d97c9b78922321c39d580aac9c335fc))
 - *(semver)* Expand npm hyphen ranges before delegating to semver crate ([4224e26](https://github.com/binbandit/snpm/commit/4224e2676a6f9345a5d185ed7f7f8c1c87fa09f6))
 - *(semver)* Handle versions with leading zeros like 30.100.00 ([f9a5361](https://github.com/binbandit/snpm/commit/f9a53611c5e70bcbd688cfaee51716cd4106b295))
+- Propagate store task errors in workspace install instead of swallowing them ([50bdbf3](https://github.com/binbandit/snpm/commit/50bdbf3ea46bdb775d8b43986f23a99dcb48d678))
+- Replace unwrap() with proper error handling in parallel linker code ([a94818f](https://github.com/binbandit/snpm/commit/a94818f72495bef91512168c5266547e4091e512))
+- Add Internal error variant to SnpmError ([953a7b6](https://github.com/binbandit/snpm/commit/953a7b606d6a7e868c3f60d03a98368917defe29))
+- Replace process::exit(1) in audit with anyhow::bail ([7664e9e](https://github.com/binbandit/snpm/commit/7664e9ea83149fa0631beff705cb535b76ed3f8a))
+- Display full error chain using alternate format {:#} ([041750f](https://github.com/binbandit/snpm/commit/041750fba37afe61dce13772414fb66b39a524d8))
+- Run workspace install when upgrading from a workspace subdirectory ([6146c77](https://github.com/binbandit/snpm/commit/6146c7761f7936a13e3a0b32b592e102de170127))
+- Use explicit auth scheme based on env var source instead of heuristic ([8298ba2](https://github.com/binbandit/snpm/commit/8298ba29a561067071b263614eda015a5fc7e827))
+- Atomic downloads with completion marker and consistent zip extraction ([d2ba597](https://github.com/binbandit/snpm/commit/d2ba597a672d99881b76adc4ecde3ca6a0ee354b))
+- Handle negation prefix in os/cpu platform compatibility checks ([b7f0354](https://github.com/binbandit/snpm/commit/b7f03544cb89337d01fae1c0d0fb0d9024fa2460))
+- Make exec lazy-install consistent with run command ([f629bb2](https://github.com/binbandit/snpm/commit/f629bb2f20fa74667a70e5fb8a33ea3293aeb43b))
+- Apply rc files from root to CWD so closest-to-project takes precedence ([1195d38](https://github.com/binbandit/snpm/commit/1195d38ba98322129b22a0f2f75a9869c3707e37))
+- Apply always-auth setting from rc files ([6bde5ee](https://github.com/binbandit/snpm/commit/6bde5ee737e3ec379bdd36472bf48ade8e5eaa11))
+- Use SHA-256 instead of DefaultHasher for integrity hashing ([88c3f1f](https://github.com/binbandit/snpm/commit/88c3f1f7e819233458eae99fcdcca969d34dbc5d))
+- Handle semver edge cases for prerelease x/X, scoped aliases, and v-prefix ([bc16dd1](https://github.com/binbandit/snpm/commit/bc16dd19ea85103a932c5cca220894f4a666370d))
+- Replace deprecated atty crate with std::io::IsTerminal ([aa27e63](https://github.com/binbandit/snpm/commit/aa27e63a3549e8a1ce795599441dec63a37dde15))
+- Avoid double credential prompt when OTP is required during login ([a8339b4](https://github.com/binbandit/snpm/commit/a8339b45b32eea1ffb63e4fce736fb5d6bfe31ee))
+- Return error from switch_dir() instead of falling back to relative path ([515ea44](https://github.com/binbandit/snpm/commit/515ea44e4ebb15fe98b68d5ad81139bad8f397d3))
+- Add shared HTTP client with timeouts, replacing bare Client::new() ([f8a6e6d](https://github.com/binbandit/snpm/commit/f8a6e6dc611edd6aaaa1f19495eae2ab5827d0f4))
+- Deduplicate parse_spec by reusing the existing public implementation ([b5ea4fb](https://github.com/binbandit/snpm/commit/b5ea4fb1467e54313d834beae5d74dff159f3ea1))
+- Make --prod and --dev audit flags mutually exclusive ([aaaf2fa](https://github.com/binbandit/snpm/commit/aaaf2fa1f12ad85a3b2ea77dfe770063383ef659))
+- Validate lockfile version on read ([c975d3f](https://github.com/binbandit/snpm/commit/c975d3f99478b03733de8830f3fac8acce5f03f2))
+- Guard against division by zero in install summary ([81e2e04](https://github.com/binbandit/snpm/commit/81e2e042694a34cc6a9195219be6982ce98b955f))
+- Add trailing newline to written package.json files ([f5f2b9a](https://github.com/binbandit/snpm/commit/f5f2b9aee9c65b031ebe9ae399e0055ef6717735))
+- Remove redundant format!() inside anyhow!() macro ([913c1a1](https://github.com/binbandit/snpm/commit/913c1a172f59b1f69e9d25351a092a9cf21a4bce))
+- Remove unused reqwest and tracing dependencies from snpm-cli ([199f53c](https://github.com/binbandit/snpm/commit/199f53cdfe182ea941883079694369cf1372a8b7))
+- Add error context to all env::current_dir() calls ([71211aa](https://github.com/binbandit/snpm/commit/71211aa5e68dc0ccb7e1a40efb40cd67fdbe8dc2))
+- Use dedicated OtpRequired error variant instead of string matching ([6428509](https://github.com/binbandit/snpm/commit/642850962a60beb8dc1c4962f7dc66d79483868e))
+- Warn on bin linking failures instead of silently discarding errors ([9403a8d](https://github.com/binbandit/snpm/commit/9403a8d06e9d1178c040becd5a025ecfebfeb4c3))
+- Check stdout is a terminal before emitting ANSI color codes in audit ([2db4405](https://github.com/binbandit/snpm/commit/2db4405b8fdbea9f833f2aa5f86103eb453f9bf3))
+- Collapse nested if per clippy suggestion in platform.rs ([3e85f50](https://github.com/binbandit/snpm/commit/3e85f502597dae9f06f707f2fe1825a066a7ac57))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -80,6 +111,7 @@ All notable changes to this project will be documented in this file.
 - Skip linking packages that already exist in virtual store ([f2af531](https://github.com/binbandit/snpm/commit/f2af5315f3e8577ce340a0fcedcae4587613805e))
 - Optimize linking with marker files and directory symlinks ([b994c9d](https://github.com/binbandit/snpm/commit/b994c9d61fd9d948858b7a136866e74a07c62b8d))
 - Skip manifest parsing and metadata reads for Hot scenario ([d3a75f6](https://github.com/binbandit/snpm/commit/d3a75f66cb8b808e67f31a4e86c895e05875d5f2))
+- Optimize warm install path (~34% faster) ([2167d73](https://github.com/binbandit/snpm/commit/2167d73adbb61d08c85eb84a3c26fb47fd1d7144))
 
 ### <!-- 5 -->🎨 Styling
 
@@ -89,6 +121,7 @@ All notable changes to this project will be documented in this file.
 - Fix formatting and clippy warnings ([234cb1f](https://github.com/binbandit/snpm/commit/234cb1f7cb85eb2bc43b81d6216e6056cdaec973))
 - *(core)* Apply cargo fmt to cache and dlx modules ([752d88c](https://github.com/binbandit/snpm/commit/752d88c085dcc3cd9511508162f61e98f5eb497f))
 - Run cargo fmt on install operations ([61945e6](https://github.com/binbandit/snpm/commit/61945e6269909441b928829aeb674d5f7e54116e))
+- Run cargo fmt ([5295aca](https://github.com/binbandit/snpm/commit/5295aca54f5d9d71a0a03d0c374d629b36cd74ae))
 
 ### <!-- 7 -->⚙️ Miscellaneous Tasks
 
@@ -192,7 +225,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.3.17 release [skip ci] ([a0c4d6f](https://github.com/binbandit/snpm/commit/a0c4d6f84ddf26635e46dc3acf14fa092fb446a5))
 - *(release)* Bump version to 2026.3.18 [skip ci] ([036236e](https://github.com/binbandit/snpm/commit/036236eb86be5dede249ea1558fd752bfa5695c8))
 - *(release)* Merge 2026.3.18 release [skip ci] ([3661697](https://github.com/binbandit/snpm/commit/366169785aeb5344d9ce8e5366d0b6d96df4a9b3))
-- *(release)* Bump version to 2026.3.19 [skip ci] ([a8e93b1](https://github.com/binbandit/snpm/commit/a8e93b1991b35f5f903967c5012fee4e5a5fa197))
+- *(release)* Bump version to 2026.3.19 [skip ci] ([d61ea48](https://github.com/binbandit/snpm/commit/d61ea48ad0ccebfa3e662dba6db90ebfc5174f0a))
+- *(release)* Merge 2026.3.19 release [skip ci] ([10d3621](https://github.com/binbandit/snpm/commit/10d3621db2fb7ac966c083099b262311525742b1))
+- *(release)* Bump version to 2026.3.20 [skip ci] ([26e0e62](https://github.com/binbandit/snpm/commit/26e0e62e99aabed4b6da8e5890b4bf18940ebd80))
 
 ## [2025.12.24] - 2025-12-24
 

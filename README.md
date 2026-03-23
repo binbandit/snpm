@@ -96,6 +96,23 @@ SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install          # Ignore recently published pa
 
 <br />
 
+## Agent Skill
+
+This repo ships an installable [agent skill](https://github.com/anthropics/skills) at `skills/snpm` that teaches AI coding agents how to use snpm.
+
+```bash
+# Install for Claude Code (project-level)
+npx skills add https://github.com/binbandit/snpm --skill snpm
+
+# Install globally
+npx skills add https://github.com/binbandit/snpm --skill snpm -g
+
+# Install for a specific agent (e.g., Cursor, Codex)
+npx skills add https://github.com/binbandit/snpm --skill snpm -a cursor
+```
+
+<br />
+
 ## Documentation
 
 **[snpm.io](https://snpm.io)**

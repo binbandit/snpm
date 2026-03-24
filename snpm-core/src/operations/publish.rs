@@ -1,7 +1,6 @@
 use crate::{Project, Result, SnpmConfig, SnpmError, console, http};
 use base64::Engine;
 use sha1::Digest as _;
-use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
@@ -82,7 +81,6 @@ pub async fn publish(
 
     let access = options.access.as_deref().unwrap_or("public");
 
-    // Build version metadata by merging manifest with publish-specific fields
     let mut version_meta = manifest_value
         .as_object()
         .cloned()
@@ -92,7 +90,7 @@ pub async fn publish(
         "dist".into(),
         serde_json::json!({
             "integrity": integrity,
-            "shasum": hex_encode(&sha1::Sha1::digest(&tarball_bytes)),
+            "shasum": hex::encode(sha1::Sha1::digest(&tarball_bytes)),
             "tarball": format!("{}/-/{}-{}.tgz", config.default_registry.trim_end_matches('/'), name, version),
         }),
     );
@@ -160,12 +158,4 @@ pub async fn publish(
             reason: format!("registry returned {} — {}", status.as_u16(), body),
         })
     }
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        write!(s, "{:02x}", b).unwrap();
-    }
-    s
 }

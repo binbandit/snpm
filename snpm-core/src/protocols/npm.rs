@@ -25,12 +25,10 @@ pub async fn fetch_package_with_offline(
     protocol_name: &str,
     offline_mode: OfflineMode,
 ) -> Result<RegistryPackage> {
-    // Try to load from cache first
     if let Some(cached) = crate::cache::load_metadata_with_offline(config, name, offline_mode) {
         return Ok(cached);
     }
 
-    // In Offline mode, if cache miss, we fail
     if matches!(offline_mode, OfflineMode::Offline) {
         return Err(SnpmError::OfflineRequired {
             resource: format!("package metadata for {}", name),
@@ -54,18 +52,17 @@ pub async fn fetch_package_with_offline(
         request = request.header("authorization", header_value);
     }
 
-    // Send conditional headers if we have cached response headers
     let cached_headers = crate::cache::load_cached_headers(config, name);
     if let Some(ref headers) = cached_headers {
         if let Some(ref etag) = headers.etag
-            && let Ok(val) = HeaderValue::from_str(etag)
+            && let Ok(header_value) = HeaderValue::from_str(etag)
         {
-            request = request.header("if-none-match", val);
+            request = request.header("if-none-match", header_value);
         }
         if let Some(ref last_modified) = headers.last_modified
-            && let Ok(val) = HeaderValue::from_str(last_modified)
+            && let Ok(header_value) = HeaderValue::from_str(last_modified)
         {
-            request = request.header("if-modified-since", val);
+            request = request.header("if-modified-since", header_value);
         }
     }
 
@@ -88,7 +85,6 @@ pub async fn fetch_package_with_offline(
         started.elapsed().as_secs_f64()
     ));
 
-    // 304 Not Modified — return cached data
     if status == reqwest::StatusCode::NOT_MODIFIED
         && let Some(cached) = crate::cache::load_metadata_with_offline(
             config,
@@ -97,21 +93,19 @@ pub async fn fetch_package_with_offline(
         )
     {
         console::verbose(&format!("registry 304: using cached metadata for {}", name));
-        // Touch the cache file to refresh its mtime
         let _ = crate::cache::save_metadata(config, name, &cached);
         return Ok(cached);
     }
 
-    // Save response headers for future conditional requests
     let response_etag = response
         .headers()
         .get("etag")
-        .and_then(|v| v.to_str().ok())
+        .and_then(|value| value.to_str().ok())
         .map(String::from);
     let response_last_modified = response
         .headers()
         .get("last-modified")
-        .and_then(|v| v.to_str().ok())
+        .and_then(|value| value.to_str().ok())
         .map(String::from);
 
     let package = response

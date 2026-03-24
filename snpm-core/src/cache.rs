@@ -122,7 +122,6 @@ fn is_fresh(config: &SnpmConfig, cache_path: &Path) -> bool {
     false
 }
 
-/// Load cached HTTP headers (etag, last-modified) for conditional requests.
 pub fn load_cached_headers(config: &SnpmConfig, name: &str) -> Option<CachedHeaders> {
     let sanitized = sanitize_package_name(name);
     let headers_path = config
@@ -139,7 +138,6 @@ pub fn load_cached_headers(config: &SnpmConfig, name: &str) -> Option<CachedHead
     None
 }
 
-/// Save HTTP response headers alongside cached metadata.
 pub fn save_cached_headers(config: &SnpmConfig, name: &str, headers: &CachedHeaders) {
     let sanitized = sanitize_package_name(name);
     let cache_dir = config.metadata_dir().join(&sanitized);

@@ -12,8 +12,8 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
     }
 
     let allowed = &config.allow_scripts;
-    let ws_only = workspace
-        .map(|w| &w.config.only_built_dependencies)
+    let workspace_only_built = workspace
+        .map(|workspace| &workspace.config.only_built_dependencies)
         .cloned()
         .unwrap_or_default();
 
@@ -30,47 +30,45 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
             continue;
         }
 
-        let nm_dir = entry_path.join("node_modules");
-        if !nm_dir.is_dir() {
+        let node_modules_dir = entry_path.join("node_modules");
+        if !node_modules_dir.is_dir() {
             continue;
         }
 
-        // Find the package directory inside node_modules
-        for pkg_entry in fs::read_dir(&nm_dir).into_iter().flatten().flatten() {
-            let pkg_path = pkg_entry.path();
-            if !pkg_path.is_dir() {
+        for package_entry in fs::read_dir(&node_modules_dir).into_iter().flatten().flatten() {
+            let package_path = package_entry.path();
+            if !package_path.is_dir() {
                 continue;
             }
 
-            let pkg_json = pkg_path.join("package.json");
-            if !pkg_json.is_file() {
+            let manifest_path = package_path.join("package.json");
+            if !manifest_path.is_file() {
                 continue;
             }
 
-            let data = match fs::read_to_string(&pkg_json) {
-                Ok(d) => d,
+            let content = match fs::read_to_string(&manifest_path) {
+                Ok(content) => content,
                 Err(_) => continue,
             };
-            let manifest: serde_json::Value = match serde_json::from_str(&data) {
-                Ok(v) => v,
+            let manifest: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(value) => value,
                 Err(_) => continue,
             };
 
-            let scripts = match manifest.get("scripts").and_then(|s| s.as_object()) {
-                Some(s) => s,
+            let scripts = match manifest.get("scripts").and_then(|scripts| scripts.as_object()) {
+                Some(scripts) => scripts,
                 None => continue,
             };
 
             let name = manifest
                 .get("name")
-                .and_then(|n| n.as_str())
+                .and_then(|name| name.as_str())
                 .unwrap_or("");
 
-            // Check if this package is allowed to run scripts
-            let can_run = allowed.iter().any(|a| a == name || a == "*")
-                || ws_only.iter().any(|d| d == name);
+            let is_allowed = allowed.iter().any(|allowed_name| allowed_name == name || allowed_name == "*")
+                || workspace_only_built.iter().any(|allowed_dep| allowed_dep == name);
 
-            if !can_run {
+            if !is_allowed {
                 continue;
             }
 
@@ -85,8 +83,8 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
             console::step(&format!("Rebuilding {}", name));
 
             for script_name in &["preinstall", "install", "postinstall"] {
-                if let Some(cmd) = scripts.get(*script_name).and_then(|v| v.as_str()) {
-                    run_script(&pkg_path, script_name, cmd)?;
+                if let Some(command) = scripts.get(*script_name).and_then(|value| value.as_str()) {
+                    run_script(&package_path, script_name, command)?;
                 }
             }
 
@@ -97,16 +95,16 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
     Ok(rebuilt)
 }
 
-fn run_script(cwd: &Path, name: &str, cmd: &str) -> Result<()> {
-    console::verbose(&format!("running {} in {}: {}", name, cwd.display(), cmd));
+fn run_script(working_directory: &Path, name: &str, command: &str) -> Result<()> {
+    console::verbose(&format!("{} in {}: {}", name, working_directory.display(), command));
 
     let shell = if cfg!(windows) { "cmd" } else { "sh" };
-    let flag = if cfg!(windows) { "/C" } else { "-c" };
+    let shell_flag = if cfg!(windows) { "/C" } else { "-c" };
 
     let status = Command::new(shell)
-        .arg(flag)
-        .arg(cmd)
-        .current_dir(cwd)
+        .arg(shell_flag)
+        .arg(command)
+        .current_dir(working_directory)
         .status()
         .map_err(|source| SnpmError::ScriptRun {
             name: name.to_string(),

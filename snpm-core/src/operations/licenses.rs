@@ -18,7 +18,7 @@ pub fn collect_licenses(node_modules: &Path) -> Result<Vec<LicenseEntry>> {
     }
 
     let mut entries = Vec::new();
-    let mut seen = BTreeMap::new();
+    let mut seen: BTreeMap<String, bool> = BTreeMap::new();
 
     let store_entries = fs::read_dir(&virtual_store).map_err(|source| SnpmError::ReadFile {
         path: virtual_store.clone(),
@@ -31,37 +31,35 @@ pub fn collect_licenses(node_modules: &Path) -> Result<Vec<LicenseEntry>> {
             continue;
         }
 
-        let nm_dir = entry_path.join("node_modules");
-        if !nm_dir.is_dir() {
+        let node_modules_dir = entry_path.join("node_modules");
+        if !node_modules_dir.is_dir() {
             continue;
         }
 
-        for pkg_entry in fs::read_dir(&nm_dir).into_iter().flatten().flatten() {
-            let pkg_path = pkg_entry.path();
-            if !pkg_path.is_dir() {
-                // Could be a scoped package — check one level deeper
+        for package_entry in fs::read_dir(&node_modules_dir).into_iter().flatten().flatten() {
+            let package_path = package_entry.path();
+            if !package_path.is_dir() {
                 continue;
             }
 
-            // Handle scoped packages (@scope/name)
-            let name_str = pkg_entry.file_name().to_string_lossy().to_string();
-            if name_str.starts_with('@') {
-                for scoped_entry in fs::read_dir(&pkg_path).into_iter().flatten().flatten() {
+            let dir_name = package_entry.file_name().to_string_lossy().to_string();
+            if dir_name.starts_with('@') {
+                for scoped_entry in fs::read_dir(&package_path).into_iter().flatten().flatten() {
                     let scoped_path = scoped_entry.path();
-                    let full_name = format!("{}/{}", name_str, scoped_entry.file_name().to_string_lossy());
-                    if let Some(entry) = read_license_from_dir(&scoped_path, &full_name) {
-                        let key = format!("{}@{}", entry.name, entry.version);
-                        if let std::collections::btree_map::Entry::Vacant(e) = seen.entry(key) {
-                            e.insert(true);
-                            entries.push(entry);
+                    let full_name = format!("{}/{}", dir_name, scoped_entry.file_name().to_string_lossy());
+                    if let Some(license_entry) = read_license_from_directory(&scoped_path, &full_name) {
+                        let key = format!("{}@{}", license_entry.name, license_entry.version);
+                        if let std::collections::btree_map::Entry::Vacant(vacant) = seen.entry(key) {
+                            vacant.insert(true);
+                            entries.push(license_entry);
                         }
                     }
                 }
-            } else if let Some(entry) = read_license_from_dir(&pkg_path, &name_str) {
-                let key = format!("{}@{}", entry.name, entry.version);
-                if let std::collections::btree_map::Entry::Vacant(e) = seen.entry(key) {
-                    e.insert(true);
-                    entries.push(entry);
+            } else if let Some(license_entry) = read_license_from_directory(&package_path, &dir_name) {
+                let key = format!("{}@{}", license_entry.name, license_entry.version);
+                if let std::collections::btree_map::Entry::Vacant(vacant) = seen.entry(key) {
+                    vacant.insert(true);
+                    entries.push(license_entry);
                 }
             }
         }
@@ -71,20 +69,20 @@ pub fn collect_licenses(node_modules: &Path) -> Result<Vec<LicenseEntry>> {
     Ok(entries)
 }
 
-fn read_license_from_dir(dir: &Path, fallback_name: &str) -> Option<LicenseEntry> {
-    let pkg_json = dir.join("package.json");
-    let data = fs::read_to_string(&pkg_json).ok()?;
-    let manifest: serde_json::Value = serde_json::from_str(&data).ok()?;
+fn read_license_from_directory(directory: &Path, fallback_name: &str) -> Option<LicenseEntry> {
+    let manifest_path = directory.join("package.json");
+    let content = fs::read_to_string(&manifest_path).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&content).ok()?;
 
     let name = manifest
         .get("name")
-        .and_then(|n| n.as_str())
+        .and_then(|value| value.as_str())
         .unwrap_or(fallback_name)
         .to_string();
 
     let version = manifest
         .get("version")
-        .and_then(|v| v.as_str())
+        .and_then(|value| value.as_str())
         .unwrap_or("0.0.0")
         .to_string();
 
@@ -98,23 +96,21 @@ fn read_license_from_dir(dir: &Path, fallback_name: &str) -> Option<LicenseEntry
 }
 
 fn extract_license(manifest: &serde_json::Value) -> String {
-    // Try "license" field (string)
-    if let Some(license) = manifest.get("license").and_then(|l| l.as_str()) {
+    if let Some(license) = manifest.get("license").and_then(|value| value.as_str()) {
         return license.to_string();
     }
 
-    // Try "license" as object with "type" field
-    if let Some(obj) = manifest.get("license").and_then(|l| l.as_object())
-        && let Some(t) = obj.get("type").and_then(|t| t.as_str())
+    if let Some(object) = manifest.get("license").and_then(|value| value.as_object())
+        && let Some(license_type) = object.get("type").and_then(|value| value.as_str())
     {
-        return t.to_string();
+        return license_type.to_string();
     }
 
-    // Try "licenses" array
-    if let Some(arr) = manifest.get("licenses").and_then(|l| l.as_array()) {
-        let types: Vec<&str> = arr
+    // Legacy "licenses" array format used by some older packages
+    if let Some(array) = manifest.get("licenses").and_then(|value| value.as_array()) {
+        let types: Vec<&str> = array
             .iter()
-            .filter_map(|l| l.get("type").and_then(|t| t.as_str()))
+            .filter_map(|entry| entry.get("type").and_then(|value| value.as_str()))
             .collect();
         if !types.is_empty() {
             return types.join(" OR ");

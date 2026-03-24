@@ -114,11 +114,9 @@ pub fn pack(project: &Project, output_dir: &Path) -> Result<PackResult> {
 fn collect_pack_files(project: &Project) -> Result<Vec<PathBuf>> {
     let root = &project.root;
 
-    // package.json is always included
     let mut files = vec![project.manifest_path.clone()];
 
     if let Some(ref file_patterns) = project.manifest.files {
-        // If "files" is specified, only include listed patterns + mandatory files
         for pattern in file_patterns {
             let full_pattern = root.join(pattern);
             let pattern_str = full_pattern.to_string_lossy();
@@ -134,7 +132,6 @@ fn collect_pack_files(project: &Project) -> Result<Vec<PathBuf>> {
                     }
                 }
                 Err(_) => {
-                    // Treat as literal path
                     let literal = root.join(pattern);
                     if literal.is_file() && literal != project.manifest_path {
                         files.push(literal);
@@ -145,11 +142,9 @@ fn collect_pack_files(project: &Project) -> Result<Vec<PathBuf>> {
             }
         }
     } else {
-        // No "files" field — include everything except ignored files
         collect_dir_files_filtered(root, &mut files, project)?;
     }
 
-    // Always include README, LICENSE, CHANGELOG (case-insensitive)
     for mandatory in &["README", "LICENSE", "LICENCE", "CHANGELOG"] {
         for entry in fs::read_dir(root)
             .map_err(|source| SnpmError::ReadFile {
@@ -169,7 +164,6 @@ fn collect_pack_files(project: &Project) -> Result<Vec<PathBuf>> {
         }
     }
 
-    // Always include main/bin entry points
     if let Some(ref main) = project.manifest.main {
         let main_path = root.join(main);
         if main_path.is_file() && !files.contains(&main_path) {
@@ -211,11 +205,11 @@ fn collect_dir_files_filtered(
     let ignore_patterns = if npmignore_path.is_file() {
         fs::read_to_string(&npmignore_path)
             .ok()
-            .map(|s| parse_ignore_patterns(&s))
+            .map(|content| parse_ignore_patterns(&content))
     } else if gitignore_path.is_file() {
         fs::read_to_string(&gitignore_path)
             .ok()
-            .map(|s| parse_ignore_patterns(&s))
+            .map(|content| parse_ignore_patterns(&content))
     } else {
         None
     };
@@ -240,7 +234,6 @@ fn collect_dir_recursive(
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
 
-        // Always skip these
         if matches!(
             name_str.as_ref(),
             "node_modules"
@@ -254,13 +247,12 @@ fn collect_dir_recursive(
             continue;
         }
 
-        // Check ignore patterns
         if let Some(patterns) = ignore_patterns {
-            let rel = path
+            let relative_path = path
                 .strip_prefix(root)
                 .unwrap_or(&path)
                 .to_string_lossy();
-            if patterns.iter().any(|p| matches_ignore_pattern(&rel, p)) {
+            if patterns.iter().any(|pattern| matches_ignore_pattern(&relative_path, pattern)) {
                 continue;
             }
         }
@@ -286,7 +278,6 @@ fn parse_ignore_patterns(content: &str) -> Vec<String> {
 fn matches_ignore_pattern(path: &str, pattern: &str) -> bool {
     let pattern = pattern.trim_end_matches('/');
 
-    // Simple matching: check if any path component matches
     if !pattern.contains('/') {
         return path
             .split('/')

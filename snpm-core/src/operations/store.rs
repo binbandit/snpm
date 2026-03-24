@@ -11,17 +11,17 @@ pub struct StoreStatus {
 }
 
 pub fn status(config: &SnpmConfig) -> Result<StoreStatus> {
-    let packages_dir = config.packages_dir();
-    let metadata_dir = config.metadata_dir();
+    let packages_directory = config.packages_dir();
+    let metadata_directory = config.metadata_dir();
 
-    let (packages_count, packages_size) = if packages_dir.exists() {
-        count_entries_and_size(&packages_dir)?
+    let (packages_count, packages_size) = if packages_directory.exists() {
+        count_entries_and_size(&packages_directory)?
     } else {
         (0, 0)
     };
 
-    let (metadata_count, metadata_size) = if metadata_dir.exists() {
-        count_entries_and_size(&metadata_dir)?
+    let (metadata_count, metadata_size) = if metadata_directory.exists() {
+        count_entries_and_size(&metadata_directory)?
     } else {
         (0, 0)
     };
@@ -31,21 +31,20 @@ pub fn status(config: &SnpmConfig) -> Result<StoreStatus> {
         packages_size,
         metadata_count,
         metadata_size,
-        store_path: packages_dir.display().to_string(),
+        store_path: packages_directory.display().to_string(),
     })
 }
 
 pub fn prune(config: &SnpmConfig, dry_run: bool) -> Result<usize> {
-    let packages_dir = config.packages_dir();
-    if !packages_dir.exists() {
+    let packages_directory = config.packages_dir();
+    if !packages_directory.exists() {
         return Ok(0);
     }
 
-    // Find packages not accessed recently by checking for stale .snpm_complete markers
     let mut pruned = 0;
 
-    let entries = fs::read_dir(&packages_dir).map_err(|source| SnpmError::ReadFile {
-        path: packages_dir.clone(),
+    let entries = fs::read_dir(&packages_directory).map_err(|source| SnpmError::ReadFile {
+        path: packages_directory.clone(),
         source,
     })?;
 
@@ -55,7 +54,6 @@ pub fn prune(config: &SnpmConfig, dry_run: bool) -> Result<usize> {
             continue;
         }
 
-        // Each package name dir contains version dirs
         let version_entries = match fs::read_dir(&entry_path) {
             Ok(entries) => entries,
             Err(_) => continue,
@@ -69,7 +67,6 @@ pub fn prune(config: &SnpmConfig, dry_run: bool) -> Result<usize> {
 
             let marker = version_path.join(".snpm_complete");
             if !marker.is_file() {
-                // Incomplete extraction — safe to remove
                 let name = entry_path
                     .file_name()
                     .unwrap_or_default()
@@ -95,7 +92,6 @@ pub fn prune(config: &SnpmConfig, dry_run: bool) -> Result<usize> {
             }
         }
 
-        // Clean up empty package name directories
         if !dry_run
             && let Ok(mut remaining) = fs::read_dir(&entry_path)
             && remaining.next().is_none()
@@ -111,21 +107,21 @@ pub fn path(config: &SnpmConfig) -> String {
     config.packages_dir().display().to_string()
 }
 
-fn count_entries_and_size(path: &Path) -> Result<(usize, u64)> {
-    let entries = fs::read_dir(path).map_err(|source| SnpmError::ReadFile {
-        path: path.to_path_buf(),
+fn count_entries_and_size(directory: &Path) -> Result<(usize, u64)> {
+    let entries = fs::read_dir(directory).map_err(|source| SnpmError::ReadFile {
+        path: directory.to_path_buf(),
         source,
     })?;
 
-    let count = entries.filter_map(|e| e.ok()).count();
-    let size = dir_size(path);
+    let count = entries.filter_map(|entry| entry.ok()).count();
+    let size = directory_size(directory);
 
     Ok((count, size))
 }
 
-fn dir_size(path: &Path) -> u64 {
+fn directory_size(path: &Path) -> u64 {
     if path.is_file() {
-        return path.metadata().map(|m| m.len()).unwrap_or(0);
+        return path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
     }
 
     let Ok(entries) = fs::read_dir(path) else {
@@ -133,7 +129,7 @@ fn dir_size(path: &Path) -> u64 {
     };
 
     entries
-        .filter_map(|e| e.ok())
-        .map(|e| dir_size(&e.path()))
+        .filter_map(|entry| entry.ok())
+        .map(|entry| directory_size(&entry.path()))
         .sum()
 }

@@ -10,17 +10,16 @@ repository = "https://github.com/binbandit/snpm"
 anyhow = "1.0"
 thiserror = "2.0"
 tokio = "1.49"
-#
-# # ───────────────────────────────────────
-# # Compilation profiles
-# [profile.release]
-# lto = "fat"
-# codegen-units = 1
-# strip = "symbols"
-# panic = "abort"
-#
-# [profile.dev]
-# debug = 0
-# split-debuginfo = "unpacked"
-# strip = "debuginfo"
-#
+
+# ───────────────────────────────────────
+# Compilation profiles
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+debug = 0
+split-debuginfo = "unpacked"
+strip = "debuginfo"

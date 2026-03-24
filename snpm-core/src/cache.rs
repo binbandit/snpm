@@ -122,6 +122,39 @@ fn is_fresh(config: &SnpmConfig, cache_path: &Path) -> bool {
     false
 }
 
+/// Load cached HTTP headers (etag, last-modified) for conditional requests.
+pub fn load_cached_headers(config: &SnpmConfig, name: &str) -> Option<CachedHeaders> {
+    let sanitized = sanitize_package_name(name);
+    let headers_path = config
+        .metadata_dir()
+        .join(&sanitized)
+        .join("headers.json");
+
+    if let Ok(data) = fs::read_to_string(&headers_path)
+        && let Ok(headers) = serde_json::from_str::<CachedHeaders>(&data)
+    {
+        return Some(headers);
+    }
+
+    None
+}
+
+/// Save HTTP response headers alongside cached metadata.
+pub fn save_cached_headers(config: &SnpmConfig, name: &str, headers: &CachedHeaders) {
+    let sanitized = sanitize_package_name(name);
+    let cache_dir = config.metadata_dir().join(&sanitized);
+
+    if let Ok(json) = serde_json::to_string(headers) {
+        let _ = fs::write(cache_dir.join("headers.json"), json);
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CachedHeaders {
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
 fn sanitize_package_name(name: &str) -> String {
     name.replace('/', "__")
 }

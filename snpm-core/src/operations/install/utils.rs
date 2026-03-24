@@ -1,8 +1,8 @@
 use crate::resolve::{PackageId, ResolutionGraph, ResolvedPackage};
 use crate::store;
-use crate::{Project, Workspace, http};
+use crate::{Project, Workspace};
 use crate::{Result, SnpmConfig, SnpmError, lockfile};
-use futures::future::join_all;
+use futures::stream::{self, StreamExt};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -220,37 +220,35 @@ pub fn check_store_cache(config: &SnpmConfig, graph: &ResolutionGraph) -> CacheC
 pub async fn materialize_missing_packages(
     config: &SnpmConfig,
     missing: &[ResolvedPackage],
+    client: &reqwest::Client,
 ) -> Result<BTreeMap<PackageId, PathBuf>> {
     if missing.is_empty() {
         return Ok(BTreeMap::new());
     }
 
-    let client = http::create_client()?;
     let total = missing.len();
     let progress_count = Arc::new(AtomicUsize::new(0));
-    let mut futures = Vec::with_capacity(total);
+    let concurrency = config.registry_concurrency;
 
-    for package in missing {
+    let mut paths = BTreeMap::new();
+
+    let mut results = stream::iter(missing.iter().map(|package| {
         let config = config.clone();
         let client = client.clone();
         let package = package.clone();
         let count = progress_count.clone();
 
-        let future = async move {
+        async move {
             let current = count.fetch_add(1, Ordering::Relaxed) + 1;
             console::progress("📦", &package.id.name, current, total);
 
             let path = store::ensure_package(&config, &package, &client).await?;
             Ok::<(PackageId, PathBuf), SnpmError>((package.id.clone(), path))
-        };
+        }
+    }))
+    .buffer_unordered(concurrency);
 
-        futures.push(future);
-    }
-
-    let results = join_all(futures).await;
-    let mut paths = BTreeMap::new();
-
-    for result in results {
+    while let Some(result) = results.next().await {
         let (id, path) = result?;
         paths.insert(id, path);
     }
@@ -261,28 +259,25 @@ pub async fn materialize_missing_packages(
 pub async fn materialize_store(
     config: &SnpmConfig,
     graph: &ResolutionGraph,
+    client: &reqwest::Client,
 ) -> Result<BTreeMap<PackageId, PathBuf>> {
-    let client = http::create_client()?;
-    let mut futures = Vec::new();
+    let concurrency = config.registry_concurrency;
+    let mut paths = BTreeMap::new();
 
-    for package in graph.packages.values() {
+    let mut results = stream::iter(graph.packages.values().map(|package| {
         let config = config.clone();
         let client = client.clone();
         let package = package.clone();
 
-        let future = async move {
+        async move {
             let path = store::ensure_package(&config, &package, &client).await?;
             let id = package.id.clone();
             Ok::<(PackageId, PathBuf), crate::SnpmError>((id, path))
-        };
+        }
+    }))
+    .buffer_unordered(concurrency);
 
-        futures.push(future);
-    }
-
-    let results = join_all(futures).await;
-    let mut paths = BTreeMap::new();
-
-    for result in results {
+    while let Some(result) = results.next().await {
         let (id, path) = result?;
         paths.insert(id, path);
     }

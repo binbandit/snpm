@@ -111,7 +111,9 @@ pub async fn install_workspace(
 
             if !cache_check.missing.is_empty() {
                 console::step("Downloading missing packages");
-                let downloaded = materialize_missing_packages(config, &cache_check.missing).await?;
+                let downloaded =
+                    materialize_missing_packages(config, &cache_check.missing, &registry_client)
+                        .await?;
                 store_paths_map.extend(downloaded);
             }
 
@@ -134,7 +136,7 @@ pub async fn install_workspace(
             .await?;
 
             if store_paths_map.is_empty() && !graph.packages.is_empty() {
-                store_paths_map = materialize_store(config, &graph).await?;
+                store_paths_map = materialize_store(config, &graph, &registry_client).await?;
             }
 
             if include_dev {

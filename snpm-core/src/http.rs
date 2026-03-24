@@ -8,6 +8,7 @@ pub fn create_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(DEFAULT_TIMEOUT)
         .connect_timeout(Duration::from_secs(30))
+        .user_agent(concat!("snpm/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|source| SnpmError::HttpClient { source })
 }

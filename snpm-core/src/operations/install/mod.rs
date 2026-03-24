@@ -260,6 +260,8 @@ pub async fn install(
     let precomputed_graph = scenario_result.graph;
     let precomputed_integrity = scenario_result.integrity_state;
 
+    let registry_client = http::create_client()?;
+
     let mut early_exit = false;
     let mut store_paths_map: BTreeMap<crate::resolve::PackageId, std::path::PathBuf> =
         BTreeMap::new();
@@ -304,7 +306,9 @@ pub async fn install(
             if !cache_check.missing.is_empty() {
                 console::step("Downloading missing packages");
                 let materialize_start = Instant::now();
-                let downloaded = materialize_missing_packages(config, &cache_check.missing).await?;
+                let downloaded =
+                    materialize_missing_packages(config, &cache_check.missing, &registry_client)
+                        .await?;
 
                 console::verbose(&format!(
                     "downloaded {} missing packages in {:.3}s",
@@ -322,8 +326,6 @@ pub async fn install(
         InstallScenario::Cold => {
             console::step("Resolving dependencies");
             console::verbose("cold path: full resolution required");
-
-            let registry_client = http::create_client()?;
 
             let store_paths = Arc::new(Mutex::new(BTreeMap::<
                 crate::resolve::PackageId,
@@ -424,7 +426,7 @@ pub async fn install(
             if store_paths_map.is_empty() && !graph.packages.is_empty() {
                 console::verbose("no store tasks were scheduled; materializing store on demand");
                 let materialize_start = Instant::now();
-                store_paths_map = materialize_store(config, &graph).await?;
+                store_paths_map = materialize_store(config, &graph, &registry_client).await?;
                 console::verbose(&format!(
                     "materialized store in {:.3}s (packages={})",
                     materialize_start.elapsed().as_secs_f64(),

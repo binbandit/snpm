@@ -54,6 +54,8 @@ async fn run() -> Result<()> {
         Command::Login(args) => commands::login::run(args, &config).await?,
         Command::Logout(args) => commands::logout::run(args, &config).await?,
         Command::Config(args) => commands::config::run(args, &config).await?,
+        Command::Pack(args) => commands::pack::run(args).await?,
+        Command::Publish(args) => commands::publish::run(args, &config).await?,
         Command::Patch(args) => commands::patch::run(args, &config).await?,
         Command::Clean(args) => commands::clean::run(args, &config).await?,
         Command::Audit(args) => commands::audit::run(args, &config).await?,

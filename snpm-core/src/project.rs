@@ -33,12 +33,25 @@ pub struct Manifest {
     pub optional_dependencies: BTreeMap<String, String>,
     #[serde(default)]
     pub scripts: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin: Option<BinField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main: Option<String>,
     #[serde(default)]
     pub pnpm: Option<ManifestPnpm>,
     #[serde(default)]
     pub snpm: Option<ManifestSnpm>,
     #[serde(default)]
     pub workspaces: Option<WorkspacesField>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum BinField {
+    Single(String),
+    Map(BTreeMap<String, String>),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

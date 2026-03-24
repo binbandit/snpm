@@ -136,6 +136,13 @@ pub enum SnpmError {
     #[error("Lockfile required for audit. Run `snpm install` first.")]
     AuditLockfileRequired,
 
+    #[error("Failed to publish {name}@{version}: {reason}")]
+    PublishFailed {
+        name: String,
+        version: String,
+        reason: String,
+    },
+
     #[error("Internal error: {reason}")]
     Internal { reason: String },
 }

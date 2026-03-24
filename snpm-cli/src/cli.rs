@@ -44,6 +44,10 @@ pub enum Command {
     Logout(commands::logout::LogoutArgs),
     /// Show the resolved configuration
     Config(commands::config::ConfigArgs),
+    /// Create a tarball from the current package
+    Pack(commands::pack::PackArgs),
+    /// Publish a package to the registry
+    Publish(commands::publish::PublishArgs),
     /// Patch packages to fix bugs or customize behavior
     Patch(commands::patch::PatchArgs),
     /// Remove cached packages and metadata to free disk space

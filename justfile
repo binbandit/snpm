@@ -14,3 +14,7 @@ check:
 install:
   cargo install --path snpm-cli --force
   cargo install --path snpm-switch --force
+
+# Run benchmarks (requires hyperfine, snpm, and at least one of pnpm/bun)
+bench:
+  ./benchmarks/bench.sh

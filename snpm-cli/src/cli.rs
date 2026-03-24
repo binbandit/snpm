@@ -36,6 +36,10 @@ pub enum Command {
     Upgrade(commands::upgrade::UpgradeArgs),
     /// Check for outdated dependencies
     Outdated(commands::outdated::OutdatedArgs),
+    /// List licenses of installed packages
+    Licenses(commands::licenses::LicensesArgs),
+    /// Link a package globally or into the current project
+    Link(commands::link::LinkArgs),
     /// List installed packages
     List(commands::list::ListArgs),
     /// Authenticate with a registry
@@ -48,6 +52,8 @@ pub enum Command {
     Pack(commands::pack::PackArgs),
     /// Publish a package to the registry
     Publish(commands::publish::PublishArgs),
+    /// Rebuild native modules
+    Rebuild(commands::rebuild::RebuildArgs),
     /// Patch packages to fix bugs or customize behavior
     Patch(commands::patch::PatchArgs),
     /// Remove cached packages and metadata to free disk space
@@ -58,6 +64,8 @@ pub enum Command {
     Why(commands::why::WhyArgs),
     /// Manage the package store
     Store(commands::store::StoreArgs),
+    /// Remove a linked package
+    Unlink(commands::unlink::UnlinkArgs),
 
     /// Generate shell completions
     #[command(hide = true)]

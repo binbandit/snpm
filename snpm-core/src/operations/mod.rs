@@ -5,8 +5,11 @@ pub mod dlx;
 pub mod global;
 pub mod init;
 pub mod install;
+pub mod licenses;
+pub mod link;
 pub mod pack;
 pub mod publish;
+pub mod rebuild;
 pub mod lazy;
 pub mod patch;
 pub mod run;
@@ -32,6 +35,9 @@ pub use install::{
     upgrade,
 };
 pub use lazy::{is_stale, lazy_install};
+pub use licenses::{LicenseEntry, collect_licenses};
+pub use link::{link_global, link_local, unlink_global, unlink_local};
+pub use rebuild::rebuild;
 pub use pack::{PackResult, pack};
 pub use publish::{PublishOptions, publish};
 pub use patch::{

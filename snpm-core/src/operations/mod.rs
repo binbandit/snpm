@@ -8,6 +8,7 @@ pub mod install;
 pub mod lazy;
 pub mod patch;
 pub mod run;
+pub mod store;
 pub mod why;
 
 pub use audit::{
@@ -32,6 +33,9 @@ pub use lazy::{is_stale, lazy_install};
 pub use patch::{
     PatchCommitResult, PatchStartResult, commit_patch, get_patches_to_apply, list_project_patches,
     remove_package_patch, start_patch,
+};
+pub use store::{
+    StoreStatus, path as store_path, prune as store_prune, status as store_status,
 };
 pub use run::{
     ExecOptions, exec_command, exec_workspace_command, run_script, run_workspace_scripts,

@@ -14,5 +14,6 @@ pub mod outdated;
 pub mod patch;
 pub mod remove;
 pub mod run;
+pub mod store;
 pub mod upgrade;
 pub mod why;

@@ -52,6 +52,8 @@ pub enum Command {
     Audit(commands::audit::AuditArgs),
     /// Explain why a dependency is installed
     Why(commands::why::WhyArgs),
+    /// Manage the package store
+    Store(commands::store::StoreArgs),
 
     /// Generate shell completions
     #[command(hide = true)]

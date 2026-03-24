@@ -1,6 +1,7 @@
 pub mod add;
 pub mod audit;
 pub mod clean;
+pub mod completions;
 pub mod config;
 pub mod dlx;
 pub mod exec;

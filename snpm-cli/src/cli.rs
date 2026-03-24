@@ -53,6 +53,10 @@ pub enum Command {
     /// Explain why a dependency is installed
     Why(commands::why::WhyArgs),
 
+    /// Generate shell completions
+    #[command(hide = true)]
+    Completions(commands::completions::CompletionsArgs),
+
     /// Run a package.json script by name (fallback for unknown subcommands)
     #[command(external_subcommand)]
     Script(Vec<String>),

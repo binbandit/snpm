@@ -58,6 +58,7 @@ async fn run() -> Result<()> {
         Command::Clean(args) => commands::clean::run(args, &config).await?,
         Command::Audit(args) => commands::audit::run(args, &config).await?,
         Command::Why(args) => commands::why::run(args).await?,
+        Command::Completions(args) => commands::completions::run(args).await?,
         Command::Script(args) => {
             let mut iter = args.into_iter();
             let script = iter.next().expect("external subcommand must have a name");

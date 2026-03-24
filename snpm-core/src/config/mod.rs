@@ -49,6 +49,7 @@ pub struct SnpmConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkBackend {
     Auto,
+    Reflink,
     Hardlink,
     Symlink,
     Copy,
@@ -58,6 +59,7 @@ impl LinkBackend {
     pub fn parse(value: &str) -> Option<Self> {
         match value.to_ascii_lowercase().as_str() {
             "auto" | "default" => Some(LinkBackend::Auto),
+            "reflink" | "reflinks" | "cow" | "clone" => Some(LinkBackend::Reflink),
             "hardlink" | "hardlinks" | "hard" => Some(LinkBackend::Hardlink),
             "symlink" | "symlinks" | "symbolic" | "sym" => Some(LinkBackend::Symlink),
             "copy" | "copies" => Some(LinkBackend::Copy),

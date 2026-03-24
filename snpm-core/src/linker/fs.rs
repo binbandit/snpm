@@ -69,6 +69,10 @@ pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
 fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
     match config.link_backend {
         LinkBackend::Auto => {
+            if reflink_copy::reflink(from, to).is_ok() {
+                return Ok(());
+            }
+
             if fs::hard_link(from, to).is_ok() {
                 return Ok(());
             }
@@ -81,6 +85,14 @@ fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
                 path: to.to_path_buf(),
                 source: source_err,
             })?;
+        }
+        LinkBackend::Reflink => {
+            if reflink_copy::reflink(from, to).is_err() {
+                fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
+                    path: to.to_path_buf(),
+                    source: source_err,
+                })?;
+            }
         }
         LinkBackend::Hardlink => {
             if fs::hard_link(from, to).is_err() {

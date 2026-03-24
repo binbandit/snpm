@@ -149,6 +149,7 @@ fn hoisting_label(value: HoistingMode) -> &'static str {
 fn link_backend_label(value: LinkBackend) -> &'static str {
     match value {
         LinkBackend::Auto => "auto",
+        LinkBackend::Reflink => "reflink",
         LinkBackend::Hardlink => "hardlink",
         LinkBackend::Symlink => "symlink",
         LinkBackend::Copy => "copy",

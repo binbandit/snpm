@@ -141,12 +141,28 @@ fn sanitize_name(name: &str) -> String {
 }
 
 fn package_root_dir(pkg_dir: &Path) -> PathBuf {
+    // npm tarballs typically extract into a `package/` directory
     let candidate = pkg_dir.join("package");
     if candidate.is_dir() {
-        candidate
-    } else {
-        pkg_dir.to_path_buf()
+        return candidate;
     }
+
+    // Some packages (e.g. @types/node v25) use a different top-level directory
+    // name. Find the single subdirectory that contains a package.json.
+    if let Ok(entries) = fs::read_dir(pkg_dir) {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.file_name().is_some_and(|n| n != ".snpm_complete") {
+                dirs.push(path);
+            }
+        }
+        if dirs.len() == 1 && dirs[0].join("package.json").is_file() {
+            return dirs[0].clone();
+        }
+    }
+
+    pkg_dir.to_path_buf()
 }
 
 async fn download_tarball(
@@ -421,6 +437,42 @@ mod tests {
         let temp = tempdir().unwrap();
         let result = unpack_tarball(temp.path(), bytes);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn package_root_dir_finds_standard_package_dir() {
+        let temp = tempdir().unwrap();
+        let pkg_dir = temp.path();
+        std::fs::create_dir_all(pkg_dir.join("package")).unwrap();
+        std::fs::write(pkg_dir.join("package/package.json"), "{}").unwrap();
+
+        let root = super::package_root_dir(pkg_dir);
+        assert_eq!(root, pkg_dir.join("package"));
+    }
+
+    #[test]
+    fn package_root_dir_finds_nonstandard_toplevel_dir() {
+        // Simulates @types/node v25 where tarball uses "node/" instead of "package/"
+        let temp = tempdir().unwrap();
+        let pkg_dir = temp.path();
+        std::fs::create_dir_all(pkg_dir.join("node")).unwrap();
+        std::fs::write(pkg_dir.join("node/package.json"), "{}").unwrap();
+        // .snpm_complete marker should not confuse the detection
+        std::fs::write(pkg_dir.join(".snpm_complete"), "").unwrap();
+
+        let root = super::package_root_dir(pkg_dir);
+        assert_eq!(root, pkg_dir.join("node"));
+    }
+
+    #[test]
+    fn package_root_dir_returns_pkg_dir_when_flat() {
+        let temp = tempdir().unwrap();
+        let pkg_dir = temp.path();
+        std::fs::write(pkg_dir.join("package.json"), "{}").unwrap();
+        std::fs::write(pkg_dir.join("index.js"), "").unwrap();
+
+        let root = super::package_root_dir(pkg_dir);
+        assert_eq!(root, pkg_dir.to_path_buf());
     }
 
     #[test]

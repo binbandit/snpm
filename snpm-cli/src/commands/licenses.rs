@@ -28,8 +28,18 @@ pub async fn run(args: LicensesArgs) -> Result<()> {
     }
 
     // Table output
-    let max_name = entries.iter().map(|e| e.name.len()).max().unwrap_or(10).max(7);
-    let max_ver = entries.iter().map(|e| e.version.len()).max().unwrap_or(7).max(7);
+    let max_name = entries
+        .iter()
+        .map(|e| e.name.len())
+        .max()
+        .unwrap_or(10)
+        .max(7);
+    let max_ver = entries
+        .iter()
+        .map(|e| e.version.len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
 
     println!(
         "{:<width_name$}  {:<width_ver$}  License",

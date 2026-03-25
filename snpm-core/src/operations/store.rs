@@ -67,10 +67,7 @@ pub fn prune(config: &SnpmConfig, dry_run: bool) -> Result<usize> {
 
             let marker = version_path.join(".snpm_complete");
             if !marker.is_file() {
-                let name = entry_path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy();
+                let name = entry_path.file_name().unwrap_or_default().to_string_lossy();
                 let version = version_path
                     .file_name()
                     .unwrap_or_default()

@@ -35,7 +35,11 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
             continue;
         }
 
-        for package_entry in fs::read_dir(&node_modules_dir).into_iter().flatten().flatten() {
+        for package_entry in fs::read_dir(&node_modules_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let package_path = package_entry.path();
             if !package_path.is_dir() {
                 continue;
@@ -55,7 +59,10 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
                 Err(_) => continue,
             };
 
-            let scripts = match manifest.get("scripts").and_then(|scripts| scripts.as_object()) {
+            let scripts = match manifest
+                .get("scripts")
+                .and_then(|scripts| scripts.as_object())
+            {
                 Some(scripts) => scripts,
                 None => continue,
             };
@@ -65,8 +72,12 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
                 .and_then(|name| name.as_str())
                 .unwrap_or("");
 
-            let is_allowed = allowed.iter().any(|allowed_name| allowed_name == name || allowed_name == "*")
-                || workspace_only_built.iter().any(|allowed_dep| allowed_dep == name);
+            let is_allowed = allowed
+                .iter()
+                .any(|allowed_name| allowed_name == name || allowed_name == "*")
+                || workspace_only_built
+                    .iter()
+                    .any(|allowed_dep| allowed_dep == name);
 
             if !is_allowed {
                 continue;
@@ -96,7 +107,12 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
 }
 
 fn run_script(working_directory: &Path, name: &str, command: &str) -> Result<()> {
-    console::verbose(&format!("{} in {}: {}", name, working_directory.display(), command));
+    console::verbose(&format!(
+        "{} in {}: {}",
+        name,
+        working_directory.display(),
+        command
+    ));
 
     let shell = if cfg!(windows) { "cmd" } else { "sh" };
     let shell_flag = if cfg!(windows) { "/C" } else { "-c" };

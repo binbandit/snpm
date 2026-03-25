@@ -32,7 +32,11 @@ pub fn link_global(config: &SnpmConfig, project: &Project) -> Result<()> {
 
     // Remove existing link/dir
     if link_target.symlink_metadata().is_ok() {
-        if link_target.is_dir() && !link_target.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        if link_target.is_dir()
+            && !link_target
+                .symlink_metadata()
+                .is_ok_and(|m| m.file_type().is_symlink())
+        {
             fs::remove_dir_all(&link_target).ok();
         } else {
             fs::remove_file(&link_target).ok();
@@ -86,7 +90,11 @@ pub fn link_local(project: &Project, config: &SnpmConfig, package_name: &str) ->
 
     // Remove existing
     if dest.symlink_metadata().is_ok() {
-        if dest.is_dir() && !dest.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        if dest.is_dir()
+            && !dest
+                .symlink_metadata()
+                .is_ok_and(|m| m.file_type().is_symlink())
+        {
             fs::remove_dir_all(&dest).ok();
         } else {
             fs::remove_file(&dest).ok();
@@ -100,7 +108,11 @@ pub fn link_local(project: &Project, config: &SnpmConfig, package_name: &str) ->
     fs::create_dir_all(&bin_dir).ok();
     crate::linker::bins::link_bins(&dest, &node_modules, package_name).ok();
 
-    console::info(&format!("Linked {} into {}", package_name, project.root.display()));
+    console::info(&format!(
+        "Linked {} into {}",
+        package_name,
+        project.root.display()
+    ));
     Ok(())
 }
 
@@ -119,7 +131,11 @@ pub fn unlink_global(config: &SnpmConfig, project: &Project) -> Result<()> {
     let link_path = global_dir.join(name);
 
     if link_path.symlink_metadata().is_ok() {
-        if link_path.is_dir() && !link_path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        if link_path.is_dir()
+            && !link_path
+                .symlink_metadata()
+                .is_ok_and(|m| m.file_type().is_symlink())
+        {
             fs::remove_dir_all(&link_path).ok();
         } else {
             fs::remove_file(&link_path).ok();
@@ -137,12 +153,20 @@ pub fn unlink_local(project: &Project, package_name: &str) -> Result<()> {
     let dest = project.root.join("node_modules").join(package_name);
 
     if dest.symlink_metadata().is_ok() {
-        if dest.is_dir() && !dest.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        if dest.is_dir()
+            && !dest
+                .symlink_metadata()
+                .is_ok_and(|m| m.file_type().is_symlink())
+        {
             fs::remove_dir_all(&dest).ok();
         } else {
             fs::remove_file(&dest).ok();
         }
-        console::info(&format!("Unlinked {} from {}", package_name, project.root.display()));
+        console::info(&format!(
+            "Unlinked {} from {}",
+            package_name,
+            project.root.display()
+        ));
     } else {
         console::info(&format!("{} is not linked in this project", package_name));
     }
@@ -161,9 +185,11 @@ fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
 
     #[cfg(windows)]
     {
-        std::os::windows::fs::symlink_dir(source, dest).map_err(|source_err| SnpmError::WriteFile {
-            path: dest.to_path_buf(),
-            source: source_err,
+        std::os::windows::fs::symlink_dir(source, dest).map_err(|source_err| {
+            SnpmError::WriteFile {
+                path: dest.to_path_buf(),
+                source: source_err,
+            }
         })?;
     }
 

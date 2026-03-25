@@ -124,10 +124,7 @@ fn is_fresh(config: &SnpmConfig, cache_path: &Path) -> bool {
 
 pub fn load_cached_headers(config: &SnpmConfig, name: &str) -> Option<CachedHeaders> {
     let sanitized = sanitize_package_name(name);
-    let headers_path = config
-        .metadata_dir()
-        .join(&sanitized)
-        .join("headers.json");
+    let headers_path = config.metadata_dir().join(&sanitized).join("headers.json");
 
     if let Ok(data) = fs::read_to_string(&headers_path)
         && let Ok(headers) = serde_json::from_str::<CachedHeaders>(&data)

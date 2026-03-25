@@ -37,14 +37,15 @@ pub async fn publish(
             reason: "package.json must have a \"name\" field to publish".into(),
         })?;
 
-    let version = project
-        .manifest
-        .version
-        .as_deref()
-        .ok_or_else(|| SnpmError::ManifestInvalid {
-            path: project.manifest_path.clone(),
-            reason: "package.json must have a \"version\" field to publish".into(),
-        })?;
+    let version =
+        project
+            .manifest
+            .version
+            .as_deref()
+            .ok_or_else(|| SnpmError::ManifestInvalid {
+                path: project.manifest_path.clone(),
+                reason: "package.json must have a \"version\" field to publish".into(),
+            })?;
 
     if options.dry_run {
         console::info(&format!(
@@ -64,15 +65,13 @@ pub async fn publish(
         base64::engine::general_purpose::STANDARD.encode(sha1::Sha1::digest(&tarball_bytes))
     );
 
-    let tarball_b64 =
-        base64::engine::general_purpose::STANDARD.encode(&tarball_bytes);
+    let tarball_b64 = base64::engine::general_purpose::STANDARD.encode(&tarball_bytes);
 
-    let manifest_json = fs::read_to_string(&project.manifest_path).map_err(|source| {
-        SnpmError::ReadFile {
+    let manifest_json =
+        fs::read_to_string(&project.manifest_path).map_err(|source| SnpmError::ReadFile {
             path: project.manifest_path.clone(),
             source,
-        }
-    })?;
+        })?;
     let manifest_value: serde_json::Value =
         serde_json::from_str(&manifest_json).map_err(|source| SnpmError::ParseJson {
             path: project.manifest_path.clone(),
@@ -81,11 +80,11 @@ pub async fn publish(
 
     let access = options.access.as_deref().unwrap_or("public");
 
-    let mut version_meta = manifest_value
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
-    version_meta.insert("_id".into(), serde_json::json!(format!("{}@{}", name, version)));
+    let mut version_meta = manifest_value.as_object().cloned().unwrap_or_default();
+    version_meta.insert(
+        "_id".into(),
+        serde_json::json!(format!("{}@{}", name, version)),
+    );
     version_meta.insert(
         "dist".into(),
         serde_json::json!({

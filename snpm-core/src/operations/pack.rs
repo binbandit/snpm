@@ -24,14 +24,15 @@ pub fn pack(project: &Project, output_dir: &Path) -> Result<PackResult> {
             reason: "package.json must have a \"name\" field to pack".into(),
         })?;
 
-    let version = project
-        .manifest
-        .version
-        .as_deref()
-        .ok_or_else(|| SnpmError::ManifestInvalid {
-            path: project.manifest_path.clone(),
-            reason: "package.json must have a \"version\" field to pack".into(),
-        })?;
+    let version =
+        project
+            .manifest
+            .version
+            .as_deref()
+            .ok_or_else(|| SnpmError::ManifestInvalid {
+                path: project.manifest_path.clone(),
+                reason: "package.json must have a \"version\" field to pack".into(),
+            })?;
 
     let safe_name = name.replace('/', "-").replace('@', "");
     let tarball_name = format!("{}-{}.tgz", safe_name, version);
@@ -43,9 +44,7 @@ pub fn pack(project: &Project, output_dir: &Path) -> Result<PackResult> {
     let mut builder = Builder::new(tar_data);
 
     for file_path in &files {
-        let rel_path = file_path
-            .strip_prefix(&project.root)
-            .unwrap_or(file_path);
+        let rel_path = file_path.strip_prefix(&project.root).unwrap_or(file_path);
         let archive_path = Path::new("package").join(rel_path);
 
         let metadata = fs::metadata(file_path).map_err(|source| SnpmError::ReadFile {
@@ -248,11 +247,11 @@ fn collect_dir_recursive(
         }
 
         if let Some(patterns) = ignore_patterns {
-            let relative_path = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy();
-            if patterns.iter().any(|pattern| matches_ignore_pattern(&relative_path, pattern)) {
+            let relative_path = path.strip_prefix(root).unwrap_or(&path).to_string_lossy();
+            if patterns
+                .iter()
+                .any(|pattern| matches_ignore_pattern(&relative_path, pattern))
+            {
                 continue;
             }
         }
@@ -279,9 +278,7 @@ fn matches_ignore_pattern(path: &str, pattern: &str) -> bool {
     let pattern = pattern.trim_end_matches('/');
 
     if !pattern.contains('/') {
-        return path
-            .split('/')
-            .any(|component| component == pattern);
+        return path.split('/').any(|component| component == pattern);
     }
 
     path.starts_with(pattern) || path == pattern

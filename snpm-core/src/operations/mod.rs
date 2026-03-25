@@ -5,13 +5,13 @@ pub mod dlx;
 pub mod global;
 pub mod init;
 pub mod install;
+pub mod lazy;
 pub mod licenses;
 pub mod link;
 pub mod pack;
+pub mod patch;
 pub mod publish;
 pub mod rebuild;
-pub mod lazy;
-pub mod patch;
 pub mod run;
 pub mod store;
 pub mod why;
@@ -37,17 +37,15 @@ pub use install::{
 pub use lazy::{is_stale, lazy_install};
 pub use licenses::{LicenseEntry, collect_licenses};
 pub use link::{link_global, link_local, unlink_global, unlink_local};
-pub use rebuild::rebuild;
 pub use pack::{PackResult, pack};
-pub use publish::{PublishOptions, publish};
 pub use patch::{
     PatchCommitResult, PatchStartResult, commit_patch, get_patches_to_apply, list_project_patches,
     remove_package_patch, start_patch,
 };
-pub use store::{
-    StoreStatus, path as store_path, prune as store_prune, status as store_status,
-};
+pub use publish::{PublishOptions, publish};
+pub use rebuild::rebuild;
 pub use run::{
     ExecOptions, exec_command, exec_workspace_command, run_script, run_workspace_scripts,
 };
+pub use store::{StoreStatus, path as store_path, prune as store_prune, status as store_status};
 pub use why::{WhyHop, WhyOptions, WhyPackageMatch, WhyPath, WhyResult, why};

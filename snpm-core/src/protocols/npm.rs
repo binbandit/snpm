@@ -86,11 +86,8 @@ pub async fn fetch_package_with_offline(
     ));
 
     if status == reqwest::StatusCode::NOT_MODIFIED
-        && let Some(cached) = crate::cache::load_metadata_with_offline(
-            config,
-            name,
-            OfflineMode::Offline,
-        )
+        && let Some(cached) =
+            crate::cache::load_metadata_with_offline(config, name, OfflineMode::Offline)
     {
         console::verbose(&format!("registry 304: using cached metadata for {}", name));
         let _ = crate::cache::save_metadata(config, name, &cached);

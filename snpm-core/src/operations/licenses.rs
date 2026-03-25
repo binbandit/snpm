@@ -36,7 +36,11 @@ pub fn collect_licenses(node_modules: &Path) -> Result<Vec<LicenseEntry>> {
             continue;
         }
 
-        for package_entry in fs::read_dir(&node_modules_dir).into_iter().flatten().flatten() {
+        for package_entry in fs::read_dir(&node_modules_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let package_path = package_entry.path();
             if !package_path.is_dir() {
                 continue;
@@ -46,16 +50,25 @@ pub fn collect_licenses(node_modules: &Path) -> Result<Vec<LicenseEntry>> {
             if dir_name.starts_with('@') {
                 for scoped_entry in fs::read_dir(&package_path).into_iter().flatten().flatten() {
                     let scoped_path = scoped_entry.path();
-                    let full_name = format!("{}/{}", dir_name, scoped_entry.file_name().to_string_lossy());
-                    if let Some(license_entry) = read_license_from_directory(&scoped_path, &full_name) {
+                    let full_name = format!(
+                        "{}/{}",
+                        dir_name,
+                        scoped_entry.file_name().to_string_lossy()
+                    );
+                    if let Some(license_entry) =
+                        read_license_from_directory(&scoped_path, &full_name)
+                    {
                         let key = format!("{}@{}", license_entry.name, license_entry.version);
-                        if let std::collections::btree_map::Entry::Vacant(vacant) = seen.entry(key) {
+                        if let std::collections::btree_map::Entry::Vacant(vacant) = seen.entry(key)
+                        {
                             vacant.insert(true);
                             entries.push(license_entry);
                         }
                     }
                 }
-            } else if let Some(license_entry) = read_license_from_directory(&package_path, &dir_name) {
+            } else if let Some(license_entry) =
+                read_license_from_directory(&package_path, &dir_name)
+            {
                 let key = format!("{}@{}", license_entry.name, license_entry.version);
                 if let std::collections::btree_map::Entry::Vacant(vacant) = seen.entry(key) {
                     vacant.insert(true);

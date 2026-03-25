@@ -4,6 +4,7 @@ use crate::resolve::types::ResolvedPackage;
 use crate::{Result, SnpmConfig, SnpmError};
 use base64::Engine;
 use flate2::read::GzDecoder;
+use futures::StreamExt;
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
 use std::fs;
@@ -96,26 +97,28 @@ pub async fn ensure_package_with_offline(
         }
     } else {
         let download_started = Instant::now();
-        let bytes = download_tarball(config, &package.tarball, client).await?;
-        let download_elapsed = download_started.elapsed();
+        let bytes = download_and_verify_tarball(
+            config,
+            &package.tarball,
+            package.integrity.as_deref(),
+            client,
+        )
+        .await?;
         console::verbose(&format!(
-            "downloaded tarball for {}@{} ({} bytes) in {:.3}s",
+            "downloaded and verified tarball for {}@{} ({} bytes) in {:.3}s",
             package.id.name,
             package.id.version,
             bytes.len(),
-            download_elapsed.as_secs_f64()
+            download_started.elapsed().as_secs_f64()
         ));
-
-        verify_integrity(&package.tarball, package.integrity.as_deref(), &bytes)?;
 
         let unpack_started = Instant::now();
         unpack_tarball(&pkg_dir, bytes)?;
-        let unpack_elapsed = unpack_started.elapsed();
         console::verbose(&format!(
             "unpacked tarball for {}@{} in {:.3}s",
             package.id.name,
             package.id.version,
-            unpack_elapsed.as_secs_f64()
+            unpack_started.elapsed().as_secs_f64()
         ));
     }
 
@@ -165,9 +168,12 @@ fn package_root_dir(pkg_dir: &Path) -> PathBuf {
     pkg_dir.to_path_buf()
 }
 
-async fn download_tarball(
+/// Stream download while computing integrity hash in a single pass.
+/// Verifies the hash after download completes, before returning bytes for extraction.
+async fn download_and_verify_tarball(
     config: &SnpmConfig,
     url: &str,
+    integrity: Option<&str>,
     client: &reqwest::Client,
 ) -> Result<Vec<u8>> {
     let mut request = client.get(url);
@@ -176,25 +182,99 @@ async fn download_tarball(
         request = request.header("authorization", header_value);
     }
 
-    let response = request.send().await.map_err(|source| SnpmError::Http {
-        url: url.to_string(),
-        source,
-    })?;
-
-    let bytes = response
-        .error_for_status()
+    let response = request
+        .send()
+        .await
         .map_err(|source| SnpmError::Http {
             url: url.to_string(),
             source,
         })?
-        .bytes()
-        .await
+        .error_for_status()
         .map_err(|source| SnpmError::Http {
             url: url.to_string(),
             source,
         })?;
 
-    Ok(bytes.to_vec())
+    let content_length = response.content_length().unwrap_or(0) as usize;
+    let mut buffer = Vec::with_capacity(content_length);
+
+    let algorithm = integrity
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| {
+            value
+                .split_whitespace()
+                .next()
+                .and_then(|token| token.split_once('-'))
+                .map(|(algorithm, _)| algorithm.to_string())
+        });
+
+    let mut sha512_hasher = if algorithm.as_deref() == Some("sha512") {
+        Some(Sha512::new())
+    } else {
+        None
+    };
+    let mut sha256_hasher = if algorithm.as_deref() == Some("sha256") {
+        Some(Sha256::new())
+    } else {
+        None
+    };
+    let mut sha1_hasher = if algorithm.as_deref() == Some("sha1") {
+        Some(Sha1::new())
+    } else {
+        None
+    };
+
+    let mut body_stream = response.bytes_stream();
+
+    while let Some(chunk_result) = body_stream.next().await {
+        let chunk = chunk_result.map_err(|source| SnpmError::Http {
+            url: url.to_string(),
+            source,
+        })?;
+
+        if let Some(ref mut hasher) = sha512_hasher {
+            hasher.update(&chunk);
+        }
+        if let Some(ref mut hasher) = sha256_hasher {
+            hasher.update(&chunk);
+        }
+        if let Some(ref mut hasher) = sha1_hasher {
+            hasher.update(&chunk);
+        }
+
+        buffer.extend_from_slice(&chunk);
+    }
+
+    if let Some(integrity_str) = integrity.map(str::trim).filter(|value| !value.is_empty()) {
+        let computed_digest = sha512_hasher
+            .map(|hasher| ("sha512", hasher.finalize().to_vec()))
+            .or_else(|| sha256_hasher.map(|hasher| ("sha256", hasher.finalize().to_vec())))
+            .or_else(|| sha1_hasher.map(|hasher| ("sha1", hasher.finalize().to_vec())));
+
+        if let Some((algorithm_name, actual_digest)) = computed_digest {
+            let matched = integrity_str.split_whitespace().any(|token| {
+                let token = token.split('?').next().unwrap_or(token);
+                if let Some((alg, expected_b64)) = token.split_once('-')
+                    && alg == algorithm_name
+                    && let Ok(expected) =
+                        base64::engine::general_purpose::STANDARD.decode(expected_b64)
+                {
+                    return actual_digest == expected;
+                }
+                false
+            });
+
+            if !matched {
+                return Err(SnpmError::Tarball {
+                    url: url.to_string(),
+                    reason: "integrity verification failed".to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(buffer)
 }
 
 fn verify_integrity(url: &str, integrity: Option<&str>, bytes: &[u8]) -> Result<()> {

@@ -976,3 +976,216 @@ pub fn link_local_workspace_deps(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::project::Manifest;
+    use crate::resolve::ResolvedPackage;
+    use crate::workspace::types::WorkspaceConfig;
+    use std::collections::BTreeMap;
+    use tempfile::tempdir;
+
+    fn make_workspace_with_project(name: &str, version: &str) -> Workspace {
+        let dir = std::env::temp_dir().join(format!("snpm_test_ws_{}", std::process::id()));
+        let project = Project {
+            root: dir.join(name),
+            manifest_path: dir.join(name).join("package.json"),
+            manifest: Manifest {
+                name: Some(name.to_string()),
+                version: Some(version.to_string()),
+                dependencies: BTreeMap::new(),
+                dev_dependencies: BTreeMap::new(),
+                optional_dependencies: BTreeMap::new(),
+                scripts: BTreeMap::new(),
+                files: None,
+                bin: None,
+                main: None,
+                pnpm: None,
+                snpm: None,
+                workspaces: None,
+            },
+        };
+        Workspace {
+            root: dir,
+            projects: vec![project],
+            config: WorkspaceConfig {
+                packages: Vec::new(),
+                catalog: BTreeMap::new(),
+                catalogs: BTreeMap::new(),
+                only_built_dependencies: Vec::new(),
+                ignored_built_dependencies: Vec::new(),
+                hoisting: None,
+            },
+        }
+    }
+
+    #[test]
+    fn validate_workspace_spec_wildcard() {
+        let ws = make_workspace_with_project("my-lib", "1.0.0");
+        assert!(validate_workspace_spec(&ws, "my-lib", "workspace:*").is_ok());
+    }
+
+    #[test]
+    fn validate_workspace_spec_empty() {
+        let ws = make_workspace_with_project("my-lib", "1.0.0");
+        assert!(validate_workspace_spec(&ws, "my-lib", "workspace:").is_ok());
+    }
+
+    #[test]
+    fn validate_workspace_spec_caret() {
+        let ws = make_workspace_with_project("my-lib", "1.2.3");
+        assert!(validate_workspace_spec(&ws, "my-lib", "workspace:^").is_ok());
+    }
+
+    #[test]
+    fn validate_workspace_spec_tilde() {
+        let ws = make_workspace_with_project("my-lib", "1.2.3");
+        assert!(validate_workspace_spec(&ws, "my-lib", "workspace:~").is_ok());
+    }
+
+    #[test]
+    fn validate_workspace_spec_explicit_range_satisfied() {
+        let ws = make_workspace_with_project("my-lib", "1.2.3");
+        assert!(validate_workspace_spec(&ws, "my-lib", "workspace:^1.0.0").is_ok());
+    }
+
+    #[test]
+    fn validate_workspace_spec_explicit_range_not_satisfied() {
+        let ws = make_workspace_with_project("my-lib", "1.2.3");
+        assert!(validate_workspace_spec(&ws, "my-lib", "workspace:^2.0.0").is_err());
+    }
+
+    #[test]
+    fn validate_workspace_spec_missing_project() {
+        let ws = make_workspace_with_project("my-lib", "1.0.0");
+        assert!(validate_workspace_spec(&ws, "nonexistent", "workspace:*").is_err());
+    }
+
+    #[test]
+    fn collect_workspace_protocol_deps_filters_correctly() {
+        let project = Project {
+            root: PathBuf::from("/tmp/project"),
+            manifest_path: PathBuf::from("/tmp/project/package.json"),
+            manifest: Manifest {
+                name: Some("test".to_string()),
+                version: None,
+                dependencies: BTreeMap::from([
+                    ("lib-a".to_string(), "workspace:*".to_string()),
+                    ("lodash".to_string(), "^4.0.0".to_string()),
+                ]),
+                dev_dependencies: BTreeMap::from([
+                    ("lib-b".to_string(), "workspace:^".to_string()),
+                    ("jest".to_string(), "^29.0.0".to_string()),
+                ]),
+                optional_dependencies: BTreeMap::from([(
+                    "lib-c".to_string(),
+                    "workspace:~".to_string(),
+                )]),
+                scripts: BTreeMap::new(),
+                files: None,
+                bin: None,
+                main: None,
+                pnpm: None,
+                snpm: None,
+                workspaces: None,
+            },
+        };
+
+        let (deps, dev_deps, optional_deps) = collect_workspace_protocol_deps(&project);
+        assert!(deps.contains("lib-a"));
+        assert!(!deps.contains("lodash"));
+        assert!(dev_deps.contains("lib-b"));
+        assert!(!dev_deps.contains("jest"));
+        assert!(optional_deps.contains("lib-c"));
+    }
+
+    #[test]
+    fn validate_lockfile_matches_returns_cold_on_mismatch() {
+        let lockfile = lockfile::Lockfile {
+            version: 1,
+            root: lockfile::LockRoot {
+                dependencies: BTreeMap::from([(
+                    "a".to_string(),
+                    lockfile::LockRootDependency {
+                        requested: "^1.0.0".to_string(),
+                        version: Some("1.0.0".to_string()),
+                        optional: false,
+                    },
+                )]),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let required = BTreeMap::from([("b".to_string(), "^2.0.0".to_string())]);
+        let (scenario, _) = validate_lockfile_matches_manifest(
+            InstallScenario::WarmLinkOnly,
+            Some(lockfile),
+            &required,
+            &BTreeMap::new(),
+        );
+        assert_eq!(scenario, InstallScenario::Cold);
+    }
+
+    #[test]
+    fn validate_lockfile_matches_preserves_scenario_on_match() {
+        let lockfile = lockfile::Lockfile {
+            version: 1,
+            root: lockfile::LockRoot {
+                dependencies: BTreeMap::from([(
+                    "a".to_string(),
+                    lockfile::LockRootDependency {
+                        requested: "^1.0.0".to_string(),
+                        version: Some("1.0.0".to_string()),
+                        optional: false,
+                    },
+                )]),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let required = BTreeMap::from([("a".to_string(), "^1.0.0".to_string())]);
+        let (scenario, _) = validate_lockfile_matches_manifest(
+            InstallScenario::WarmLinkOnly,
+            Some(lockfile),
+            &required,
+            &BTreeMap::new(),
+        );
+        assert_eq!(scenario, InstallScenario::WarmLinkOnly);
+    }
+
+    #[test]
+    fn rebuild_virtual_store_paths_scoped_package() {
+        let dir = tempdir().unwrap();
+        let store_dir = dir.path().join(".snpm");
+
+        let id = PackageId {
+            name: "@scope/pkg".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let pkg = ResolvedPackage {
+            id: id.clone(),
+            tarball: String::new(),
+            integrity: None,
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+        };
+        let graph = ResolutionGraph {
+            root: resolve::ResolutionRoot {
+                dependencies: BTreeMap::new(),
+            },
+            packages: BTreeMap::from([(id.clone(), pkg)]),
+        };
+
+        let paths = rebuild_virtual_store_paths(&store_dir, &graph).unwrap();
+        let path = paths.get(&id).unwrap();
+        // Should use + for scoped names
+        assert!(path.to_string_lossy().contains("@scope+pkg@1.0.0"));
+        assert!(
+            path.to_string_lossy()
+                .contains("node_modules/@scope/pkg")
+        );
+    }
+}

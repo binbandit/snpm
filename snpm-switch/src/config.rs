@@ -22,3 +22,39 @@ pub fn download_base_url() -> String {
     std::env::var("SNPM_DOWNLOAD_URL")
         .unwrap_or_else(|_| "https://github.com/binbandit/snpm/releases/download".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switch_dir_uses_env_var() {
+        unsafe { std::env::set_var("SNPM_SWITCH_HOME", "/custom/switch") };
+        let result = switch_dir().unwrap();
+        assert_eq!(result, PathBuf::from("/custom/switch"));
+        unsafe { std::env::remove_var("SNPM_SWITCH_HOME") };
+    }
+
+    #[test]
+    fn versions_dir_is_subdir_of_switch() {
+        let switch = switch_dir().unwrap();
+        let versions = versions_dir().unwrap();
+        assert_eq!(versions, switch.join("versions"));
+    }
+
+    #[test]
+    fn download_base_url_default() {
+        unsafe { std::env::remove_var("SNPM_DOWNLOAD_URL") };
+        let url = download_base_url();
+        assert!(url.contains("github.com"));
+        assert!(url.contains("snpm"));
+    }
+
+    #[test]
+    fn download_base_url_custom() {
+        unsafe { std::env::set_var("SNPM_DOWNLOAD_URL", "https://custom.cdn.com/releases") };
+        let url = download_base_url();
+        assert_eq!(url, "https://custom.cdn.com/releases");
+        unsafe { std::env::remove_var("SNPM_DOWNLOAD_URL") };
+    }
+}

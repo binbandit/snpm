@@ -437,3 +437,262 @@ pub fn can_any_scripts_run(config: &SnpmConfig, workspace: Option<&crate::Worksp
 
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency};
+    use crate::workspace::types::{Workspace, WorkspaceConfig};
+    use std::collections::{BTreeMap, BTreeSet};
+    use tempfile::tempdir;
+
+    fn make_config() -> SnpmConfig {
+        SnpmConfig {
+            cache_dir: PathBuf::from("/tmp/cache"),
+            data_dir: PathBuf::from("/tmp/data"),
+            allow_scripts: BTreeSet::new(),
+            min_package_age_days: None,
+            min_package_cache_age_days: None,
+            default_registry: "https://registry.npmjs.org".to_string(),
+            scoped_registries: BTreeMap::new(),
+            registry_auth: BTreeMap::new(),
+            default_registry_auth_token: None,
+            default_registry_auth_scheme: AuthScheme::Bearer,
+            registry_auth_schemes: BTreeMap::new(),
+            hoisting: HoistingMode::SingleVersion,
+            link_backend: LinkBackend::Auto,
+            strict_peers: false,
+            frozen_lockfile_default: false,
+            always_auth: false,
+            registry_concurrency: 64,
+            verbose: false,
+            log_file: None,
+        }
+    }
+
+    fn make_graph() -> ResolutionGraph {
+        let id = PackageId {
+            name: "test-pkg".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let pkg = ResolvedPackage {
+            id: id.clone(),
+            tarball: "https://example.com/pkg.tgz".to_string(),
+            integrity: None,
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+        };
+        ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::from([(
+                    "test-pkg".to_string(),
+                    RootDependency {
+                        requested: "^1.0.0".to_string(),
+                        resolved: id.clone(),
+                    },
+                )]),
+            },
+            packages: BTreeMap::from([(id, pkg)]),
+        }
+    }
+
+    #[test]
+    fn compute_lockfile_hash_deterministic() {
+        let graph = make_graph();
+        let hash1 = compute_lockfile_hash(&graph);
+        let hash2 = compute_lockfile_hash(&graph);
+        assert_eq!(hash1, hash2);
+        assert!(!hash1.is_empty());
+    }
+
+    #[test]
+    fn compute_lockfile_hash_changes_with_different_graph() {
+        let graph1 = make_graph();
+
+        let id = PackageId {
+            name: "other-pkg".to_string(),
+            version: "2.0.0".to_string(),
+        };
+        let pkg = ResolvedPackage {
+            id: id.clone(),
+            tarball: "https://example.com/other.tgz".to_string(),
+            integrity: None,
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+        };
+        let graph2 = ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::from([(
+                    "other-pkg".to_string(),
+                    RootDependency {
+                        requested: "^2.0.0".to_string(),
+                        resolved: id.clone(),
+                    },
+                )]),
+            },
+            packages: BTreeMap::from([(id, pkg)]),
+        };
+
+        assert_ne!(compute_lockfile_hash(&graph1), compute_lockfile_hash(&graph2));
+    }
+
+    #[test]
+    fn integrity_content_format() {
+        let state = IntegrityState {
+            lockfile_hash: "abc123".to_string(),
+            patch_hash: "def456".to_string(),
+        };
+        assert_eq!(integrity_content(&state), "lockfile: abc123\npatches: def456\n");
+    }
+
+    #[test]
+    fn legacy_integrity_content_format() {
+        let state = IntegrityState {
+            lockfile_hash: "abc123".to_string(),
+            patch_hash: "none".to_string(),
+        };
+        assert_eq!(legacy_integrity_content(&state), "lockfile: abc123\n");
+    }
+
+    #[test]
+    fn write_and_check_integrity() {
+        let dir = tempdir().unwrap();
+        let nm = dir.path().join("node_modules");
+        std::fs::create_dir_all(&nm).unwrap();
+
+        let state = IntegrityState {
+            lockfile_hash: "test-hash".to_string(),
+            patch_hash: "test-patch".to_string(),
+        };
+
+        write_integrity_path(&nm, &state).unwrap();
+        assert!(check_integrity_path(&nm, &state));
+    }
+
+    #[test]
+    fn check_integrity_returns_false_when_missing() {
+        let dir = tempdir().unwrap();
+        let nm = dir.path().join("node_modules");
+        std::fs::create_dir_all(&nm).unwrap();
+
+        let state = IntegrityState {
+            lockfile_hash: "test-hash".to_string(),
+            patch_hash: "none".to_string(),
+        };
+
+        assert!(!check_integrity_path(&nm, &state));
+    }
+
+    #[test]
+    fn check_integrity_accepts_legacy_format_when_no_patches() {
+        let dir = tempdir().unwrap();
+        let nm = dir.path().join("node_modules");
+        std::fs::create_dir_all(&nm).unwrap();
+
+        let state = IntegrityState {
+            lockfile_hash: "test-hash".to_string(),
+            patch_hash: "none".to_string(),
+        };
+
+        // Write legacy format manually
+        std::fs::write(nm.join(".snpm-integrity"), "lockfile: test-hash\n").unwrap();
+        assert!(check_integrity_path(&nm, &state));
+    }
+
+    #[test]
+    fn check_integrity_rejects_legacy_format_when_patches_exist() {
+        let dir = tempdir().unwrap();
+        let nm = dir.path().join("node_modules");
+        std::fs::create_dir_all(&nm).unwrap();
+
+        let state = IntegrityState {
+            lockfile_hash: "test-hash".to_string(),
+            patch_hash: "some-patch-hash".to_string(),
+        };
+
+        // Write legacy format - should be rejected since patches exist
+        std::fs::write(nm.join(".snpm-integrity"), "lockfile: test-hash\n").unwrap();
+        assert!(!check_integrity_path(&nm, &state));
+    }
+
+    #[test]
+    fn check_integrity_rejects_wrong_hash() {
+        let dir = tempdir().unwrap();
+        let nm = dir.path().join("node_modules");
+        std::fs::create_dir_all(&nm).unwrap();
+
+        let state = IntegrityState {
+            lockfile_hash: "correct-hash".to_string(),
+            patch_hash: "none".to_string(),
+        };
+
+        std::fs::write(nm.join(".snpm-integrity"), "lockfile: wrong-hash\npatches: none\n").unwrap();
+        assert!(!check_integrity_path(&nm, &state));
+    }
+
+    #[test]
+    fn write_integrity_skips_nonexistent_dir() {
+        let dir = tempdir().unwrap();
+        let nm = dir.path().join("nonexistent/node_modules");
+        let state = IntegrityState {
+            lockfile_hash: "hash".to_string(),
+            patch_hash: "none".to_string(),
+        };
+        // Should not error, just silently skip
+        write_integrity_path(&nm, &state).unwrap();
+    }
+
+    #[test]
+    fn can_any_scripts_run_false_by_default() {
+        let config = make_config();
+        assert!(!can_any_scripts_run(&config, None));
+    }
+
+    #[test]
+    fn can_any_scripts_run_true_with_allow_scripts() {
+        let mut config = make_config();
+        config.allow_scripts.insert("esbuild".to_string());
+        assert!(can_any_scripts_run(&config, None));
+    }
+
+    #[test]
+    fn can_any_scripts_run_true_with_workspace_only_built() {
+        let config = make_config();
+        let ws = Workspace {
+            root: PathBuf::from("/workspace"),
+            projects: Vec::new(),
+            config: WorkspaceConfig {
+                packages: Vec::new(),
+                catalog: BTreeMap::new(),
+                catalogs: BTreeMap::new(),
+                only_built_dependencies: vec!["esbuild".to_string()],
+                ignored_built_dependencies: Vec::new(),
+                hoisting: None,
+            },
+        };
+        assert!(can_any_scripts_run(&config, Some(&ws)));
+    }
+
+    #[test]
+    fn can_any_scripts_run_true_with_workspace_ignored() {
+        let config = make_config();
+        let ws = Workspace {
+            root: PathBuf::from("/workspace"),
+            projects: Vec::new(),
+            config: WorkspaceConfig {
+                packages: Vec::new(),
+                catalog: BTreeMap::new(),
+                catalogs: BTreeMap::new(),
+                only_built_dependencies: Vec::new(),
+                ignored_built_dependencies: vec!["malicious".to_string()],
+                hoisting: None,
+            },
+        };
+        assert!(can_any_scripts_run(&config, Some(&ws)));
+    }
+}

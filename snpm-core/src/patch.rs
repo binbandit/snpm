@@ -542,6 +542,77 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parse_patch_key_simple() {
+        let result = super::parse_patch_key("lodash@4.17.21");
+        assert_eq!(result, Some(("lodash".to_string(), "4.17.21".to_string())));
+    }
+
+    #[test]
+    fn parse_patch_key_scoped() {
+        let result = super::parse_patch_key("@types/node@18.0.0");
+        assert_eq!(
+            result,
+            Some(("@types/node".to_string(), "18.0.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_patch_key_no_at() {
+        assert!(super::parse_patch_key("lodash").is_none());
+    }
+
+    #[test]
+    fn parse_patch_key_only_at_start() {
+        assert!(super::parse_patch_key("@scope").is_none());
+    }
+
+    #[test]
+    fn filter_session_marker_removes_marker_section() {
+        let content = "\
+diff -ruN a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1 +1 @@
+-old
++new
+diff -ruN a/.snpm_patch_session b/.snpm_patch_session
+--- a/.snpm_patch_session
++++ b/.snpm_patch_session
+@@ -0,0 +1 @@
++session data
+diff -ruN a/lib/other.js b/lib/other.js
+--- a/lib/other.js
++++ b/lib/other.js
+@@ -1 +1 @@
+-other old
++other new
+";
+        let filtered = super::filter_session_marker(content);
+        assert!(filtered.contains("lib/index.js"));
+        assert!(filtered.contains("lib/other.js"));
+        assert!(!filtered.contains(".snpm_patch_session"));
+    }
+
+    #[test]
+    fn filter_session_marker_no_marker() {
+        let content = "diff -ruN a/file b/file\n--- a/file\n+++ b/file\n";
+        let filtered = super::filter_session_marker(content);
+        assert_eq!(filtered, content);
+    }
+
+    #[test]
+    fn normalize_patch_path_simple() {
+        let path = Path::new("lib/index.js");
+        assert_eq!(super::normalize_patch_path(path), "lib/index.js");
+    }
+
+    #[test]
+    fn normalize_patch_path_strips_curdir() {
+        let path = Path::new("./lib/index.js");
+        assert_eq!(super::normalize_patch_path(path), "lib/index.js");
+    }
+
     fn command_available(command: &str) -> bool {
         Command::new(command)
             .arg("--help")

@@ -334,4 +334,134 @@ mod tests {
             Some("^2.0.0")
         );
     }
+
+    #[test]
+    fn build_project_root_specs_includes_dev_when_flagged() {
+        let deps = BTreeMap::from([("react".to_string(), "^18.0.0".to_string())]);
+        let dev = BTreeMap::from([("jest".to_string(), "^29.0.0".to_string())]);
+
+        let specs = build_project_root_specs(&deps, &dev, &BTreeMap::new(), true);
+        assert!(specs.required.contains_key("react"));
+        assert!(specs.required.contains_key("jest"));
+    }
+
+    #[test]
+    fn build_project_root_specs_excludes_dev_when_not_flagged() {
+        let deps = BTreeMap::from([("react".to_string(), "^18.0.0".to_string())]);
+        let dev = BTreeMap::from([("jest".to_string(), "^29.0.0".to_string())]);
+
+        let specs = build_project_root_specs(&deps, &dev, &BTreeMap::new(), false);
+        assert!(specs.required.contains_key("react"));
+        assert!(!specs.required.contains_key("jest"));
+    }
+
+    #[test]
+    fn build_project_root_specs_deps_take_priority_over_dev() {
+        let deps = BTreeMap::from([("shared".to_string(), "^1.0.0".to_string())]);
+        let dev = BTreeMap::from([("shared".to_string(), "^2.0.0".to_string())]);
+
+        let specs = build_project_root_specs(&deps, &dev, &BTreeMap::new(), true);
+        assert_eq!(
+            specs.required.get("shared").map(String::as_str),
+            Some("^1.0.0")
+        );
+    }
+
+    #[test]
+    fn parse_spec_simple() {
+        let (name, range) = super::parse_spec("lodash@^4.0.0");
+        assert_eq!(name, "lodash");
+        assert_eq!(range, "^4.0.0");
+    }
+
+    #[test]
+    fn parse_spec_scoped() {
+        let (name, range) = super::parse_spec("@types/node@^18.0.0");
+        assert_eq!(name, "@types/node");
+        assert_eq!(range, "^18.0.0");
+    }
+
+    #[test]
+    fn parse_spec_no_version() {
+        let (name, range) = super::parse_spec("lodash");
+        assert_eq!(name, "lodash");
+        assert_eq!(range, "latest");
+    }
+
+    #[test]
+    fn parse_spec_scoped_no_version() {
+        let (name, range) = super::parse_spec("@types/node");
+        assert_eq!(name, "@types/node");
+        assert_eq!(range, "latest");
+    }
+
+    #[test]
+    fn parse_requested_spec_with_protocol() {
+        let parsed = super::parse_requested_spec("npm:@scope/pkg@^1.0.0");
+        assert_eq!(parsed.protocol.as_deref(), Some("npm"));
+        assert_eq!(parsed.name, "@scope/pkg");
+        assert_eq!(parsed.range, "^1.0.0");
+    }
+
+    #[test]
+    fn parse_requested_spec_no_protocol() {
+        let parsed = super::parse_requested_spec("lodash@^4.0.0");
+        assert_eq!(parsed.name, "lodash");
+        assert_eq!(parsed.range, "^4.0.0");
+    }
+
+    #[test]
+    fn detect_manifest_protocol_npm() {
+        use crate::registry::RegistryProtocol;
+        assert_eq!(
+            super::detect_manifest_protocol("npm:foo@^1.0.0"),
+            Some(RegistryProtocol::npm())
+        );
+    }
+
+    #[test]
+    fn detect_manifest_protocol_git() {
+        use crate::registry::RegistryProtocol;
+        assert_eq!(
+            super::detect_manifest_protocol("git+https://github.com/foo/bar.git"),
+            Some(RegistryProtocol::git())
+        );
+    }
+
+    #[test]
+    fn detect_manifest_protocol_jsr() {
+        use crate::registry::RegistryProtocol;
+        assert_eq!(
+            super::detect_manifest_protocol("jsr:@std/path@^1.0.0"),
+            Some(RegistryProtocol::jsr())
+        );
+    }
+
+    #[test]
+    fn detect_manifest_protocol_file() {
+        use crate::registry::RegistryProtocol;
+        assert_eq!(
+            super::detect_manifest_protocol("file:../local-pkg"),
+            Some(RegistryProtocol::file())
+        );
+    }
+
+    #[test]
+    fn detect_manifest_protocol_none() {
+        assert_eq!(super::detect_manifest_protocol("^1.0.0"), None);
+    }
+
+    #[test]
+    fn is_special_protocol_spec_examples() {
+        assert!(super::is_special_protocol_spec("catalog:"));
+        assert!(super::is_special_protocol_spec("catalog:build"));
+        assert!(super::is_special_protocol_spec("workspace:*"));
+        assert!(super::is_special_protocol_spec("npm:other@^1.0.0"));
+        assert!(super::is_special_protocol_spec(
+            "git+https://example.com/repo.git"
+        ));
+        assert!(super::is_special_protocol_spec("jsr:@std/path@^1.0.0"));
+        assert!(!super::is_special_protocol_spec("^1.0.0"));
+        assert!(!super::is_special_protocol_spec("~2.0.0"));
+    }
 }

@@ -4,18 +4,38 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub type CatalogMap = BTreeMap<String, String>;
+pub type NamedCatalogsMap = BTreeMap<String, BTreeMap<String, String>>;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum WorkspacesField {
     Patterns(Vec<String>),
-    Object { packages: Vec<String> },
+    Object {
+        packages: Vec<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        catalog: CatalogMap,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        catalogs: NamedCatalogsMap,
+    },
 }
 
 impl WorkspacesField {
     pub fn patterns(&self) -> &[String] {
         match self {
             WorkspacesField::Patterns(p) => p,
-            WorkspacesField::Object { packages } => packages,
+            WorkspacesField::Object { packages, .. } => packages,
+        }
+    }
+
+    pub fn into_parts(self) -> (Vec<String>, CatalogMap, NamedCatalogsMap) {
+        match self {
+            WorkspacesField::Patterns(p) => (p, BTreeMap::new(), BTreeMap::new()),
+            WorkspacesField::Object {
+                packages,
+                catalog,
+                catalogs,
+            } => (packages, catalog, catalogs),
         }
     }
 }

@@ -1,4 +1,5 @@
 use super::types::{CatalogConfig, Workspace, WorkspaceConfig};
+use crate::project::{CatalogMap, NamedCatalogsMap};
 use crate::{Project, Result, SnpmError};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -57,12 +58,13 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
         }
     };
 
-    if let Some(patterns) = pkg_workspaces {
+    if let Some((patterns, catalog, catalogs)) = pkg_workspaces.map(|w| w.into_parts()) {
         for pattern in patterns {
             if !cfg.packages.contains(&pattern) {
                 cfg.packages.push(pattern);
             }
         }
+        merge_catalog_entries(&mut cfg, catalog, catalogs);
     }
 
     merge_snpm_catalog(&root, &mut cfg)?;
@@ -74,7 +76,7 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
     }))
 }
 
-fn read_package_json_workspaces(path: &Path) -> Result<Option<Vec<String>>> {
+fn read_package_json_workspaces(path: &Path) -> Result<Option<crate::project::WorkspacesField>> {
     let data = fs::read_to_string(path).map_err(|source| SnpmError::ReadFile {
         path: path.to_path_buf(),
         source,
@@ -91,7 +93,7 @@ fn read_package_json_workspaces(path: &Path) -> Result<Option<Vec<String>>> {
             source,
         })?;
 
-    Ok(manifest.workspaces.map(|w| w.patterns().to_vec()))
+    Ok(manifest.workspaces)
 }
 
 fn read_config(path: &Path) -> Result<WorkspaceConfig> {
@@ -109,21 +111,27 @@ fn read_config(path: &Path) -> Result<WorkspaceConfig> {
     Ok(cfg)
 }
 
-fn merge_snpm_catalog(root: &Path, cfg: &mut WorkspaceConfig) -> Result<()> {
-    if let Some(file) = CatalogConfig::load(root)? {
-        for (name, range) in file.catalog.iter() {
-            cfg.catalog.entry(name.clone()).or_insert(range.clone());
-        }
-
-        for (catalog_name, entries) in file.catalogs.iter() {
-            let catalog = cfg.catalogs.entry(catalog_name.clone()).or_default();
-
-            for (name, range) in entries.iter() {
-                catalog.entry(name.clone()).or_insert(range.clone());
-            }
+/// Merge catalog and named catalogs into `cfg`, keeping existing entries (higher priority).
+fn merge_catalog_entries(
+    cfg: &mut WorkspaceConfig,
+    catalog: CatalogMap,
+    catalogs: NamedCatalogsMap,
+) {
+    for (name, range) in catalog {
+        cfg.catalog.entry(name).or_insert(range);
+    }
+    for (catalog_name, entries) in catalogs {
+        let target = cfg.catalogs.entry(catalog_name).or_default();
+        for (name, range) in entries {
+            target.entry(name).or_insert(range);
         }
     }
+}
 
+fn merge_snpm_catalog(root: &Path, cfg: &mut WorkspaceConfig) -> Result<()> {
+    if let Some(file) = CatalogConfig::load(root)? {
+        merge_catalog_entries(cfg, file.catalog, file.catalogs);
+    }
     Ok(())
 }
 
@@ -326,6 +334,128 @@ catalog:
 
         assert_eq!(workspace.config.packages.len(), 1);
         assert_eq!(workspace.config.packages[0], "packages/*");
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_package_json_workspaces_object_with_catalog() {
+        let dir = temp_dir("pkg_json_catalog");
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("packages/foo")).unwrap();
+
+        fs::write(
+            dir.join("package.json"),
+            r#"{
+                "name": "my-monorepo",
+                "workspaces": {
+                    "packages": ["packages/*"],
+                    "catalog": {
+                        "typescript": "^5.7.3",
+                        "react": "^18.2.0"
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("packages/foo/package.json"),
+            r#"{ "name": "foo", "version": "1.0.0" }"#,
+        )
+        .unwrap();
+
+        let workspace = Workspace::discover(&dir).unwrap().unwrap();
+
+        assert_eq!(workspace.config.packages, vec!["packages/*"]);
+        assert_eq!(
+            workspace
+                .config
+                .catalog
+                .get("typescript")
+                .map(|s| s.as_str()),
+            Some("^5.7.3")
+        );
+        assert_eq!(
+            workspace.config.catalog.get("react").map(|s| s.as_str()),
+            Some("^18.2.0")
+        );
+        assert_eq!(workspace.projects.len(), 1);
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_yaml_catalog_takes_priority_over_package_json_catalog() {
+        let dir = temp_dir("yaml_catalog_priority");
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(
+            dir.join("snpm-workspace.yaml"),
+            "packages: []\ncatalog:\n  react: \"18.0.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("package.json"),
+            r#"{
+                "name": "my-monorepo",
+                "workspaces": {
+                    "packages": [],
+                    "catalog": {
+                        "react": "^17.0.0",
+                        "typescript": "^5.7.3"
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let workspace = Workspace::discover(&dir).unwrap().unwrap();
+
+        // YAML workspace catalog wins over package.json catalog
+        assert_eq!(
+            workspace.config.catalog.get("react").map(|s| s.as_str()),
+            Some("18.0.0")
+        );
+        // package.json catalog entry is added when not in YAML
+        assert_eq!(
+            workspace
+                .config
+                .catalog
+                .get("typescript")
+                .map(|s| s.as_str()),
+            Some("^5.7.3")
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_package_json_workspaces_object_with_named_catalogs() {
+        let dir = temp_dir("pkg_json_named_catalogs");
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(
+            dir.join("package.json"),
+            r#"{
+                "name": "my-monorepo",
+                "workspaces": {
+                    "packages": [],
+                    "catalogs": {
+                        "build": {
+                            "vite": "^5.0.0",
+                            "esbuild": "^0.19.0"
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let workspace = Workspace::discover(&dir).unwrap().unwrap();
+
+        let build = workspace.config.catalogs.get("build").unwrap();
+        assert_eq!(build.get("vite").map(|s| s.as_str()), Some("^5.0.0"));
+        assert_eq!(build.get("esbuild").map(|s| s.as_str()), Some("^0.19.0"));
 
         fs::remove_dir_all(&dir).unwrap();
     }

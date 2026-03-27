@@ -325,4 +325,230 @@ mod tests {
         assert!(graph.root.dependencies.contains_key("required"));
         assert!(!graph.root.dependencies.contains_key("optional"));
     }
+
+    #[test]
+    fn split_dep_key_simple() {
+        let result = split_dep_key("lodash@4.17.21");
+        assert_eq!(result, Some(("lodash".to_string(), "4.17.21".to_string())));
+    }
+
+    #[test]
+    fn split_dep_key_scoped() {
+        let result = split_dep_key("@types/node@18.0.0");
+        assert_eq!(
+            result,
+            Some(("@types/node".to_string(), "18.0.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn split_dep_key_no_at() {
+        assert!(split_dep_key("lodash").is_none());
+    }
+
+    #[test]
+    fn root_specs_match_rejects_different_count() {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: BTreeMap::from([(
+                    "a".to_string(),
+                    LockRootDependency {
+                        requested: "^1.0.0".to_string(),
+                        version: Some("1.0.0".to_string()),
+                        optional: false,
+                    },
+                )]),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let required = BTreeMap::from([
+            ("a".to_string(), "^1.0.0".to_string()),
+            ("b".to_string(), "^2.0.0".to_string()),
+        ]);
+        assert!(!root_specs_match(&lockfile, &required, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn root_specs_match_rejects_different_range() {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: BTreeMap::from([(
+                    "a".to_string(),
+                    LockRootDependency {
+                        requested: "^1.0.0".to_string(),
+                        version: Some("1.0.0".to_string()),
+                        optional: false,
+                    },
+                )]),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let required = BTreeMap::from([("a".to_string(), "^2.0.0".to_string())]);
+        assert!(!root_specs_match(&lockfile, &required, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn root_specs_match_rejects_unresolved_required() {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: BTreeMap::from([(
+                    "a".to_string(),
+                    LockRootDependency {
+                        requested: "^1.0.0".to_string(),
+                        version: None,
+                        optional: false,
+                    },
+                )]),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let required = BTreeMap::from([("a".to_string(), "^1.0.0".to_string())]);
+        assert!(!root_specs_match(&lockfile, &required, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn root_specs_match_rejects_missing_dep() {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: BTreeMap::new(),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let required = BTreeMap::from([("a".to_string(), "^1.0.0".to_string())]);
+        assert!(!root_specs_match(&lockfile, &required, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn to_graph_reconstructs_dependencies() {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: BTreeMap::from([(
+                    "express".to_string(),
+                    LockRootDependency {
+                        requested: "^4.0.0".to_string(),
+                        version: Some("4.18.2".to_string()),
+                        optional: false,
+                    },
+                )]),
+            },
+            packages: BTreeMap::from([
+                (
+                    "express@4.18.2".to_string(),
+                    LockPackage {
+                        name: "express".to_string(),
+                        version: "4.18.2".to_string(),
+                        tarball: "https://registry.npmjs.org/express/-/express-4.18.2.tgz"
+                            .to_string(),
+                        integrity: Some("sha512-abc123".to_string()),
+                        dependencies: BTreeMap::from([(
+                            "body-parser".to_string(),
+                            "body-parser@1.20.0".to_string(),
+                        )]),
+                        bundled_dependencies: None,
+                        has_bin: true,
+                    },
+                ),
+                (
+                    "body-parser@1.20.0".to_string(),
+                    LockPackage {
+                        name: "body-parser".to_string(),
+                        version: "1.20.0".to_string(),
+                        tarball: "https://registry.npmjs.org/body-parser/-/body-parser-1.20.0.tgz"
+                            .to_string(),
+                        integrity: None,
+                        dependencies: BTreeMap::new(),
+                        bundled_dependencies: None,
+                        has_bin: false,
+                    },
+                ),
+            ]),
+        };
+
+        let graph = to_graph(&lockfile);
+
+        assert!(graph.root.dependencies.contains_key("express"));
+        assert_eq!(
+            graph.root.dependencies["express"].resolved.version,
+            "4.18.2"
+        );
+
+        let express_id = PackageId {
+            name: "express".to_string(),
+            version: "4.18.2".to_string(),
+        };
+        let express = graph.packages.get(&express_id).unwrap();
+        assert!(express.has_bin);
+        assert!(express.dependencies.contains_key("body-parser"));
+        assert_eq!(express.dependencies["body-parser"].version, "1.20.0");
+    }
+
+    #[test]
+    fn write_and_read_round_trip() {
+        use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency};
+
+        let id = PackageId {
+            name: "test-pkg".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let pkg = ResolvedPackage {
+            id: id.clone(),
+            tarball: "https://example.com/test-pkg-1.0.0.tgz".to_string(),
+            integrity: Some("sha512-abc".to_string()),
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+        };
+
+        let graph = ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::from([(
+                    "test-pkg".to_string(),
+                    RootDependency {
+                        requested: "^1.0.0".to_string(),
+                        resolved: id.clone(),
+                    },
+                )]),
+            },
+            packages: BTreeMap::from([(id, pkg)]),
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("snpm-lock.yaml");
+
+        write(&path, &graph, &BTreeMap::new()).unwrap();
+        let lockfile = read(&path).unwrap();
+
+        assert_eq!(lockfile.version, 1);
+        assert!(lockfile.root.dependencies.contains_key("test-pkg"));
+        assert_eq!(
+            lockfile.root.dependencies["test-pkg"].requested,
+            "^1.0.0"
+        );
+        assert!(lockfile.packages.contains_key("test-pkg@1.0.0"));
+        let pkg = &lockfile.packages["test-pkg@1.0.0"];
+        assert_eq!(pkg.tarball, "https://example.com/test-pkg-1.0.0.tgz");
+        assert_eq!(pkg.integrity.as_deref(), Some("sha512-abc"));
+    }
+
+    #[test]
+    fn read_rejects_wrong_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("snpm-lock.yaml");
+
+        let data = "version: 99\nroot:\n  dependencies: {}\npackages: {}\n";
+        std::fs::write(&path, data).unwrap();
+
+        let result = read(&path);
+        assert!(result.is_err());
+    }
 }

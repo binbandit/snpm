@@ -356,4 +356,250 @@ mod tests {
         assert!(config.default_auth_token.is_none());
         assert!(!config.default_auth_basic);
     }
+
+    #[test]
+    fn normalize_registry_url_strips_trailing_slash() {
+        assert_eq!(
+            normalize_registry_url("https://registry.npmjs.org/"),
+            "https://registry.npmjs.org"
+        );
+    }
+
+    #[test]
+    fn normalize_registry_url_lowercases_host() {
+        assert_eq!(
+            normalize_registry_url("https://Registry.NPMjs.ORG"),
+            "https://registry.npmjs.org"
+        );
+    }
+
+    #[test]
+    fn normalize_registry_url_strips_default_https_port() {
+        assert_eq!(
+            normalize_registry_url("https://registry.npmjs.org:443/"),
+            "https://registry.npmjs.org"
+        );
+    }
+
+    #[test]
+    fn normalize_registry_url_strips_default_http_port() {
+        assert_eq!(
+            normalize_registry_url("http://localhost:80/"),
+            "http://localhost"
+        );
+    }
+
+    #[test]
+    fn normalize_registry_url_keeps_custom_port() {
+        assert_eq!(
+            normalize_registry_url("http://localhost:4873"),
+            "http://localhost:4873"
+        );
+    }
+
+    #[test]
+    fn normalize_registry_url_adds_https_to_double_slash() {
+        assert_eq!(
+            normalize_registry_url("//registry.npmjs.org/"),
+            "https://registry.npmjs.org"
+        );
+    }
+
+    #[test]
+    fn normalize_registry_url_preserves_path() {
+        assert_eq!(
+            normalize_registry_url("https://npm.pkg.github.com/owner"),
+            "https://npm.pkg.github.com/owner"
+        );
+    }
+
+    #[test]
+    fn host_from_url_basic() {
+        assert_eq!(
+            host_from_url("https://registry.npmjs.org/foo"),
+            Some("registry.npmjs.org".to_string())
+        );
+    }
+
+    #[test]
+    fn host_from_url_strips_default_port() {
+        assert_eq!(
+            host_from_url("https://registry.npmjs.org:443/foo"),
+            Some("registry.npmjs.org".to_string())
+        );
+    }
+
+    #[test]
+    fn host_from_url_keeps_custom_port() {
+        assert_eq!(
+            host_from_url("http://localhost:4873"),
+            Some("localhost:4873".to_string())
+        );
+    }
+
+    #[test]
+    fn host_from_url_empty_returns_none() {
+        assert_eq!(host_from_url(""), None);
+    }
+
+    #[test]
+    fn host_from_url_lowercases() {
+        assert_eq!(
+            host_from_url("https://Registry.NPMjs.ORG/"),
+            Some("registry.npmjs.org".to_string())
+        );
+    }
+
+    #[test]
+    fn expand_env_vars_dollar_brace_syntax() {
+        unsafe { std::env::set_var("SNPM_TEST_VAR_1", "hello") };
+        assert_eq!(expand_env_vars("${SNPM_TEST_VAR_1}_world"), "hello_world");
+        unsafe { std::env::remove_var("SNPM_TEST_VAR_1") };
+    }
+
+    #[test]
+    fn expand_env_vars_dollar_syntax() {
+        unsafe { std::env::set_var("SNPM_TEST_VAR_2", "value") };
+        assert_eq!(expand_env_vars("prefix_$SNPM_TEST_VAR_2"), "prefix_value");
+        unsafe { std::env::remove_var("SNPM_TEST_VAR_2") };
+    }
+
+    #[test]
+    fn expand_env_vars_missing_var() {
+        unsafe { std::env::remove_var("SNPM_NONEXISTENT_VAR") };
+        assert_eq!(expand_env_vars("$SNPM_NONEXISTENT_VAR"), "");
+    }
+
+    #[test]
+    fn expand_env_vars_no_vars() {
+        assert_eq!(expand_env_vars("no vars here"), "no vars here");
+    }
+
+    #[test]
+    fn expand_env_vars_bare_dollar() {
+        assert_eq!(expand_env_vars("cost is $"), "cost is $");
+    }
+
+    #[test]
+    fn apply_rc_file_parses_registry() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), "registry=https://custom.registry.com/\n").unwrap();
+
+        let mut config = RegistryConfig {
+            default_registry: "https://registry.npmjs.org/".to_string(),
+            ..RegistryConfig::default()
+        };
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(config.default_registry, "https://custom.registry.com");
+    }
+
+    #[test]
+    fn apply_rc_file_parses_scoped_registry() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), "@myorg:registry=https://npm.myorg.com/\n").unwrap();
+
+        let mut config = RegistryConfig::default();
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(
+            config.scoped.get("@myorg").map(String::as_str),
+            Some("https://npm.myorg.com")
+        );
+    }
+
+    #[test]
+    fn apply_rc_file_parses_auth_token() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(
+            file.path(),
+            "//registry.example.com/:_authToken=my-token\n",
+        )
+        .unwrap();
+
+        let mut config = RegistryConfig::default();
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(
+            config
+                .registry_auth
+                .get("registry.example.com")
+                .map(String::as_str),
+            Some("my-token")
+        );
+        assert_eq!(
+            config.registry_auth_schemes.get("registry.example.com"),
+            Some(&AuthScheme::Bearer)
+        );
+    }
+
+    #[test]
+    fn apply_rc_file_parses_default_auth_token() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), "_authToken=default-token\n").unwrap();
+
+        let mut config = RegistryConfig::default();
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(config.default_auth_token.as_deref(), Some("default-token"));
+    }
+
+    #[test]
+    fn apply_rc_file_parses_legacy_auth() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), "_auth=dXNlcjpwYXNz\n").unwrap();
+
+        let mut config = RegistryConfig::default();
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(config.default_auth_token.as_deref(), Some("dXNlcjpwYXNz"));
+        assert!(config.default_auth_basic);
+    }
+
+    #[test]
+    fn apply_rc_file_skips_comments() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(
+            file.path(),
+            "# This is a comment\n; also a comment\nregistry=https://custom.com\n",
+        )
+        .unwrap();
+
+        let mut config = RegistryConfig {
+            default_registry: "https://registry.npmjs.org/".to_string(),
+            ..RegistryConfig::default()
+        };
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(config.default_registry, "https://custom.com");
+    }
+
+    #[test]
+    fn apply_rc_file_parses_hoisting() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), "snpm-hoist=none\n").unwrap();
+
+        let mut config = RegistryConfig::default();
+        apply_rc_file(file.path(), &mut config);
+
+        assert_eq!(config.hoisting, Some(HoistingMode::None));
+    }
+
+    #[test]
+    fn apply_rc_file_parses_always_auth() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), "always-auth=true\n").unwrap();
+
+        let mut config = RegistryConfig::default();
+        apply_rc_file(file.path(), &mut config);
+
+        assert!(config.always_auth);
+    }
+
+    #[test]
+    fn apply_rc_file_nonexistent_is_noop() {
+        let mut config = RegistryConfig::default();
+        apply_rc_file(Path::new("/nonexistent/.snpmrc"), &mut config);
+        assert_eq!(config.default_auth_token, None);
+    }
 }

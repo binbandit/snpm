@@ -76,7 +76,7 @@ impl RegistryVersion {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RegistryProtocol {
     pub name: String,
 }

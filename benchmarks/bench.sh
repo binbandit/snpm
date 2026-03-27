@@ -5,22 +5,31 @@ set -euo pipefail
 # snpm benchmark suite
 #
 # Compares snpm vs pnpm vs bun across install scenarios.
-# Requires: hyperfine, snpm, pnpm, bun (missing tools are skipped)
+# Requires: hyperfine, cargo, pnpm, bun (missing tools are skipped)
 # ─────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 RESULTS_DIR="$SCRIPT_DIR/results"
 
 mkdir -p "$RESULTS_DIR"
 
+# ─── Build snpm from source ───
+
+echo "Building snpm from source (release mode)..."
+cargo build --release --manifest-path "$REPO_DIR/Cargo.toml" --bin snpm
+SNPM_BIN="$REPO_DIR/target/release/snpm"
+echo "Using snpm binary: $SNPM_BIN"
+echo ""
+
 # ─── Resolve cache directories ───
 
 # snpm
-SNPM_DATA_DIR="$(snpm config 2>/dev/null | grep 'data dir:' | sed 's/.*data dir: //' || echo "")"
-SNPM_CACHE_DIR="$(snpm config 2>/dev/null | grep 'cache dir:' | sed 's/.*cache dir: //' || echo "")"
-SNPM_METADATA_DIR="$(snpm config 2>/dev/null | grep 'metadata dir:' | sed 's/.*metadata dir: //' || echo "")"
-SNPM_PACKAGES_DIR="$(snpm config 2>/dev/null | grep 'packages dir:' | sed 's/.*packages dir: //' || echo "")"
+SNPM_DATA_DIR="$("$SNPM_BIN" config 2>/dev/null | grep 'data dir:' | sed 's/.*data dir: //' || echo "")"
+SNPM_CACHE_DIR="$("$SNPM_BIN" config 2>/dev/null | grep 'cache dir:' | sed 's/.*cache dir: //' || echo "")"
+SNPM_METADATA_DIR="$("$SNPM_BIN" config 2>/dev/null | grep 'metadata dir:' | sed 's/.*metadata dir: //' || echo "")"
+SNPM_PACKAGES_DIR="$("$SNPM_BIN" config 2>/dev/null | grep 'packages dir:' | sed 's/.*packages dir: //' || echo "")"
 
 # pnpm
 PNPM_STORE_DIR="$(pnpm store path 2>/dev/null || echo "")"
@@ -37,7 +46,7 @@ echo ""
 
 # Detect available package managers
 MANAGERS=()
-if command -v snpm &>/dev/null; then MANAGERS+=("snpm"); fi
+if [ -x "$SNPM_BIN" ]; then MANAGERS+=("snpm"); fi
 if command -v pnpm &>/dev/null; then MANAGERS+=("pnpm"); fi
 if command -v bun &>/dev/null;  then MANAGERS+=("bun"); fi
 
@@ -98,7 +107,7 @@ CMDS=()
 for pm in "${MANAGERS[@]}"; do
   case "$pm" in
     snpm)
-      CMDS+=(-n "snpm" "cd $WORK_DIR && rm -rf node_modules snpm-lock.yaml && rm -rf '$SNPM_PACKAGES_DIR'/* '$SNPM_METADATA_DIR'/* && snpm install")
+      CMDS+=(-n "snpm" "cd $WORK_DIR && rm -rf node_modules snpm-lock.yaml && rm -rf '$SNPM_PACKAGES_DIR'/* '$SNPM_METADATA_DIR'/* && $SNPM_BIN install")
       ;;
     pnpm)
       CMDS+=(-n "pnpm" "cd $WORK_DIR && rm -rf node_modules pnpm-lock.yaml && rm -rf '$PNPM_STORE_DIR'/* && pnpm install --no-frozen-lockfile")
@@ -123,7 +132,7 @@ echo "━━━ Scenario 2: Warm install (cached store, lockfile present, no nod
 # Prime lockfiles and caches for each manager
 for pm in "${MANAGERS[@]}"; do
   case "$pm" in
-    snpm) (cd "$WORK_DIR" && rm -rf node_modules snpm-lock.yaml && snpm install) >/dev/null 2>&1 || true ;;
+    snpm) (cd "$WORK_DIR" && rm -rf node_modules snpm-lock.yaml && "$SNPM_BIN" install) >/dev/null 2>&1 || true ;;
     pnpm) (cd "$WORK_DIR" && rm -rf node_modules pnpm-lock.yaml && pnpm install --no-frozen-lockfile) >/dev/null 2>&1 || true ;;
     bun)  (cd "$WORK_DIR" && rm -rf node_modules bun.lockb && bun install) >/dev/null 2>&1 || true ;;
   esac
@@ -132,7 +141,7 @@ done
 CMDS=()
 for pm in "${MANAGERS[@]}"; do
   case "$pm" in
-    snpm) CMDS+=(-n "snpm" "cd $WORK_DIR && rm -rf node_modules && snpm install") ;;
+    snpm) CMDS+=(-n "snpm" "cd $WORK_DIR && rm -rf node_modules && $SNPM_BIN install") ;;
     pnpm) CMDS+=(-n "pnpm" "cd $WORK_DIR && rm -rf node_modules && pnpm install --frozen-lockfile") ;;
     bun)  CMDS+=(-n "bun"  "cd $WORK_DIR && rm -rf node_modules && bun install") ;;
   esac
@@ -152,7 +161,7 @@ echo "━━━ Scenario 3: Hot install (no-op, everything up to date) ━━━
 # Ensure node_modules + lockfile exist for each
 for pm in "${MANAGERS[@]}"; do
   case "$pm" in
-    snpm) (cd "$WORK_DIR" && snpm install) >/dev/null 2>&1 || true ;;
+    snpm) (cd "$WORK_DIR" && "$SNPM_BIN" install) >/dev/null 2>&1 || true ;;
     pnpm) (cd "$WORK_DIR" && pnpm install --frozen-lockfile) >/dev/null 2>&1 || true ;;
     bun)  (cd "$WORK_DIR" && bun install) >/dev/null 2>&1 || true ;;
   esac
@@ -161,7 +170,7 @@ done
 CMDS=()
 for pm in "${MANAGERS[@]}"; do
   case "$pm" in
-    snpm) CMDS+=(-n "snpm" "cd $WORK_DIR && snpm install") ;;
+    snpm) CMDS+=(-n "snpm" "cd $WORK_DIR && $SNPM_BIN install") ;;
     pnpm) CMDS+=(-n "pnpm" "cd $WORK_DIR && pnpm install --frozen-lockfile") ;;
     bun)  CMDS+=(-n "bun"  "cd $WORK_DIR && bun install") ;;
   esac

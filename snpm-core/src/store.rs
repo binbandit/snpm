@@ -60,17 +60,28 @@ pub async fn ensure_package_with_offline(
         package.id.name, package.id.version, package.tarball
     ));
 
-    if pkg_dir.exists() {
-        fs::remove_dir_all(&pkg_dir).map_err(|source| SnpmError::WriteFile {
-            path: pkg_dir.clone(),
+    let prep_dir = pkg_dir.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        match fs::remove_dir_all(&prep_dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(SnpmError::WriteFile {
+                    path: prep_dir.clone(),
+                    source,
+                });
+            }
+        }
+        fs::create_dir_all(&prep_dir).map_err(|source| SnpmError::WriteFile {
+            path: prep_dir.clone(),
             source,
         })?;
-    }
-
-    fs::create_dir_all(&pkg_dir).map_err(|source| SnpmError::WriteFile {
-        path: pkg_dir.clone(),
-        source,
-    })?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| SnpmError::StoreTask {
+        reason: error.to_string(),
+    })??;
 
     if package.tarball.starts_with("file://") {
         let path_str = package.tarball.strip_prefix("file://").unwrap();
@@ -113,7 +124,12 @@ pub async fn ensure_package_with_offline(
         ));
 
         let unpack_started = Instant::now();
-        unpack_tarball(&pkg_dir, bytes)?;
+        let unpack_dir = pkg_dir.clone();
+        tokio::task::spawn_blocking(move || unpack_tarball(&unpack_dir, bytes))
+            .await
+            .map_err(|error| SnpmError::StoreTask {
+                reason: error.to_string(),
+            })??;
         console::verbose(&format!(
             "unpacked tarball for {}@{} in {:.3}s",
             package.id.name,
@@ -677,9 +693,7 @@ mod tests {
             header.set_size(content.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
-            builder
-                .append(&header, &content[..])
-                .unwrap();
+            builder.append(&header, &content[..]).unwrap();
         });
 
         let temp = tempdir().unwrap();

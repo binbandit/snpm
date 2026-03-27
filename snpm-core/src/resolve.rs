@@ -7,25 +7,18 @@ use crate::registry::{RegistryPackage, RegistryProtocol};
 use crate::{Result, SnpmConfig, SnpmError, console};
 use async_recursion::async_recursion;
 use futures::future::{join, join_all};
-use futures::lock::Mutex;
 use query::build_dep_request;
 use reqwest::Client;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::Semaphore;
-use tokio::task::yield_now;
+use tokio::sync::{Mutex, RwLock, Semaphore, mpsc};
 
 pub use peers::validate_peers;
 pub use types::*;
 
-pub trait Prefetcher: Send + Sync {
-    fn prefetch(&self, package: &ResolvedPackage);
-}
-
 type PackageMap = BTreeMap<PackageId, ResolvedPackage>;
-type PackageCache = BTreeMap<String, RegistryPackage>;
+type PackageCache = BTreeMap<String, Arc<RegistryPackage>>;
 
 /// Resolve dependencies with default online mode.
 #[allow(clippy::too_many_arguments)]
@@ -107,13 +100,13 @@ where
     Fut: std::future::Future<Output = Result<()>> + Send,
 {
     let packages = Arc::new(Mutex::new(PackageMap::new()));
-    let package_cache = Arc::new(Mutex::new(PackageCache::new()));
+    let package_cache = Arc::new(RwLock::new(PackageCache::new()));
     let default_protocol = RegistryProtocol::npm();
-    let done = Arc::new(AtomicBool::new(false));
     let registry_semaphore = Arc::new(Semaphore::new(config.registry_concurrency));
 
-    // Wrap resolver to ensure done flag is always set (even on error)
-    let done_for_resolver = done.clone();
+    // Channel for pushing resolved packages to the prefetcher without polling
+    let (prefetch_tx, prefetch_rx) = mpsc::unbounded_channel::<ResolvedPackage>();
+
     let resolver_task = async {
         let result = run_resolver(
             config,
@@ -127,18 +120,18 @@ where
             &default_protocol,
             packages.clone(),
             package_cache.clone(),
-            done_for_resolver.clone(),
             registry_semaphore.clone(),
             offline_mode,
+            prefetch_tx.clone(),
         )
         .await;
 
-        // Always signal completion so prefetcher doesn't hang
-        done_for_resolver.store(true, Ordering::SeqCst);
+        // Drop sender so prefetcher sees channel closed
+        drop(prefetch_tx);
         result
     };
 
-    let prefetcher_task = run_prefetcher(packages.clone(), done.clone(), on_package);
+    let prefetcher_task = run_prefetcher(prefetch_rx, on_package);
 
     let (root_result, prefetch_result) = join(resolver_task, prefetcher_task).await;
 
@@ -176,10 +169,10 @@ async fn run_resolver(
     overrides: Option<&BTreeMap<String, String>>,
     default_protocol: &RegistryProtocol,
     packages: Arc<Mutex<PackageMap>>,
-    package_cache: Arc<Mutex<PackageCache>>,
-    done: Arc<AtomicBool>,
+    package_cache: Arc<RwLock<PackageCache>>,
     semaphore: Arc<Semaphore>,
     offline_mode: OfflineMode,
+    prefetch_tx: mpsc::UnboundedSender<ResolvedPackage>,
 ) -> Result<ResolutionRoot> {
     let mut tasks = Vec::new();
 
@@ -191,6 +184,7 @@ async fn run_resolver(
         let packages = packages.clone();
         let package_cache = package_cache.clone();
         let semaphore = semaphore.clone();
+        let prefetch_tx = prefetch_tx.clone();
 
         let task = async move {
             let result = resolve_package(
@@ -204,9 +198,9 @@ async fn run_resolver(
                 min_age_days,
                 force,
                 overrides,
-                None,
                 semaphore,
                 offline_mode,
+                prefetch_tx,
             )
             .await;
 
@@ -243,58 +237,21 @@ async fn run_resolver(
         }
     }
 
-    done.store(true, Ordering::SeqCst);
-
     Ok(ResolutionRoot {
         dependencies: root_dependencies,
     })
 }
 
 async fn run_prefetcher<F, Fut>(
-    packages: Arc<Mutex<PackageMap>>,
-    done: Arc<AtomicBool>,
+    mut rx: mpsc::UnboundedReceiver<ResolvedPackage>,
     mut on_package: F,
 ) -> Result<()>
 where
     F: FnMut(ResolvedPackage) -> Fut + Send,
     Fut: std::future::Future<Output = Result<()>> + Send,
 {
-    let mut seen = BTreeSet::new();
-
-    loop {
-        let snapshot: Vec<PackageId> = {
-            let guard = packages.lock().await;
-            guard.keys().cloned().collect()
-        };
-
-        let mut new_ids = Vec::new();
-
-        for id in snapshot {
-            if !seen.contains(&id) {
-                seen.insert(id.clone());
-                new_ids.push(id);
-            }
-        }
-
-        if new_ids.is_empty() {
-            if done.load(Ordering::SeqCst) {
-                break;
-            }
-
-            yield_now().await;
-            continue;
-        }
-
-        for id in new_ids {
-            let package = {
-                let guard = packages.lock().await;
-                guard.get(&id).cloned()
-            };
-
-            if let Some(package) = package {
-                on_package(package).await?;
-            }
-        }
+    while let Some(package) = rx.recv().await {
+        on_package(package).await?;
     }
 
     Ok::<(), SnpmError>(())
@@ -309,40 +266,56 @@ async fn resolve_package(
     range: &str,
     protocol: &RegistryProtocol,
     packages: Arc<Mutex<PackageMap>>,
-    package_cache: Arc<Mutex<PackageCache>>,
+    package_cache: Arc<RwLock<PackageCache>>,
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
-    prefetch: Option<&dyn Prefetcher>,
     registry_semaphore: Arc<Semaphore>,
     offline_mode: OfflineMode,
+    prefetch_tx: mpsc::UnboundedSender<ResolvedPackage>,
 ) -> Result<PackageId> {
     let request = build_dep_request(name, range, protocol, overrides);
-    let cache_key = format!("{:?}:{}", request.protocol, request.source);
+    let cache_key = format!("{}:{}", request.protocol.name, request.source);
 
     let package = {
+        // Fast path: read lock only
         let cached = {
-            let cache = package_cache.lock().await;
+            let cache = package_cache.read().await;
             cache.get(&cache_key).cloned()
         };
 
         if let Some(package) = cached {
             package
         } else {
+            // Slow path: acquire semaphore, then double-check cache
             let _permit = registry_semaphore.acquire().await.unwrap();
-            let fetched = crate::registry::fetch_package_with_offline(
-                config,
-                client,
-                &request.source,
-                &request.protocol,
-                offline_mode,
-            )
-            .await?;
-            drop(_permit);
 
-            let mut cache = package_cache.lock().await;
-            cache.insert(cache_key, fetched.clone());
-            fetched
+            let rechecked = {
+                let cache = package_cache.read().await;
+                cache.get(&cache_key).cloned()
+            };
+
+            if let Some(package) = rechecked {
+                drop(_permit);
+                package
+            } else {
+                let fetched = crate::registry::fetch_package_with_offline(
+                    config,
+                    client,
+                    &request.source,
+                    &request.protocol,
+                    offline_mode,
+                )
+                .await?;
+                drop(_permit);
+
+                let fetched = Arc::new(fetched);
+                {
+                    let mut cache = package_cache.write().await;
+                    cache.insert(cache_key, fetched.clone());
+                }
+                fetched
+            }
         }
     };
 
@@ -409,9 +382,8 @@ async fn resolve_package(
         packages_guard.insert(id.clone(), placeholder.clone());
     }
 
-    if let Some(prefetch) = prefetch {
-        prefetch.prefetch(&placeholder);
-    }
+    // Notify prefetcher about the new package (ignore send errors if receiver dropped)
+    let _ = prefetch_tx.send(placeholder.clone());
 
     let mut dependencies = BTreeMap::new();
 
@@ -442,8 +414,8 @@ async fn resolve_package(
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
         let dep_protocol = protocol_from_range(&range);
-        let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
+        let tx = prefetch_tx.clone();
 
         let future = async move {
             let id = resolve_package(
@@ -457,9 +429,9 @@ async fn resolve_package(
                 min_age_days,
                 force,
                 overrides,
-                prefetch,
                 semaphore,
                 offline_mode,
+                tx,
             )
             .await?;
             Ok::<(String, PackageId), SnpmError>((name, id))
@@ -487,8 +459,8 @@ async fn resolve_package(
         let packages_clone = packages.clone();
         let cache_clone = package_cache.clone();
         let dep_protocol = protocol_from_range(&range);
-        let prefetch = prefetch;
         let semaphore = registry_semaphore.clone();
+        let tx = prefetch_tx.clone();
 
         let future = async move {
             let result = resolve_package(
@@ -502,9 +474,9 @@ async fn resolve_package(
                 min_age_days,
                 force,
                 overrides,
-                prefetch,
                 semaphore,
                 offline_mode,
+                tx,
             )
             .await;
 
@@ -616,10 +588,7 @@ mod tests {
 
     #[test]
     fn protocol_from_range_git_colon() {
-        assert_eq!(
-            protocol_from_range("git:repo.git"),
-            RegistryProtocol::git()
-        );
+        assert_eq!(protocol_from_range("git:repo.git"), RegistryProtocol::git());
     }
 
     #[test]

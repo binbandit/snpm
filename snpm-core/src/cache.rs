@@ -79,7 +79,7 @@ pub fn save_metadata(config: &SnpmConfig, name: &str, package: &RegistryPackage)
         return Ok(());
     }
 
-    match serde_json::to_string_pretty(package) {
+    match serde_json::to_string(package) {
         Ok(json) => {
             if let Err(e) = fs::write(&cache_path, json) {
                 if console::is_logging_enabled() {

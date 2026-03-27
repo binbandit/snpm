@@ -2,6 +2,9 @@ use crate::{LinkBackend, Result, SnpmConfig, SnpmError};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+static RESOLVED_AUTO_BACKEND: OnceLock<LinkBackend> = OnceLock::new();
 
 pub fn symlink_is_correct(link: &Path, expected_target: &Path) -> bool {
     match fs::read_link(link) {
@@ -76,26 +79,36 @@ pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
-    match config.link_backend {
-        LinkBackend::Auto => {
-            if reflink_copy::reflink(from, to).is_ok() {
-                return Ok(());
-            }
-
-            if fs::hard_link(from, to).is_ok() {
-                return Ok(());
-            }
-
-            if symlink_file_entry(from, to).is_ok() {
-                return Ok(());
-            }
-
-            fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
-                path: to.to_path_buf(),
-                source: source_err,
-            })?;
+/// Detect the best link strategy by probing once, then cache the result.
+fn resolve_auto_backend(from: &Path, to: &Path) -> LinkBackend {
+    *RESOLVED_AUTO_BACKEND.get_or_init(|| {
+        if reflink_copy::reflink(from, to).is_ok() {
+            let _ = fs::remove_file(to);
+            return LinkBackend::Reflink;
         }
+
+        if fs::hard_link(from, to).is_ok() {
+            let _ = fs::remove_file(to);
+            return LinkBackend::Hardlink;
+        }
+
+        if symlink_file_entry(from, to).is_ok() {
+            let _ = fs::remove_file(to);
+            return LinkBackend::Symlink;
+        }
+
+        LinkBackend::Copy
+    })
+}
+
+fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
+    let backend = match config.link_backend {
+        LinkBackend::Auto => resolve_auto_backend(from, to),
+        other => other,
+    };
+
+    match backend {
+        LinkBackend::Auto => unreachable!(),
         LinkBackend::Reflink => {
             if reflink_copy::reflink(from, to).is_err() {
                 fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
@@ -209,21 +222,28 @@ mod tests {
 
     #[test]
     fn package_node_modules_unscoped() {
-        let location = PathBuf::from("/project/node_modules/.snpm/lodash@4.17.21/node_modules/lodash");
+        let location =
+            PathBuf::from("/project/node_modules/.snpm/lodash@4.17.21/node_modules/lodash");
         let result = package_node_modules(&location, "lodash");
         assert_eq!(
             result,
-            Some(PathBuf::from("/project/node_modules/.snpm/lodash@4.17.21/node_modules"))
+            Some(PathBuf::from(
+                "/project/node_modules/.snpm/lodash@4.17.21/node_modules"
+            ))
         );
     }
 
     #[test]
     fn package_node_modules_scoped() {
-        let location = PathBuf::from("/project/node_modules/.snpm/@types+node@18.0.0/node_modules/@types/node");
+        let location = PathBuf::from(
+            "/project/node_modules/.snpm/@types+node@18.0.0/node_modules/@types/node",
+        );
         let result = package_node_modules(&location, "@types/node");
         assert_eq!(
             result,
-            Some(PathBuf::from("/project/node_modules/.snpm/@types+node@18.0.0/node_modules"))
+            Some(PathBuf::from(
+                "/project/node_modules/.snpm/@types+node@18.0.0/node_modules"
+            ))
         );
     }
 
@@ -288,7 +308,10 @@ mod tests {
         copy_dir(&src, &dst).unwrap();
 
         assert!(dst.join("file.txt").is_file());
-        assert_eq!(std::fs::read_to_string(dst.join("file.txt")).unwrap(), "hello");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("file.txt")).unwrap(),
+            "hello"
+        );
     }
 
     #[test]

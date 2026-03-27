@@ -124,7 +124,7 @@ impl SnpmConfig {
         let mut link_backend = LinkBackend::Auto;
         let mut strict_peers = false;
         let mut frozen_lockfile_default = false;
-        let mut registry_concurrency = 64;
+        let mut registry_concurrency = 128;
         // Default to Bearer; may switch to Basic if _auth detected or token looks like Basic credentials
         let mut default_registry_auth_scheme = AuthScheme::Bearer;
         // Honor always-auth from rc files (can be overridden by env below)
@@ -525,9 +525,11 @@ mod tests {
     #[test]
     fn authorization_header_returns_none_without_token() {
         let config = make_config();
-        assert!(config
-            .authorization_header_for_url("https://registry.npmjs.org/pkg")
-            .is_none());
+        assert!(
+            config
+                .authorization_header_for_url("https://registry.npmjs.org/pkg")
+                .is_none()
+        );
     }
 
     #[test]

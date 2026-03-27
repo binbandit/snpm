@@ -26,10 +26,14 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Vec<String>) -> anyhow::Result<ExitCode> {
-    let (options, args) = parse_switch_options(args)?;
+    let (mut options, args) = parse_switch_options(args)?;
 
     if args.first().map(|s| s.as_str()) == Some("switch") {
         return handle_switch_command(&args[1..], &options);
+    }
+
+    if is_meta_command(&args) {
+        options.ignore_package_manager = true;
     }
 
     let snpm_binary = resolve_binary(None, &options)?;
@@ -221,29 +225,31 @@ fn cache_from_project_or_latest(options: &SwitchOptions) -> anyhow::Result<()> {
     let reference = select_package_manager_reference(project_reference, options);
 
     match reference {
-        Some(reference) => {
-            ensure_is_snpm(&reference)?;
-
-            match reference.reference {
-                PackageManagerSpecifier::Version(version) => {
-                    println!("Caching snpm {}...", version);
-                    version::ensure_version(&version)?;
-                    println!("Done.");
-                }
-                PackageManagerSpecifier::Local(path) => {
-                    if !path.is_file() {
-                        anyhow::bail!(
-                            "packageManager points to local binary '{}' but it does not exist",
-                            path.display()
-                        );
-                    }
-
-                    println!(
-                        "packageManager points to local binary '{}'; nothing to cache.",
+        Some(reference) if is_snpm(&reference) => match reference.reference {
+            PackageManagerSpecifier::Version(version) => {
+                println!("Caching snpm {}...", version);
+                version::ensure_version(&version)?;
+                println!("Done.");
+            }
+            PackageManagerSpecifier::Local(path) => {
+                if !path.is_file() {
+                    anyhow::bail!(
+                        "packageManager points to local binary '{}' but it does not exist",
                         path.display()
                     );
                 }
+
+                println!(
+                    "packageManager points to local binary '{}'; nothing to cache.",
+                    path.display()
+                );
             }
+        },
+        Some(reference) => {
+            warn_non_snpm(&reference);
+            println!("Caching latest snpm...");
+            version::ensure_latest()?;
+            println!("Done.");
         }
         None => {
             if ignored_project_package_manager {
@@ -269,30 +275,32 @@ fn resolve_binary(
     };
 
     match select_package_manager_reference(reference, options) {
-        Some(reference) => {
-            ensure_is_snpm(&reference)?;
-
-            match reference.reference {
-                PackageManagerSpecifier::Version(version) => version::ensure_version(&version),
-                PackageManagerSpecifier::Local(path) => {
-                    if path.is_file() {
-                        Ok(path)
-                    } else {
-                        anyhow::bail!(
-                            "packageManager points to local binary '{}' but it does not exist",
-                            path.display()
-                        )
-                    }
+        Some(reference) if is_snpm(&reference) => match reference.reference {
+            PackageManagerSpecifier::Version(version) => version::ensure_version(&version),
+            PackageManagerSpecifier::Local(path) => {
+                if path.is_file() {
+                    Ok(path)
+                } else {
+                    anyhow::bail!(
+                        "packageManager points to local binary '{}' but it does not exist",
+                        path.display()
+                    )
                 }
             }
+        },
+        Some(reference) => {
+            warn_non_snpm(&reference);
+            fallback_binary()
         }
-        None => {
-            if let Some(path) = bundled_binary_path() {
-                Ok(path)
-            } else {
-                version::ensure_latest()
-            }
-        }
+        None => fallback_binary(),
+    }
+}
+
+fn fallback_binary() -> anyhow::Result<PathBuf> {
+    if let Some(path) = bundled_binary_path() {
+        Ok(path)
+    } else {
+        version::ensure_latest()
     }
 }
 
@@ -314,15 +322,22 @@ fn select_package_manager_reference(
     reference
 }
 
-fn ensure_is_snpm(reference: &PackageManagerReference) -> anyhow::Result<()> {
-    if reference.name.eq_ignore_ascii_case("snpm") {
-        Ok(())
-    } else {
-        anyhow::bail!(
-            "packageManager field specifies '{}', not snpm",
-            reference.name
-        )
-    }
+fn is_meta_command(args: &[String]) -> bool {
+    matches!(
+        args.first().map(|s| s.as_str()),
+        Some("--version" | "-V" | "--help" | "-h")
+    )
+}
+
+fn is_snpm(reference: &PackageManagerReference) -> bool {
+    reference.name.eq_ignore_ascii_case("snpm")
+}
+
+fn warn_non_snpm(reference: &PackageManagerReference) {
+    eprintln!(
+        "warning: packageManager field specifies '{}', not snpm (use --switch-ignore-package-manager to suppress)",
+        reference.name
+    );
 }
 
 fn bundled_binary_path() -> Option<PathBuf> {
@@ -444,5 +459,31 @@ mod tests {
             select_package_manager_reference(Some(version_reference("pnpm", "10.0.0")), &options);
 
         assert_eq!(selected, Some(version_reference("snpm", "2026.3.12")));
+    }
+
+    #[test]
+    fn is_meta_command_recognizes_version_and_help_flags() {
+        assert!(is_meta_command(&["--version".to_string()]));
+        assert!(is_meta_command(&["-V".to_string()]));
+        assert!(is_meta_command(&["--help".to_string()]));
+        assert!(is_meta_command(&["-h".to_string()]));
+    }
+
+    #[test]
+    fn is_meta_command_rejects_regular_commands() {
+        assert!(!is_meta_command(&["install".to_string()]));
+        assert!(!is_meta_command(&[
+            "install".to_string(),
+            "--help".to_string()
+        ]));
+        assert!(!is_meta_command(&[]));
+    }
+
+    #[test]
+    fn is_snpm_matches_case_insensitively() {
+        assert!(is_snpm(&version_reference("snpm", "1.0.0")));
+        assert!(is_snpm(&version_reference("SNPM", "1.0.0")));
+        assert!(!is_snpm(&version_reference("pnpm", "10.0.0")));
+        assert!(!is_snpm(&version_reference("npm", "10.0.0")));
     }
 }

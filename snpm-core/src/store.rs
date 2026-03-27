@@ -398,12 +398,7 @@ fn unpack_tarball(pkg_dir: &Path, data: Vec<u8>) -> Result<()> {
             continue;
         }
 
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
+        crate::linker::fs::ensure_parent_dir(&dest_path)?;
 
         entry
             .unpack(&dest_path)
@@ -577,5 +572,145 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn sanitize_name_simple() {
+        assert_eq!(super::sanitize_name("lodash"), "lodash");
+    }
+
+    #[test]
+    fn sanitize_name_scoped() {
+        assert_eq!(super::sanitize_name("@types/node"), "@types_node");
+    }
+
+    #[test]
+    fn sanitize_name_multiple_slashes() {
+        assert_eq!(super::sanitize_name("a/b/c"), "a_b_c");
+    }
+
+    #[test]
+    fn safe_join_normal() {
+        let root = std::path::Path::new("/store");
+        let rel = std::path::Path::new("package/index.js");
+        assert_eq!(
+            super::safe_join(root, rel),
+            Some(std::path::PathBuf::from("/store/package/index.js"))
+        );
+    }
+
+    #[test]
+    fn safe_join_rejects_parent_dir() {
+        let root = std::path::Path::new("/store");
+        let rel = std::path::Path::new("../escape");
+        assert_eq!(super::safe_join(root, rel), None);
+    }
+
+    #[test]
+    fn safe_join_rejects_root_dir() {
+        let root = std::path::Path::new("/store");
+        let rel = std::path::Path::new("/etc/passwd");
+        assert_eq!(super::safe_join(root, rel), None);
+    }
+
+    #[test]
+    fn safe_join_allows_curdir() {
+        let root = std::path::Path::new("/store");
+        let rel = std::path::Path::new("./package/file.js");
+        assert_eq!(
+            super::safe_join(root, rel),
+            Some(std::path::PathBuf::from("/store/package/file.js"))
+        );
+    }
+
+    #[test]
+    fn verify_integrity_sha256() {
+        use sha2::Sha256;
+        let bytes = b"test data";
+        let digest = base64::engine::general_purpose::STANDARD.encode(Sha256::digest(bytes));
+        let integrity = format!("sha256-{}", digest);
+
+        assert!(verify_integrity("https://example.com/pkg.tgz", Some(&integrity), bytes).is_ok());
+    }
+
+    #[test]
+    fn verify_integrity_sha1() {
+        use sha1::Sha1;
+        let bytes = b"test data";
+        let digest = base64::engine::general_purpose::STANDARD.encode(Sha1::digest(bytes));
+        let integrity = format!("sha1-{}", digest);
+
+        assert!(verify_integrity("https://example.com/pkg.tgz", Some(&integrity), bytes).is_ok());
+    }
+
+    #[test]
+    fn verify_integrity_none_is_ok() {
+        assert!(verify_integrity("https://example.com/pkg.tgz", None, b"anything").is_ok());
+    }
+
+    #[test]
+    fn verify_integrity_empty_string_is_ok() {
+        assert!(verify_integrity("https://example.com/pkg.tgz", Some(""), b"anything").is_ok());
+    }
+
+    #[test]
+    fn verify_integrity_whitespace_only_is_ok() {
+        assert!(verify_integrity("https://example.com/pkg.tgz", Some("   "), b"anything").is_ok());
+    }
+
+    #[test]
+    fn verify_integrity_multiple_algorithms() {
+        let bytes = b"test data";
+        let sha512_digest = base64::engine::general_purpose::STANDARD.encode(Sha512::digest(bytes));
+        let integrity = format!("sha512-{} sha512-wrongdigest", sha512_digest);
+
+        assert!(verify_integrity("https://example.com/pkg.tgz", Some(&integrity), bytes).is_ok());
+    }
+
+    #[test]
+    fn unpack_tarball_extracts_files() {
+        let bytes = build_tarball(|builder| {
+            let content = b"console.log('hello');";
+            let mut header = Header::new_gnu();
+            header.set_entry_type(EntryType::Regular);
+            header.set_path("package/index.js").unwrap();
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append(&header, &content[..])
+                .unwrap();
+        });
+
+        let temp = tempdir().unwrap();
+        unpack_tarball(temp.path(), bytes).unwrap();
+
+        let extracted = temp.path().join("package/index.js");
+        assert!(extracted.is_file());
+        assert_eq!(
+            std::fs::read_to_string(&extracted).unwrap(),
+            "console.log('hello');"
+        );
+    }
+
+    #[test]
+    fn rejects_path_traversal_entry() {
+        let bytes = build_tarball(|builder| {
+            let content = b"malicious";
+            let mut header = Header::new_gnu();
+            header.set_entry_type(EntryType::Regular);
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            // Write the path directly into the raw header to bypass tar crate validation
+            let name = b"../escape.txt";
+            let gnu = header.as_gnu_mut().unwrap();
+            gnu.name[..name.len()].copy_from_slice(name);
+            header.set_cksum();
+            builder.append(&header, &content[..]).unwrap();
+        });
+
+        let temp = tempdir().unwrap();
+        let result = unpack_tarball(temp.path(), bytes);
+        assert!(result.is_err());
     }
 }

@@ -22,13 +22,7 @@ pub fn link_global(config: &SnpmConfig, project: &Project) -> Result<()> {
 
     let link_target = global_dir.join(name);
 
-    // Create parent for scoped packages (@scope/name)
-    if let Some(parent) = link_target.parent() {
-        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+    crate::linker::fs::ensure_parent_dir(&link_target)?;
 
     // Remove existing link/dir
     if link_target.symlink_metadata().is_ok() {
@@ -81,12 +75,7 @@ pub fn link_local(project: &Project, config: &SnpmConfig, package_name: &str) ->
     let dest = node_modules.join(package_name);
 
     // Create parent for scoped packages
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+    crate::linker::fs::ensure_parent_dir(&dest)?;
 
     // Remove existing
     if dest.symlink_metadata().is_ok() {

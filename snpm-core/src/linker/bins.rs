@@ -197,12 +197,7 @@ fn create_bin_file(bin_dir: &Path, name: &str, target: &Path) -> Result<()> {
 
     let dest = bin_dir.join(name);
 
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+    super::fs::ensure_parent_dir(&dest)?;
 
     if dest.exists() {
         fs::remove_file(&dest).map_err(|source| SnpmError::WriteFile {
@@ -321,5 +316,86 @@ mod tests {
         assert!(!bin_dir.join("escape").exists());
         assert!(!bin_dir.join("escape-script").exists());
         assert!(!root.join("node_modules").join("outside.js").exists());
+    }
+
+    #[test]
+    fn sanitize_bin_name_unscoped() {
+        assert_eq!(super::sanitize_bin_name("typescript"), Some("typescript".to_string()));
+    }
+
+    #[test]
+    fn sanitize_bin_name_scoped() {
+        assert_eq!(super::sanitize_bin_name("@types/node"), Some("node".to_string()));
+    }
+
+    #[test]
+    fn sanitize_bin_name_rejects_empty() {
+        assert_eq!(super::sanitize_bin_name(""), None);
+    }
+
+    #[test]
+    fn sanitize_bin_name_rejects_dot() {
+        assert_eq!(super::sanitize_bin_name("."), None);
+    }
+
+    #[test]
+    fn sanitize_bin_name_rejects_dotdot() {
+        assert_eq!(super::sanitize_bin_name(".."), None);
+    }
+
+    #[test]
+    fn sanitize_explicit_bin_name_valid() {
+        assert_eq!(super::sanitize_explicit_bin_name("tsc"), Some("tsc".to_string()));
+    }
+
+    #[test]
+    fn sanitize_explicit_bin_name_rejects_slash() {
+        assert_eq!(super::sanitize_explicit_bin_name("foo/bar"), None);
+    }
+
+    #[test]
+    fn sanitize_explicit_bin_name_rejects_backslash() {
+        assert_eq!(super::sanitize_explicit_bin_name("foo\\bar"), None);
+    }
+
+    #[test]
+    fn sanitize_explicit_bin_name_rejects_colon() {
+        assert_eq!(super::sanitize_explicit_bin_name("foo:bar"), None);
+    }
+
+    #[test]
+    fn sanitize_explicit_bin_name_rejects_null() {
+        assert_eq!(super::sanitize_explicit_bin_name("foo\0bar"), None);
+    }
+
+    #[test]
+    fn sanitize_explicit_bin_name_rejects_empty() {
+        assert_eq!(super::sanitize_explicit_bin_name(""), None);
+    }
+
+    #[test]
+    fn resolve_bin_target_simple() {
+        let root = std::path::Path::new("/pkg");
+        let result = super::resolve_bin_target(root, "bin/cli.js");
+        assert_eq!(result, Some(std::path::PathBuf::from("/pkg/bin/cli.js")));
+    }
+
+    #[test]
+    fn resolve_bin_target_with_curdir() {
+        let root = std::path::Path::new("/pkg");
+        let result = super::resolve_bin_target(root, "./bin/cli.js");
+        assert_eq!(result, Some(std::path::PathBuf::from("/pkg/bin/cli.js")));
+    }
+
+    #[test]
+    fn resolve_bin_target_rejects_absolute() {
+        let root = std::path::Path::new("/pkg");
+        assert_eq!(super::resolve_bin_target(root, "/etc/passwd"), None);
+    }
+
+    #[test]
+    fn resolve_bin_target_rejects_parent_traversal() {
+        let root = std::path::Path::new("/pkg");
+        assert_eq!(super::resolve_bin_target(root, "../escape.js"), None);
     }
 }

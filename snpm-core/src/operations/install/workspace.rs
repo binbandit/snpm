@@ -406,7 +406,10 @@ fn populate_virtual_store(
         })?;
 
         if marker_file.is_file() {
-            if package_location.is_dir()
+            let is_real_dir = package_location
+                .symlink_metadata()
+                .is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink());
+            if is_real_dir
                 && fs::read_dir(&package_location)
                     .ok()
                     .and_then(|mut d| d.next())
@@ -421,22 +424,12 @@ fn populate_virtual_store(
             fs::remove_file(&marker_file).ok();
         }
 
-        if package_location.exists() {
-            if package_location.is_dir() {
-                fs::remove_dir_all(&package_location).ok();
-            } else {
-                fs::remove_file(&package_location).ok();
-            }
-        }
+        fs::remove_file(&package_location).ok();
+        fs::remove_dir_all(&package_location).ok();
 
-        if let Some(parent) = package_location.parent() {
-            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
+        crate::linker::fs::ensure_parent_dir(&package_location)?;
 
-        crate::linker::fs::link_dir_fast(config, store_path, &package_location)?;
+        crate::linker::fs::link_dir(config, store_path, &package_location)?;
 
         fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
             path: marker_file,
@@ -472,12 +465,12 @@ fn link_store_dependencies(
                     version: id.version.clone(),
                 })?;
         let package_node_modules =
-            package_location
-                .parent()
-                .ok_or_else(|| SnpmError::GraphMissing {
+            crate::linker::fs::package_node_modules(package_location, &id.name).ok_or_else(
+                || SnpmError::GraphMissing {
                     name: id.name.clone(),
                     version: id.version.clone(),
-                })?;
+                },
+            )?;
 
         for (dep_name, dep_id) in &package.dependencies {
             let dep_target =
@@ -489,21 +482,17 @@ fn link_store_dependencies(
                     })?;
             let dep_link = package_node_modules.join(dep_name);
 
-            if let Some(parent) = dep_link.parent() {
-                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
+            if crate::linker::fs::symlink_is_correct(&dep_link, dep_target) {
+                continue;
             }
 
-            if !dep_link.exists() {
-                symlink_dir_entry(dep_target, &dep_link).map_err(|source| {
-                    SnpmError::WriteFile {
-                        path: dep_link.clone(),
-                        source,
-                    }
-                })?;
-            }
+            fs::remove_file(&dep_link).ok();
+            fs::remove_dir_all(&dep_link).ok();
+
+            crate::linker::fs::ensure_parent_dir(&dep_link)?;
+
+            symlink_dir_entry(dep_target, &dep_link)
+                .or_else(|_| crate::linker::fs::copy_dir(dep_target, &dep_link))?;
         }
         Ok::<(), SnpmError>(())
     })
@@ -952,14 +941,7 @@ pub fn link_local_workspace_deps(
 
         let dest = node_modules.join(name);
 
-        if let Some(parent) = dest.parent()
-            && !parent.exists()
-        {
-            fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
+        crate::linker::fs::ensure_parent_dir(&dest)?;
 
         if dest.exists() {
             if dest.is_dir() {

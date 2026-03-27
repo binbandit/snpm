@@ -320,12 +320,7 @@ pub fn materialize_patch_target(target_dir: &Path, store_path: &Path) -> Result<
         }
     }
 
-    if let Some(parent) = target_dir.parent() {
-        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+    crate::linker::fs::ensure_parent_dir(target_dir)?;
 
     copy_dir(store_path, target_dir)
 }

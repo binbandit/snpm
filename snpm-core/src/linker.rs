@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bins::link_bins;
-use fs::{copy_dir, link_dir_fast, symlink_dir_entry, symlink_is_correct};
+use fs::{
+    copy_dir, ensure_parent_dir, link_dir, package_node_modules, symlink_dir_entry,
+    symlink_is_correct,
+};
 use hoist::{effective_hoisting, hoist_packages};
 
 pub fn link(
@@ -75,26 +78,17 @@ fn populate_virtual_store(
                 version: id.version.clone(),
             })?;
 
-            if symlink_is_correct(&package_location, store_path) {
-                return Ok(((*id).clone(), package_location));
-            }
-
             if let Ok(meta) = package_location.symlink_metadata() {
                 if meta.is_dir() && !meta.file_type().is_symlink() {
-                    std::fs::remove_dir_all(&package_location).ok();
-                } else {
-                    std::fs::remove_file(&package_location).ok();
+                    return Ok(((*id).clone(), package_location));
                 }
+                std::fs::remove_file(&package_location).ok();
+                std::fs::remove_dir_all(&package_location).ok();
             }
 
-            if let Some(parent) = package_location.parent() {
-                std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
+            ensure_parent_dir(&package_location)?;
 
-            link_dir_fast(config, store_path, &package_location)?;
+            link_dir(config, store_path, &package_location)?;
 
             Ok(((*id).clone(), package_location))
         })
@@ -124,13 +118,11 @@ fn link_virtual_dependencies(
                         name: id.name.clone(),
                         version: id.version.clone(),
                     })?;
-            let package_node_modules =
-                package_location
-                    .parent()
-                    .ok_or_else(|| SnpmError::GraphMissing {
-                        name: id.name.clone(),
-                        version: id.version.clone(),
-                    })?;
+            let package_node_modules = package_node_modules(package_location, &id.name)
+                .ok_or_else(|| SnpmError::GraphMissing {
+                    name: id.name.clone(),
+                    version: id.version.clone(),
+                })?;
 
             for (dep_name, dep_id) in &package.dependencies {
                 let dep_target =
@@ -146,20 +138,10 @@ fn link_virtual_dependencies(
                     continue;
                 }
 
-                if let Ok(meta) = dep_link.symlink_metadata() {
-                    if meta.is_dir() && !meta.file_type().is_symlink() {
-                        std::fs::remove_dir_all(&dep_link).ok();
-                    } else {
-                        std::fs::remove_file(&dep_link).ok();
-                    }
-                }
+                std::fs::remove_file(&dep_link).ok();
+                std::fs::remove_dir_all(&dep_link).ok();
 
-                if let Some(parent) = dep_link.parent() {
-                    std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
-                        path: parent.to_path_buf(),
-                        source,
-                    })?;
-                }
+                ensure_parent_dir(&dep_link)?;
 
                 symlink_dir_entry(dep_target, &dep_link)
                     .or_else(|_| copy_dir(dep_target, &dep_link))?;
@@ -219,12 +201,11 @@ fn link_root_dependencies(
                 return Ok(());
             }
 
-            if let Ok(meta) = dest.symlink_metadata() {
-                if meta.is_dir() && !meta.file_type().is_symlink() {
-                    std::fs::remove_dir_all(&dest).ok();
-                } else {
-                    std::fs::remove_file(&dest).ok();
-                }
+            std::fs::remove_file(&dest).ok();
+            std::fs::remove_dir_all(&dest).ok();
+
+            if name.contains('/') {
+                ensure_parent_dir(&dest)?;
             }
 
             symlink_dir_entry(target, &dest).or_else(|_| copy_dir(target, &dest))?;

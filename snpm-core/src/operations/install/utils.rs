@@ -442,7 +442,9 @@ pub fn can_any_scripts_run(config: &SnpmConfig, workspace: Option<&crate::Worksp
 mod tests {
     use super::*;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
-    use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency};
+    use crate::resolve::{
+        PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
+    };
     use crate::workspace::types::{Workspace, WorkspaceConfig};
     use std::collections::{BTreeMap, BTreeSet};
     use tempfile::tempdir;
@@ -538,7 +540,10 @@ mod tests {
             packages: BTreeMap::from([(id, pkg)]),
         };
 
-        assert_ne!(compute_lockfile_hash(&graph1), compute_lockfile_hash(&graph2));
+        assert_ne!(
+            compute_lockfile_hash(&graph1),
+            compute_lockfile_hash(&graph2)
+        );
     }
 
     #[test]
@@ -547,7 +552,10 @@ mod tests {
             lockfile_hash: "abc123".to_string(),
             patch_hash: "def456".to_string(),
         };
-        assert_eq!(integrity_content(&state), "lockfile: abc123\npatches: def456\n");
+        assert_eq!(
+            integrity_content(&state),
+            "lockfile: abc123\npatches: def456\n"
+        );
     }
 
     #[test]
@@ -631,7 +639,11 @@ mod tests {
             patch_hash: "none".to_string(),
         };
 
-        std::fs::write(nm.join(".snpm-integrity"), "lockfile: wrong-hash\npatches: none\n").unwrap();
+        std::fs::write(
+            nm.join(".snpm-integrity"),
+            "lockfile: wrong-hash\npatches: none\n",
+        )
+        .unwrap();
         assert!(!check_integrity_path(&nm, &state));
     }
 

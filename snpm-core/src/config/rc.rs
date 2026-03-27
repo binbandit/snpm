@@ -511,11 +511,7 @@ mod tests {
     #[test]
     fn apply_rc_file_parses_auth_token() {
         let file = NamedTempFile::new().unwrap();
-        fs::write(
-            file.path(),
-            "//registry.example.com/:_authToken=my-token\n",
-        )
-        .unwrap();
+        fs::write(file.path(), "//registry.example.com/:_authToken=my-token\n").unwrap();
 
         let mut config = RegistryConfig::default();
         apply_rc_file(file.path(), &mut config);

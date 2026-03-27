@@ -111,8 +111,7 @@ mod tests {
     #[test]
     fn build_dep_request_override_with_protocol() {
         let protocol = RegistryProtocol::npm();
-        let overrides =
-            BTreeMap::from([("pkg".to_string(), "npm:other-pkg@^2.0.0".to_string())]);
+        let overrides = BTreeMap::from([("pkg".to_string(), "npm:other-pkg@^2.0.0".to_string())]);
         let req = build_dep_request("pkg", "^1.0.0", &protocol, Some(&overrides));
         assert_eq!(req.source, "other-pkg");
         assert_eq!(req.range, "^2.0.0");

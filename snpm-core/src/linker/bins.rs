@@ -320,12 +320,18 @@ mod tests {
 
     #[test]
     fn sanitize_bin_name_unscoped() {
-        assert_eq!(super::sanitize_bin_name("typescript"), Some("typescript".to_string()));
+        assert_eq!(
+            super::sanitize_bin_name("typescript"),
+            Some("typescript".to_string())
+        );
     }
 
     #[test]
     fn sanitize_bin_name_scoped() {
-        assert_eq!(super::sanitize_bin_name("@types/node"), Some("node".to_string()));
+        assert_eq!(
+            super::sanitize_bin_name("@types/node"),
+            Some("node".to_string())
+        );
     }
 
     #[test]
@@ -345,7 +351,10 @@ mod tests {
 
     #[test]
     fn sanitize_explicit_bin_name_valid() {
-        assert_eq!(super::sanitize_explicit_bin_name("tsc"), Some("tsc".to_string()));
+        assert_eq!(
+            super::sanitize_explicit_bin_name("tsc"),
+            Some("tsc".to_string())
+        );
     }
 
     #[test]

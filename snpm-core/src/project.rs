@@ -227,7 +227,8 @@ mod tests {
 
     #[test]
     fn workspaces_field_object() {
-        let json = r#"{ "workspaces": { "packages": ["apps/*"], "catalog": { "react": "^18.0.0" } } }"#;
+        let json =
+            r#"{ "workspaces": { "packages": ["apps/*"], "catalog": { "react": "^18.0.0" } } }"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         let ws = manifest.workspaces.unwrap();
         assert_eq!(ws.patterns(), &["apps/*".to_string()]);
@@ -250,11 +251,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let sub = dir.path().join("packages/foo");
         std::fs::create_dir_all(&sub).unwrap();
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{ "name": "root" }"#,
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("package.json"), r#"{ "name": "root" }"#).unwrap();
 
         let project = Project::discover(&sub).unwrap();
         assert_eq!(project.manifest.name.as_deref(), Some("root"));

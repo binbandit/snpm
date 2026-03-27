@@ -493,7 +493,9 @@ mod tests {
 
     #[test]
     fn write_and_read_round_trip() {
-        use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency};
+        use crate::resolve::{
+            PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
+        };
 
         let id = PackageId {
             name: "test-pkg".to_string(),
@@ -530,10 +532,7 @@ mod tests {
 
         assert_eq!(lockfile.version, 1);
         assert!(lockfile.root.dependencies.contains_key("test-pkg"));
-        assert_eq!(
-            lockfile.root.dependencies["test-pkg"].requested,
-            "^1.0.0"
-        );
+        assert_eq!(lockfile.root.dependencies["test-pkg"].requested, "^1.0.0");
         assert!(lockfile.packages.contains_key("test-pkg@1.0.0"));
         let pkg = &lockfile.packages["test-pkg@1.0.0"];
         assert_eq!(pkg.tarball, "https://example.com/test-pkg-1.0.0.tgz");

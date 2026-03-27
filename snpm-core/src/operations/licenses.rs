@@ -145,7 +145,8 @@ mod tests {
 
     #[test]
     fn extract_license_object_with_type() {
-        let manifest = serde_json::json!({ "license": { "type": "ISC", "url": "https://example.com" } });
+        let manifest =
+            serde_json::json!({ "license": { "type": "ISC", "url": "https://example.com" } });
         assert_eq!(extract_license(&manifest), "ISC");
     }
 
@@ -180,7 +181,8 @@ mod tests {
         std::fs::write(
             pkg_dir.join("package.json"),
             r#"{ "name": "my-pkg", "version": "1.0.0", "license": "MIT" }"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let entry = read_license_from_directory(&pkg_dir, "fallback").unwrap();
         assert_eq!(entry.name, "my-pkg");
@@ -196,7 +198,8 @@ mod tests {
         std::fs::write(
             pkg_dir.join("package.json"),
             r#"{ "version": "2.0.0", "license": "ISC" }"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let entry = read_license_from_directory(&pkg_dir, "fallback-name").unwrap();
         assert_eq!(entry.name, "fallback-name");

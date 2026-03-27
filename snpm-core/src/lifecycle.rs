@@ -318,10 +318,7 @@ mod tests {
         }
     }
 
-    fn make_workspace(
-        only_built: Vec<String>,
-        ignored_built: Vec<String>,
-    ) -> Workspace {
+    fn make_workspace(only_built: Vec<String>, ignored_built: Vec<String>) -> Workspace {
         Workspace {
             root: PathBuf::from("/workspace"),
             projects: Vec::new(),
@@ -379,10 +376,7 @@ mod tests {
     #[test]
     fn workspace_only_built_takes_priority_over_ignored() {
         let config = make_config();
-        let ws = make_workspace(
-            vec!["allowed".to_string()],
-            vec!["ignored".to_string()],
-        );
+        let ws = make_workspace(vec!["allowed".to_string()], vec!["ignored".to_string()]);
         // only_built is checked first when non-empty
         assert!(is_dep_script_allowed(&config, Some(&ws), "allowed"));
         assert!(!is_dep_script_allowed(&config, Some(&ws), "ignored"));

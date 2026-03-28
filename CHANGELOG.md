@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.3.27] - 2026-03-27
+## [2026.3.28] - 2026-03-28
 
 ### <!-- 0 -->🚀 Features
 
@@ -89,6 +89,7 @@ All notable changes to this project will be documented in this file.
 - Handle non-standard tarball top-level directory names ([a81a2cf](https://github.com/binbandit/snpm/commit/a81a2cf9e08ec86c420bc3b360c2aa03fc4d6043))
 - *(switch)* Downgrade non-snpm packageManager from hard error to warning ([4107d12](https://github.com/binbandit/snpm/commit/4107d12b62d18dc3582a49b024dfda936f0207c9))
 - *(linker)* Resolve Node.js module resolution in virtual store ([a05d41b](https://github.com/binbandit/snpm/commit/a05d41b401732745c39cfd07c162705b297d147a))
+- *(bench)* Build and use snpm from source instead of PATH ([601fc6d](https://github.com/binbandit/snpm/commit/601fc6d511ec2f5e2af26b65673d0fc0838a3b76))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -267,7 +268,9 @@ All notable changes to this project will be documented in this file.
 - Update dependencies to latest compatible versions ([31eb467](https://github.com/binbandit/snpm/commit/31eb46731e7dfdd41f5eed7a7f76513f8f55ebcf))
 - *(release)* Bump npm package version to 2026.3.26 ([ce5fae6](https://github.com/binbandit/snpm/commit/ce5fae6c7c099dee66c8e5b990b54923f29acddf))
 - *(release)* Bump npm package version ([857c835](https://github.com/binbandit/snpm/commit/857c8358220a1cc2e866fb60430a59020a3a7542))
-- *(release)* Bump version to 2026.3.27 [skip ci] ([991325b](https://github.com/binbandit/snpm/commit/991325b6625899f4eaea0658d586041310826b28))
+- *(release)* Bump version to 2026.3.27 [skip ci] ([a6c965c](https://github.com/binbandit/snpm/commit/a6c965c01e7bad4286357e549664c1cbc1af7965))
+- *(release)* Merge 2026.3.27 release [skip ci] ([2248455](https://github.com/binbandit/snpm/commit/22484556ce94bf677619c806c32044e04ee89aaf))
+- *(release)* Bump version to 2026.3.28 [skip ci] ([8183406](https://github.com/binbandit/snpm/commit/81834060d7d921a8ca24a7c2b09f3d47d754c776))
 
 ## [2025.12.24] - 2025-12-24
 

@@ -11,8 +11,32 @@ use std::fs;
 use std::io::Cursor;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Instant;
 use tar::Archive;
+use tokio::sync::Semaphore;
+
+/// Limits concurrent tarball downloads to prevent bandwidth saturation and CDN
+/// throttling.  Downloads that finish release their permit immediately so
+/// extraction (governed by a separate semaphore) can overlap with the next
+/// batch of downloads.
+fn download_semaphore() -> &'static Semaphore {
+    static SEM: OnceLock<Semaphore> = OnceLock::new();
+    SEM.get_or_init(|| Semaphore::new(64))
+}
+
+/// Limits concurrent disk-bound operations (dir prep + tarball extraction) to
+/// prevent I/O thrashing and excessive blocking-thread-pool growth.
+fn extraction_semaphore() -> &'static Semaphore {
+    static SEM: OnceLock<Semaphore> = OnceLock::new();
+    SEM.get_or_init(|| {
+        let cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(8);
+        // Extraction is I/O-bound (SSD writes), not CPU-bound — allow high concurrency
+        Semaphore::new((cpus * 4).clamp(16, 256))
+    })
+}
 
 /// Ensure a package is in the store (Online mode).
 pub async fn ensure_package(
@@ -60,30 +84,65 @@ pub async fn ensure_package_with_offline(
         package.id.name, package.id.version, package.tarball
     ));
 
-    let prep_dir = pkg_dir.clone();
-    tokio::task::spawn_blocking(move || -> Result<()> {
-        match fs::remove_dir_all(&prep_dir) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(source) => {
-                return Err(SnpmError::WriteFile {
-                    path: prep_dir.clone(),
-                    source,
-                });
-            }
-        }
-        fs::create_dir_all(&prep_dir).map_err(|source| SnpmError::WriteFile {
-            path: prep_dir.clone(),
-            source,
-        })?;
-        Ok(())
-    })
-    .await
-    .map_err(|error| SnpmError::StoreTask {
-        reason: error.to_string(),
-    })??;
+    // Phase 1: Download tarball (throttled to prevent bandwidth saturation)
+    let remote_bytes = if !package.tarball.starts_with("file://") {
+        let _download_permit = download_semaphore().acquire().await.unwrap();
+        let download_started = Instant::now();
+        let bytes = download_and_verify_tarball(
+            config,
+            &package.tarball,
+            package.integrity.as_deref(),
+            client,
+        )
+        .await?;
+        drop(_download_permit);
+        console::verbose(&format!(
+            "downloaded and verified tarball for {}@{} ({} bytes) in {:.3}s",
+            package.id.name,
+            package.id.version,
+            bytes.len(),
+            download_started.elapsed().as_secs_f64()
+        ));
+        Some(bytes)
+    } else {
+        None
+    };
 
-    if package.tarball.starts_with("file://") {
+    // Phase 2: Disk I/O (throttled to prevent thrashing from concurrent extractions)
+    // Dir prep + extraction run in a single spawn_blocking to avoid extra thread-pool round-trips.
+    let _extract_permit = extraction_semaphore().acquire().await.unwrap();
+
+    if let Some(bytes) = remote_bytes {
+        let unpack_started = Instant::now();
+        let target_dir = pkg_dir.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            match fs::remove_dir_all(&target_dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(SnpmError::WriteFile {
+                        path: target_dir.clone(),
+                        source,
+                    });
+                }
+            }
+            fs::create_dir_all(&target_dir).map_err(|source| SnpmError::WriteFile {
+                path: target_dir.clone(),
+                source,
+            })?;
+            unpack_tarball(&target_dir, bytes)
+        })
+        .await
+        .map_err(|error| SnpmError::StoreTask {
+            reason: error.to_string(),
+        })??;
+        console::verbose(&format!(
+            "unpacked tarball for {}@{} in {:.3}s",
+            package.id.name,
+            package.id.version,
+            unpack_started.elapsed().as_secs_f64()
+        ));
+    } else {
         let path_str = package.tarball.strip_prefix("file://").unwrap();
         let source_path = PathBuf::from(path_str);
 
@@ -91,6 +150,30 @@ pub async fn ensure_package_with_offline(
             "installing local package from {}",
             source_path.display()
         ));
+
+        // Dir prep for local packages
+        let prep_dir = pkg_dir.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            match fs::remove_dir_all(&prep_dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(SnpmError::WriteFile {
+                        path: prep_dir.clone(),
+                        source,
+                    });
+                }
+            }
+            fs::create_dir_all(&prep_dir).map_err(|source| SnpmError::WriteFile {
+                path: prep_dir.clone(),
+                source,
+            })?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| SnpmError::StoreTask {
+            reason: error.to_string(),
+        })??;
 
         if source_path.is_dir() {
             let dest_dir = pkg_dir.join("package");
@@ -106,37 +189,9 @@ pub async fn ensure_package_with_offline(
             verify_integrity(&package.tarball, package.integrity.as_deref(), &bytes)?;
             unpack_tarball(&pkg_dir, bytes)?;
         }
-    } else {
-        let download_started = Instant::now();
-        let bytes = download_and_verify_tarball(
-            config,
-            &package.tarball,
-            package.integrity.as_deref(),
-            client,
-        )
-        .await?;
-        console::verbose(&format!(
-            "downloaded and verified tarball for {}@{} ({} bytes) in {:.3}s",
-            package.id.name,
-            package.id.version,
-            bytes.len(),
-            download_started.elapsed().as_secs_f64()
-        ));
-
-        let unpack_started = Instant::now();
-        let unpack_dir = pkg_dir.clone();
-        tokio::task::spawn_blocking(move || unpack_tarball(&unpack_dir, bytes))
-            .await
-            .map_err(|error| SnpmError::StoreTask {
-                reason: error.to_string(),
-            })??;
-        console::verbose(&format!(
-            "unpacked tarball for {}@{} in {:.3}s",
-            package.id.name,
-            package.id.version,
-            unpack_started.elapsed().as_secs_f64()
-        ));
     }
+
+    drop(_extract_permit);
 
     fs::write(&marker, []).map_err(|source| SnpmError::WriteFile {
         path: marker.clone(),
@@ -159,7 +214,7 @@ fn sanitize_name(name: &str) -> String {
     name.replace('/', "_")
 }
 
-fn package_root_dir(pkg_dir: &Path) -> PathBuf {
+pub fn package_root_dir(pkg_dir: &Path) -> PathBuf {
     // npm tarballs typically extract into a `package/` directory
     let candidate = pkg_dir.join("package");
     if candidate.is_dir() {

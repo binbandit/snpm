@@ -307,13 +307,13 @@ async fn resolve_package(
                     offline_mode,
                 )
                 .await?;
-                drop(_permit);
 
                 let fetched = Arc::new(fetched);
                 {
                     let mut cache = package_cache.write().await;
                     cache.insert(cache_key, fetched.clone());
                 }
+                drop(_permit);
                 fetched
             }
         }
@@ -340,6 +340,7 @@ async fn resolve_package(
         version: version_meta.version.clone(),
     };
 
+    // Fast path: skip placeholder construction if already resolved
     {
         let packages_guard = packages.lock().await;
         if packages_guard.contains_key(&id) {
@@ -377,8 +378,13 @@ async fn resolve_package(
         has_bin: version_meta.has_bin(),
     };
 
+    // Atomic check-and-insert: hold the lock across both to prevent duplicate
+    // store tasks from being spawned for the same package
     {
         let mut packages_guard = packages.lock().await;
+        if packages_guard.contains_key(&id) {
+            return Ok(id);
+        }
         packages_guard.insert(id.clone(), placeholder.clone());
     }
 
@@ -388,6 +394,7 @@ async fn resolve_package(
     let mut dependencies = BTreeMap::new();
 
     let mut dependency_futures = Vec::new();
+    let mut optional_dependency_futures = Vec::new();
 
     for (dep_name, dep_range) in version_meta.dependencies.iter() {
         if bundled_set.contains(dep_name) {
@@ -440,15 +447,6 @@ async fn resolve_package(
         dependency_futures.push(future);
     }
 
-    let dep_results = join_all(dependency_futures).await;
-
-    for result in dep_results {
-        let (name, id) = result?;
-        dependencies.insert(name, id);
-    }
-
-    let mut optional_dependency_futures = Vec::new();
-
     for (dep_name, dep_range) in version_meta.optional_dependencies.iter() {
         if bundled_set.contains(dep_name) {
             continue;
@@ -489,7 +487,19 @@ async fn resolve_package(
         optional_dependency_futures.push(future);
     }
 
-    let optional_results = join_all(optional_dependency_futures).await;
+    // Resolve regular and optional deps concurrently — the old code awaited
+    // all regular deps before even starting optional deps, adding latency at
+    // every level of the dependency tree.
+    let (dep_results, optional_results) = join(
+        join_all(dependency_futures),
+        join_all(optional_dependency_futures),
+    )
+    .await;
+
+    for result in dep_results {
+        let (name, id) = result?;
+        dependencies.insert(name, id);
+    }
 
     for (name, id) in optional_results.into_iter().flatten() {
         dependencies.insert(name, id);

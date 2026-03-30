@@ -26,14 +26,18 @@ pub fn link(
     include_dev: bool,
 ) -> Result<()> {
     let root_node_modules = project.root.join("node_modules");
+    let virtual_store_dir = project.root.join(".snpm");
 
     std::fs::create_dir_all(&root_node_modules).map_err(|source| SnpmError::WriteFile {
         path: root_node_modules.clone(),
         source,
     })?;
+    std::fs::create_dir_all(&virtual_store_dir).map_err(|source| SnpmError::WriteFile {
+        path: virtual_store_dir.clone(),
+        source,
+    })?;
 
-    let virtual_store_paths =
-        populate_virtual_store(&root_node_modules, graph, store_paths, config)?;
+    let virtual_store_paths = populate_virtual_store(&virtual_store_dir, graph, store_paths, config)?;
 
     link_virtual_dependencies(&virtual_store_paths, graph)?;
 
@@ -58,14 +62,12 @@ pub fn link(
 }
 
 fn populate_virtual_store(
-    root_node_modules: &Path,
+    virtual_store_dir: &Path,
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
     config: &SnpmConfig,
 ) -> Result<Arc<BTreeMap<PackageId, PathBuf>>> {
-    let virtual_store_dir = root_node_modules.join(".snpm");
     let packages: Vec<_> = graph.packages.iter().collect();
-
     let results: Vec<Result<(PackageId, PathBuf)>> = packages
         .par_iter()
         .map(|(id, _package)| -> Result<(PackageId, PathBuf)> {
@@ -87,7 +89,6 @@ fn populate_virtual_store(
             }
 
             ensure_parent_dir(&package_location)?;
-
             link_dir(config, store_path, &package_location)?;
 
             Ok(((*id).clone(), package_location))

@@ -1,3 +1,7 @@
+#[cfg(unix)]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use snpm_core::{SnpmConfig, console};

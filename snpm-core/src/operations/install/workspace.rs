@@ -148,8 +148,7 @@ pub async fn install_workspace(
         }
     };
 
-    let workspace_node_modules = workspace.root.join("node_modules");
-    let shared_virtual_store = workspace_node_modules.join(".snpm");
+    let shared_virtual_store = workspace.root.join(".snpm");
 
     fs::create_dir_all(&shared_virtual_store).map_err(|source| SnpmError::WriteFile {
         path: shared_virtual_store.clone(),
@@ -245,7 +244,6 @@ async fn resolve_workspace_deps(
 
     let paths = Arc::new(Mutex::new(BTreeMap::new()));
     let tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> = Arc::new(Mutex::new(Vec::new()));
-    let store_semaphore = Arc::new(tokio::sync::Semaphore::new(config.registry_concurrency));
     let progress_count = Arc::new(AtomicUsize::new(0));
     let progress_total = Arc::new(AtomicUsize::new(root_deps.len()));
 
@@ -254,7 +252,6 @@ async fn resolve_workspace_deps(
     let graph = {
         let paths = paths.clone();
         let tasks = tasks.clone();
-        let sem = store_semaphore.clone();
         let count = progress_count.clone();
         let total = progress_total.clone();
         let config_clone = config.clone();
@@ -274,7 +271,6 @@ async fn resolve_workspace_deps(
                 let client = client_clone.clone();
                 let paths = paths.clone();
                 let tasks = tasks.clone();
-                let sem = sem.clone();
                 let count = count.clone();
                 let total = total.clone();
                 let name = package.id.name.clone();
@@ -290,7 +286,6 @@ async fn resolve_workspace_deps(
 
                     let package_id = package.id.clone();
                     let handle = tokio::spawn(async move {
-                        let _permit = sem.acquire().await.unwrap();
                         let path = crate::store::ensure_package(&config, &package, &client).await?;
                         let mut map = paths.lock().await;
                         map.insert(package_id, path);
@@ -432,7 +427,6 @@ fn populate_virtual_store(
         fs::remove_dir_all(&package_location).ok();
 
         crate::linker::fs::ensure_parent_dir(&package_location)?;
-
         crate::linker::fs::link_dir(config, store_path, &package_location)?;
 
         fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {

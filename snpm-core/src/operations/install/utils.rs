@@ -189,12 +189,7 @@ pub fn check_store_cache(config: &SnpmConfig, graph: &ResolutionGraph) -> CacheC
             let marker = package_directory.join(".snpm_complete");
 
             if marker.is_file() {
-                let candidate = package_directory.join("package");
-                let root = if candidate.is_dir() {
-                    candidate
-                } else {
-                    package_directory
-                };
+                let root = crate::store::package_root_dir(&package_directory);
                 (Some((package.id.clone(), root)), None)
             } else {
                 (None, Some((*package).clone()))
@@ -657,6 +652,45 @@ mod tests {
         };
         // Should not error, just silently skip
         write_integrity_path(&nm, &state).unwrap();
+    }
+
+    #[test]
+    fn check_store_cache_uses_detected_package_root() {
+        let dir = tempdir().unwrap();
+        let packages_dir = dir.path().join("data/packages");
+        let store_dir = packages_dir.join("@types_body-parser/1.19.6");
+        let package_root = store_dir.join("body-parser");
+
+        std::fs::create_dir_all(&package_root).unwrap();
+        std::fs::write(package_root.join("package.json"), "{}").unwrap();
+        std::fs::write(store_dir.join(".snpm_complete"), "").unwrap();
+
+        let mut config = make_config();
+        config.data_dir = dir.path().join("data");
+
+        let id = PackageId {
+            name: "@types/body-parser".to_string(),
+            version: "1.19.6".to_string(),
+        };
+        let pkg = ResolvedPackage {
+            id: id.clone(),
+            tarball: "https://example.com/types-body-parser.tgz".to_string(),
+            integrity: None,
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+        };
+        let graph = ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::new(),
+            },
+            packages: BTreeMap::from([(id.clone(), pkg)]),
+        };
+
+        let cache = check_store_cache(&config, &graph);
+        assert!(cache.missing.is_empty());
+        assert_eq!(cache.cached.get(&id), Some(&package_root));
     }
 
     #[test]

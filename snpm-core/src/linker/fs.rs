@@ -1,4 +1,5 @@
 use crate::{LinkBackend, Result, SnpmConfig, SnpmError};
+use rayon::prelude::*;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -36,11 +37,31 @@ pub fn ensure_parent_dir(path: &Path) -> Result<()> {
 }
 
 pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
-    fs::create_dir_all(dest).map_err(|source_err| SnpmError::WriteFile {
-        path: dest.to_path_buf(),
-        source: source_err,
-    })?;
+    // Flatten the directory tree into parallel-friendly work lists
+    let mut dirs = vec![dest.to_path_buf()];
+    let mut files = Vec::new();
+    collect_link_ops(source, dest, &mut dirs, &mut files)?;
 
+    // Create all directories upfront (must be sequential for parent ordering)
+    for dir in &dirs {
+        fs::create_dir_all(dir).map_err(|source_err| SnpmError::WriteFile {
+            path: dir.clone(),
+            source: source_err,
+        })?;
+    }
+
+    // Link all files in parallel via rayon work-stealing
+    files
+        .par_iter()
+        .try_for_each(|(from, to)| link_file(config, from, to))
+}
+
+fn collect_link_ops(
+    source: &Path,
+    dest: &Path,
+    dirs: &mut Vec<PathBuf>,
+    files: &mut Vec<(PathBuf, PathBuf)>,
+) -> Result<()> {
     for entry in fs::read_dir(source).map_err(|source_err| SnpmError::ReadFile {
         path: source.to_path_buf(),
         source: source_err,
@@ -70,9 +91,10 @@ pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
         }
 
         if file_type.is_dir() {
-            link_dir(config, &from, &to)?;
+            dirs.push(to.clone());
+            collect_link_ops(&from, &to, dirs, files)?;
         } else {
-            link_file(config, &from, &to)?;
+            files.push((from, to));
         }
     }
 

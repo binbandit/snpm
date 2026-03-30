@@ -335,16 +335,12 @@ pub async fn install(
             let store_client = registry_client.clone();
             let store_tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> =
                 Arc::new(Mutex::new(Vec::new()));
-            // Limit concurrent download+extract operations to avoid thrashing
-            let store_semaphore =
-                Arc::new(tokio::sync::Semaphore::new(config.registry_concurrency));
 
             let resolve_started = Instant::now();
             let paths = store_paths.clone();
             let config_clone = store_config.clone();
             let client = store_client.clone();
             let tasks = store_tasks.clone();
-            let sem = store_semaphore.clone();
             let progress_count = Arc::new(AtomicUsize::new(0));
             let progress_total = Arc::new(AtomicUsize::new(root_dependencies.len()));
 
@@ -362,7 +358,6 @@ pub async fn install(
                     let client = client.clone();
                     let paths = paths.clone();
                     let tasks = tasks.clone();
-                    let sem = sem.clone();
                     let count = progress_count.clone();
                     let total = progress_total.clone();
                     let name = package.id.name.clone();
@@ -379,7 +374,6 @@ pub async fn install(
                         let package_id = package.id.clone();
 
                         let handle = tokio::spawn(async move {
-                            let _permit = sem.acquire().await.unwrap();
                             let path = store::ensure_package(&config, &package, &client).await?;
                             let mut map = paths.lock().await;
                             map.insert(package_id, path);

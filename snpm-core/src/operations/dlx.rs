@@ -49,12 +49,10 @@ pub async fn dlx_with_offline(
     let store_config = config.clone();
     let store_client = registry_client.clone();
     let store_tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> = Arc::new(Mutex::new(Vec::new()));
-    let store_semaphore = Arc::new(tokio::sync::Semaphore::new(config.registry_concurrency));
 
     let paths = store_paths.clone();
     let client = store_client.clone();
     let tasks = store_tasks.clone();
-    let sem = store_semaphore.clone();
 
     // DLX runs in a temporary directory - use Copy to avoid symlink resolution issues
     let mut dlx_config = config.clone();
@@ -82,7 +80,6 @@ pub async fn dlx_with_offline(
             let client = client.clone();
             let paths = paths.clone();
             let tasks = tasks.clone();
-            let sem = sem.clone();
             let count = progress_count.clone();
             let total = progress_total.clone();
             let name = package.id.name.clone();
@@ -99,7 +96,6 @@ pub async fn dlx_with_offline(
                 let package_id = package.id.clone();
 
                 let handle = tokio::spawn(async move {
-                    let _permit = sem.acquire().await.unwrap();
                     let path = store::ensure_package_with_offline(
                         &config,
                         &package,

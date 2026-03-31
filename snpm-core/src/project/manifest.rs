@@ -1,0 +1,90 @@
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+pub type CatalogMap = BTreeMap<String, String>;
+pub type NamedCatalogsMap = BTreeMap<String, BTreeMap<String, String>>;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum WorkspacesField {
+    Patterns(Vec<String>),
+    Object {
+        packages: Vec<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        catalog: CatalogMap,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        catalogs: NamedCatalogsMap,
+    },
+}
+
+impl WorkspacesField {
+    pub fn patterns(&self) -> &[String] {
+        match self {
+            WorkspacesField::Patterns(patterns) => patterns,
+            WorkspacesField::Object { packages, .. } => packages,
+        }
+    }
+
+    pub fn into_parts(self) -> (Vec<String>, CatalogMap, NamedCatalogsMap) {
+        match self {
+            WorkspacesField::Patterns(patterns) => (patterns, BTreeMap::new(), BTreeMap::new()),
+            WorkspacesField::Object {
+                packages,
+                catalog,
+                catalogs,
+            } => (packages, catalog, catalogs),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Manifest {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    #[serde(default)]
+    pub dependencies: BTreeMap<String, String>,
+    #[serde(default)]
+    pub dev_dependencies: BTreeMap<String, String>,
+    #[serde(default)]
+    pub optional_dependencies: BTreeMap<String, String>,
+    #[serde(default)]
+    pub scripts: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin: Option<BinField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main: Option<String>,
+    #[serde(default)]
+    pub pnpm: Option<ManifestPnpm>,
+    #[serde(default)]
+    pub snpm: Option<ManifestSnpm>,
+    #[serde(default)]
+    pub workspaces: Option<WorkspacesField>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum BinField {
+    Single(String),
+    Map(BTreeMap<String, String>),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestPnpm {
+    #[serde(default)]
+    pub overrides: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patched_dependencies: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestSnpm {
+    #[serde(default)]
+    pub overrides: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patched_dependencies: Option<BTreeMap<String, String>>,
+}

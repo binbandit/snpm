@@ -1,16 +1,12 @@
-use anyhow::Result;
-use clap::Args;
-use snpm_core::config::AuthScheme;
-use snpm_core::{HoistingMode, LinkBackend, SnpmConfig, console};
-use std::collections::{BTreeMap, BTreeSet};
-use std::env;
+use snpm_core::{SnpmConfig, console};
 
-#[derive(Args, Debug)]
-pub struct ConfigArgs {}
+use std::collections::BTreeMap;
 
-pub async fn run(_args: ConfigArgs, config: &SnpmConfig) -> Result<()> {
-    console::header("config", env!("CARGO_PKG_VERSION"));
+use super::format::{
+    format_auth_status, format_days, format_list, hoisting_label, link_backend_label,
+};
 
+pub(super) fn print_paths(config: &SnpmConfig) {
     console::info("paths");
     console::info(&format!("  cache dir: {}", config.cache_dir.display()));
     console::info(&format!("  data dir: {}", config.data_dir.display()));
@@ -23,7 +19,9 @@ pub async fn run(_args: ConfigArgs, config: &SnpmConfig) -> Result<()> {
         config.metadata_dir().display()
     ));
     println!();
+}
 
+pub(super) fn print_registry(config: &SnpmConfig) {
     console::info("registry");
     console::info(&format!("  default: {}", config.default_registry));
     console::info(&format!(
@@ -37,7 +35,9 @@ pub async fn run(_args: ConfigArgs, config: &SnpmConfig) -> Result<()> {
     print_string_map("scoped registries", &config.scoped_registries);
     print_token_map("registry auth", &config.registry_auth);
     println!();
+}
 
+pub(super) fn print_install(config: &SnpmConfig) {
     console::info("install");
     console::info(&format!("  hoisting: {}", hoisting_label(config.hoisting)));
     console::info(&format!(
@@ -62,14 +62,18 @@ pub async fn run(_args: ConfigArgs, config: &SnpmConfig) -> Result<()> {
         config.registry_concurrency
     ));
     println!();
+}
 
+pub(super) fn print_scripts(config: &SnpmConfig) {
     console::info("scripts");
     console::info(&format!(
         "  allow scripts: {}",
         format_list(&config.allow_scripts)
     ));
     println!();
+}
 
+pub(super) fn print_logging(config: &SnpmConfig) {
     console::info("logging");
     console::info(&format!("  verbose: {}", config.verbose));
     console::info(&format!(
@@ -80,23 +84,6 @@ pub async fn run(_args: ConfigArgs, config: &SnpmConfig) -> Result<()> {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "none".to_string())
     ));
-
-    Ok(())
-}
-
-fn format_days(value: Option<u32>) -> String {
-    match value {
-        Some(days) => format!("{days} days"),
-        None => "none".to_string(),
-    }
-}
-
-fn format_list(values: &BTreeSet<String>) -> String {
-    if values.is_empty() {
-        return "none".to_string();
-    }
-
-    values.iter().cloned().collect::<Vec<_>>().join(", ")
 }
 
 fn print_string_map(label: &str, values: &BTreeMap<String, String>) {
@@ -120,38 +107,5 @@ fn print_token_map(label: &str, values: &BTreeMap<String, String>) {
     console::info(&format!("  {}:", label));
     for key in values.keys() {
         console::info(&format!("    {}: set", key));
-    }
-}
-
-fn format_auth_status(token: Option<&str>, scheme: AuthScheme) -> String {
-    if token.is_none() {
-        return "none".to_string();
-    }
-
-    format!("set ({})", auth_scheme_label(scheme))
-}
-
-fn auth_scheme_label(scheme: AuthScheme) -> &'static str {
-    match scheme {
-        AuthScheme::Bearer => "bearer",
-        AuthScheme::Basic => "basic",
-    }
-}
-
-fn hoisting_label(value: HoistingMode) -> &'static str {
-    match value {
-        HoistingMode::None => "none",
-        HoistingMode::SingleVersion => "single-version",
-        HoistingMode::All => "all",
-    }
-}
-
-fn link_backend_label(value: LinkBackend) -> &'static str {
-    match value {
-        LinkBackend::Auto => "auto",
-        LinkBackend::Reflink => "reflink",
-        LinkBackend::Hardlink => "hardlink",
-        LinkBackend::Symlink => "symlink",
-        LinkBackend::Copy => "copy",
     }
 }

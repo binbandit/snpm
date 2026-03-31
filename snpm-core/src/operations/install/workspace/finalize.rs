@@ -61,16 +61,17 @@ pub(super) fn finalize_workspace_install(
 }
 
 fn run_workspace_scripts(config: &SnpmConfig, workspace: &Workspace) -> Result<Vec<String>> {
-    if !can_any_scripts_run(config, Some(workspace)) {
-        return Ok(Vec::new());
-    }
-
     let roots: Vec<&Path> = workspace
         .projects
         .iter()
         .map(|project| project.root.as_path())
         .collect();
-    let blocked = lifecycle::run_install_scripts_for_projects(config, Some(workspace), &roots)?;
+
+    let blocked = if can_any_scripts_run(config, Some(workspace)) {
+        lifecycle::run_install_scripts_for_projects(config, Some(workspace), &roots)?
+    } else {
+        Vec::new()
+    };
 
     for project in &workspace.projects {
         lifecycle::run_project_scripts(config, Some(workspace), &project.root)?;
@@ -92,4 +93,118 @@ fn write_project_integrity_files(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_workspace_scripts;
+    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::project::Manifest;
+    use crate::{Project, Workspace};
+
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    fn make_config() -> SnpmConfig {
+        SnpmConfig {
+            cache_dir: PathBuf::from("/tmp/cache"),
+            data_dir: PathBuf::from("/tmp/data"),
+            allow_scripts: BTreeSet::new(),
+            min_package_age_days: None,
+            min_package_cache_age_days: None,
+            default_registry: "https://registry.npmjs.org".to_string(),
+            scoped_registries: BTreeMap::new(),
+            registry_auth: BTreeMap::new(),
+            default_registry_auth_token: None,
+            default_registry_auth_scheme: AuthScheme::Bearer,
+            registry_auth_schemes: BTreeMap::new(),
+            hoisting: HoistingMode::SingleVersion,
+            link_backend: LinkBackend::Auto,
+            strict_peers: false,
+            frozen_lockfile_default: false,
+            always_auth: false,
+            registry_concurrency: 64,
+            verbose: false,
+            log_file: None,
+        }
+    }
+
+    fn make_project(root: PathBuf, name: &str) -> Project {
+        Project {
+            manifest_path: root.join("package.json"),
+            root,
+            manifest: Manifest {
+                name: Some(name.to_string()),
+                version: Some("1.0.0".to_string()),
+                dependencies: BTreeMap::new(),
+                dev_dependencies: BTreeMap::new(),
+                optional_dependencies: BTreeMap::new(),
+                scripts: BTreeMap::new(),
+                files: None,
+                bin: None,
+                main: None,
+                pnpm: None,
+                snpm: None,
+                workspaces: None,
+            },
+        }
+    }
+
+    #[test]
+    fn workspace_project_scripts_run_without_dependency_allowlist() {
+        let dir = tempdir().unwrap();
+        let project_a_root = dir.path().join("packages").join("a");
+        let project_b_root = dir.path().join("packages").join("b");
+
+        fs::create_dir_all(&project_a_root).unwrap();
+        fs::create_dir_all(&project_b_root).unwrap();
+        fs::write(
+            project_a_root.join("package.json"),
+            r#"{
+  "name": "a",
+  "version": "1.0.0",
+  "scripts": {
+    "postinstall": "echo a > a-postinstall.txt"
+  }
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            project_b_root.join("package.json"),
+            r#"{
+  "name": "b",
+  "version": "1.0.0",
+  "scripts": {
+    "postinstall": "echo b > b-postinstall.txt"
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let workspace = Workspace {
+            root: dir.path().to_path_buf(),
+            projects: vec![
+                make_project(project_a_root.clone(), "a"),
+                make_project(project_b_root.clone(), "b"),
+            ],
+            config: crate::workspace::types::WorkspaceConfig {
+                packages: vec!["packages/*".to_string()],
+                catalog: BTreeMap::new(),
+                catalogs: BTreeMap::new(),
+                only_built_dependencies: Vec::new(),
+                ignored_built_dependencies: Vec::new(),
+                hoisting: None,
+            },
+        };
+
+        let blocked = run_workspace_scripts(&make_config(), &workspace).unwrap();
+
+        assert!(blocked.is_empty());
+        assert!(project_a_root.join("a-postinstall.txt").is_file());
+        assert!(project_b_root.join("b-postinstall.txt").is_file());
+    }
 }

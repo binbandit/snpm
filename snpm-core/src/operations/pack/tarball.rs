@@ -3,6 +3,8 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use std::fs;
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tar::Builder;
 
@@ -74,7 +76,7 @@ fn append_file(
 
     let mut header = tar::Header::new_gnu();
     header.set_size(data.len() as u64);
-    header.set_mode(0o644);
+    header.set_mode(archive_mode(&metadata));
     header.set_mtime(0);
     header.set_cksum();
 
@@ -86,4 +88,58 @@ fn append_file(
         })?;
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn archive_mode(metadata: &fs::Metadata) -> u32 {
+    metadata.permissions().mode() & 0o777
+}
+
+#[cfg(not(unix))]
+fn archive_mode(_metadata: &fs::Metadata) -> u32 {
+    0o644
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_tarball;
+    use flate2::read::GzDecoder;
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use tar::Archive;
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    #[test]
+    fn write_tarball_preserves_executable_mode() {
+        let dir = tempdir().unwrap();
+        let project_root = dir.path().join("project");
+        let output_dir = dir.path().join("out");
+        let tarball_path = output_dir.join("pkg.tgz");
+        let bin_path = project_root.join("bin").join("cli.js");
+
+        fs::create_dir_all(bin_path.parent().unwrap()).unwrap();
+        fs::write(&bin_path, "#!/usr/bin/env node\n").unwrap();
+
+        let mut permissions = fs::metadata(&bin_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&bin_path, permissions).unwrap();
+
+        write_tarball(
+            &output_dir,
+            &tarball_path,
+            &project_root,
+            std::slice::from_ref(&bin_path),
+        )
+        .unwrap();
+
+        let archive_data = fs::read(&tarball_path).unwrap();
+        let decoder = GzDecoder::new(archive_data.as_slice());
+        let mut archive = Archive::new(decoder);
+        let mut entries = archive.entries().unwrap();
+        let entry = entries.next().unwrap().unwrap();
+
+        assert_eq!(entry.header().mode().unwrap() & 0o777, 0o755);
+    }
 }

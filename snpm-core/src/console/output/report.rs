@@ -74,9 +74,13 @@ pub fn info(message: &str) {
 
 pub fn blocked_scripts(packages: &[String]) {
     let count = packages.len();
-    let noun = if count == 1 { "script" } else { "scripts" };
+    let noun = if count == 1 {
+        "dependency"
+    } else {
+        "dependencies"
+    };
     let msg = format!(
-        "Blocked {} install {}. Set SNPM_ALLOW_SCRIPTS to enable.",
+        "Blocked install scripts for {} {}. Set SNPM_ALLOW_SCRIPTS to enable.",
         count, noun
     );
     println!("{}", dim(&msg));

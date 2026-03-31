@@ -51,13 +51,21 @@ Implemented top-level commands in `snpm-cli/src/cli.rs`:
 - `dlx`
 - `upgrade`
 - `outdated`
+- `licenses`
+- `link`
 - `list`
 - `login`
 - `logout`
 - `config`
+- `pack`
+- `publish`
+- `rebuild`
 - `patch` (`edit|commit|remove|list`)
 - `clean`
 - `audit`
+- `why`
+- `store`
+- `unlink`
 
 ## snpm-core Module Map
 
@@ -66,7 +74,7 @@ Key modules exported by `snpm-core/src/lib.rs`:
 - `config`, `cache`, `registry`, `protocols`
 - `project`, `workspace`
 - `resolve`, `lockfile`, `store`, `linker`
-- `operations` (install/add/remove/upgrade/outdated/run/exec/dlx/global/auth/patch/audit/clean)
+- `operations` (audit/auth/clean/dlx/global/init/install/lazy/licenses/link/pack/patch/publish/rebuild/run/store/why)
 - `lifecycle` (install script handling)
 
 ## Runtime Data Flow
@@ -168,6 +176,8 @@ Resolver/registry path supports at least:
 
 - Install scenarios: `Hot`, `WarmLinkOnly`, `WarmPartialCache`, `Cold`.
 - `install --production` skips dev-only dependencies and avoids lockfile mutation.
+- Root project lifecycle scripts (`preinstall`, `install`, `postinstall`, `prepare`) still run for the current project/workspace members during install even when dependency scripts are blocked.
+- Dependency lifecycle scripts remain gated by `SNPM_ALLOW_SCRIPTS` or workspace `onlyBuiltDependencies` / `ignoredBuiltDependencies`.
 - `run`/`exec` perform lazy install unless `--skip-install` is used.
 - `dlx` supports `--offline` and `--prefer-offline`.
 - Link backend supports `auto`, `hardlink`, `symlink`, `copy`.

@@ -125,6 +125,38 @@ snpm list [flags]
 |------|-------------|
 | `-g`, `--global` | List globally installed packages |
 
+## licenses
+
+List installed package licenses.
+
+```
+snpm licenses [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output the license list as JSON |
+
+## link
+
+Link a package globally or into the current project.
+
+```
+snpm link [package]
+```
+
+Without an argument, links the current package globally. With a package name, links that global package into the current project.
+
+## unlink
+
+Remove a global or local link.
+
+```
+snpm unlink [package]
+```
+
+Without an argument, removes the current package from the global link store. With a package name, removes that package link from the current project.
+
 ## why
 
 Explain why a dependency is installed.
@@ -213,6 +245,71 @@ Lists all patches in the project.
 ```
 
 Also compatible with `pnpm.patched_dependencies`.
+
+## pack
+
+Create a tarball from the current package.
+
+```
+snpm pack
+```
+
+Writes `<name>-<version>.tgz` in the current working directory.
+
+## publish
+
+Pack and publish the current package.
+
+```
+snpm publish [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--tag <TAG>` | Distribution tag (default: `latest`) |
+| `--access <LEVEL>` | Package access level |
+| `--otp <CODE>` | One-time password for 2FA |
+| `--dry-run` | Show what would be published without publishing |
+
+## rebuild
+
+Rebuild installed native modules.
+
+```
+snpm rebuild
+```
+
+## store
+
+Inspect or clean the package store.
+
+```
+snpm store <command>
+```
+
+### store status
+
+```
+snpm store status
+```
+
+Shows package and metadata counts, sizes, and total store usage.
+
+### store path
+
+```
+snpm store path
+```
+
+Prints the package store path.
+
+### store prune
+
+```
+snpm store prune [--dry-run]
+```
+
+Removes incomplete packages from the store, or shows what would be removed with `--dry-run`.
 
 ## login
 

@@ -44,6 +44,8 @@ Derived directories under data dir: `packages/`, `metadata/`, `global/`, `bin/`.
 | `SNPM_MIN_PACKAGE_AGE_DAYS` | (none) | Reject packages published within N days |
 | `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS` | `7` | Re-fetch metadata older than N days |
 
+Dependency lifecycle scripts are blocked by default. Root project and workspace-member lifecycle scripts still run during install.
+
 ### Logging
 
 | Variable | Default | Description |

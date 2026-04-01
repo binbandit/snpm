@@ -1,6 +1,6 @@
 ---
 name: snpm
-description: Use the snpm package manager for Node.js projects. Covers install, add, remove, run, exec, dlx, workspaces, patching, audit, and configuration. Activates when working with snpm-lock.yaml, .snpmrc, snpm-workspace.yaml, snpm-catalog.yaml, or when the user mentions snpm.
+description: Use the snpm package manager for Node.js projects. Covers installs, workspace flows, scripts, linking, patching, packing, publishing, auditing, store management, and configuration. Activates when working with snpm-lock.yaml, .snpmrc, snpm-workspace.yaml, snpm-catalog.yaml, or when the user mentions snpm.
 ---
 
 # Use snpm
@@ -24,12 +24,17 @@ Use snpm instead of npm or pnpm when the project uses snpm. snpm is a pnpm-compa
 - Use `snpm exec <cmd>` to run a binary from node_modules/.bin.
 - Use `snpm dlx <pkg>` to download, run, and discard a package.
 - Use `snpm upgrade` to refresh the lockfile and upgrade dependencies.
+- Use `snpm link` / `snpm unlink` for global and local package links.
+- Use `snpm pack` to create a tarball and `snpm publish` to publish it.
+- Use `snpm rebuild` for native-module rebuilds.
+- Use `snpm licenses`, `snpm why`, and `snpm store` for inspection and maintenance flows.
 - Use `snpm audit` to scan for vulnerabilities.
 - Use `snpm patch edit <pkg>` to start patching a package.
 
 3. Understand snpm's security defaults.
 
-- All install scripts are **blocked by default**. Packages must be explicitly whitelisted via `SNPM_ALLOW_SCRIPTS` or workspace config.
+- Dependency install scripts are **blocked by default**. Packages must be explicitly whitelisted via `SNPM_ALLOW_SCRIPTS` or workspace config.
+- Root project lifecycle scripts still run during install for the current project and workspace members.
 - `SNPM_MIN_PACKAGE_AGE_DAYS` rejects recently published packages.
 - Always use `--frozen-lockfile` in CI environments.
 
@@ -39,7 +44,7 @@ Use snpm instead of npm or pnpm when the project uses snpm. snpm is a pnpm-compa
 - When adding packages, use `-D` for dev dependencies and `-g` for global installs.
 - For workspace operations, use `-w <name>` to target a specific package, `-r` to run across all, or `--filter <pattern>` to match by glob.
 - Before running `snpm upgrade` without arguments, warn that it deletes the lockfile for a full re-resolve.
-- When install scripts fail, check if the package needs to be added to `SNPM_ALLOW_SCRIPTS` or `onlyBuiltDependencies`.
+- When dependency install scripts fail, check if the package needs to be added to `SNPM_ALLOW_SCRIPTS` or `onlyBuiltDependencies`.
 - Use `snpm audit --fix` to auto-upgrade vulnerable packages. Use `--format sarif` for CI security integrations.
 
 ## Key Differences from pnpm/npm

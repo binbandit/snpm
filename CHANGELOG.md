@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.3.31] - 2026-03-31
+## [2026.4.1] - 2026-04-01
 
 ### <!-- 0 -->🚀 Features
 
@@ -90,6 +90,7 @@ All notable changes to this project will be documented in this file.
 - *(switch)* Downgrade non-snpm packageManager from hard error to warning ([4107d12](https://github.com/binbandit/snpm/commit/4107d12b62d18dc3582a49b024dfda936f0207c9))
 - *(linker)* Resolve Node.js module resolution in virtual store ([a05d41b](https://github.com/binbandit/snpm/commit/a05d41b401732745c39cfd07c162705b297d147a))
 - *(bench)* Build and use snpm from source instead of PATH ([601fc6d](https://github.com/binbandit/snpm/commit/601fc6d511ec2f5e2af26b65673d0fc0838a3b76))
+- *(snpm-core)* Preserve bin permissions and run root postinstall ([2cb70e3](https://github.com/binbandit/snpm/commit/2cb70e34ababea3dbcb18c358982428a877a990f))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -99,6 +100,10 @@ All notable changes to this project will be documented in this file.
 - *(linker)* Remove unused import ([41fe443](https://github.com/binbandit/snpm/commit/41fe443e618001c41c112cc0cf4c285a89206071))
 - *(cli-core)* Simplify workspace handling ([89aeed0](https://github.com/binbandit/snpm/commit/89aeed0faa30bbf74e25110f82560c228f371a4f))
 - Align code with coding policy ([6f62a76](https://github.com/binbandit/snpm/commit/6f62a76fce4623d4205cf616a4513b0b9baef72b))
+- *(snpm-semver)* Split range parser and version helpers ([3380d53](https://github.com/binbandit/snpm/commit/3380d53ef2a37fd73f4f15f3b55222f456785571))
+- *(snpm-switch)* Modularize runtime and version management ([baf61e8](https://github.com/binbandit/snpm/commit/baf61e882b8f6a5ab16738421fffd07f82f09859))
+- *(snpm-core)* Reorganize modules by responsibility ([223e84b](https://github.com/binbandit/snpm/commit/223e84b665322d93e3256e3da56b3c17a76f0494))
+- *(snpm-cli)* Split command handlers by concern ([ed0c5c9](https://github.com/binbandit/snpm/commit/ed0c5c95080095a25cfc086bf627244020e2986c))
 
 ### <!-- 3 -->📚 Documentation
 
@@ -120,6 +125,7 @@ All notable changes to this project will be documented in this file.
 - *(agents)* Rewrite AGENTS.md with updated project snapshot and build principles ([7be47e9](https://github.com/binbandit/snpm/commit/7be47e9e637b39fa19ee8e3a14e09ef4c0b65771))
 - *(claude)* Add CLAUDE.md containing reference to AGENTS.md ([075c794](https://github.com/binbandit/snpm/commit/075c7941cc80dd56277879e06b58b9daa6ea4457))
 - Add agent skill installation instructions to README ([0e4280d](https://github.com/binbandit/snpm/commit/0e4280da9d1769c939be42f92224a44033f699b3))
+- *(agents)* Refresh command and lifecycle guidance ([52c8982](https://github.com/binbandit/snpm/commit/52c898272d43e3b1101ef567f93b35e3d3933607))
 
 ### <!-- 4 -->⚡ Performance
 
@@ -133,6 +139,7 @@ All notable changes to this project will be documented in this file.
 - Add HTTP conditional request caching for registry metadata ([cfde624](https://github.com/binbandit/snpm/commit/cfde624af7aa2df635c73b66f20afbaaecf64ca4))
 - Stream tarball download with inline integrity hashing ([de03abc](https://github.com/binbandit/snpm/commit/de03abc7ed1f1b12f4cae8558ebf69c54b99dcc0))
 - Optimize resolver, store, and linker for install performance ([e182f11](https://github.com/binbandit/snpm/commit/e182f11481073b7b8cd25cff9d5b08b96fc77439))
+- *(linker)* Speed up linking and CLI alloc ([5f09d7e](https://github.com/binbandit/snpm/commit/5f09d7e957d3b31cbc0bd918f80096475de3acdc))
 
 ### <!-- 5 -->🎨 Styling
 
@@ -276,7 +283,10 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.3.29 release [skip ci] ([ddb3582](https://github.com/binbandit/snpm/commit/ddb35821e01e698e8d22ea393bec89cca60ce9ad))
 - *(release)* Bump version to 2026.3.30 [skip ci] ([a484f6c](https://github.com/binbandit/snpm/commit/a484f6ca7444000012de330a8b0009bfb1408579))
 - *(release)* Merge 2026.3.30 release [skip ci] ([a763f72](https://github.com/binbandit/snpm/commit/a763f722183e1a131cb6e319d4251dbb8bc811f8))
-- *(release)* Bump version to 2026.3.31 [skip ci] ([0ce6466](https://github.com/binbandit/snpm/commit/0ce64665c063b81b3bdfbe51e2609e93d9de9d5b))
+- *(release)* Bump version to 2026.3.31 [skip ci] ([759c283](https://github.com/binbandit/snpm/commit/759c2834a74406480972ed09512c8ed7ddd622d2))
+- *(release)* Merge 2026.3.31 release [skip ci] ([262c109](https://github.com/binbandit/snpm/commit/262c109e401733f34320a81cea2801c8d79d73e0))
+- *(npm-package)* Bump packaged version to 2026.3.31 ([696e3f6](https://github.com/binbandit/snpm/commit/696e3f6a1604fb8a9b619b24b5c5df39ee3322be))
+- *(release)* Bump version to 2026.4.1 [skip ci] ([a481cd0](https://github.com/binbandit/snpm/commit/a481cd0e2b6fd0ad6520420d119673195bdeccdf))
 
 ## [2025.12.24] - 2025-12-24
 

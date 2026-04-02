@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.4.1] - 2026-04-01
+## [2026.4.2] - 2026-04-02
 
 ### <!-- 0 -->🚀 Features
 
@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Add rebuild command ([0ca371a](https://github.com/binbandit/snpm/commit/0ca371a6b87c1d4303fba24b9917f1477d1e224b))
 - Add licenses command ([69a7fbc](https://github.com/binbandit/snpm/commit/69a7fbcb7c501f7ed926dc152c084db172da6c14))
 - Support Bun-style catalog definitions in package.json workspaces ([920cb7f](https://github.com/binbandit/snpm/commit/920cb7f38fd02a5b1057df8c797480313c993fe0))
+- *(publish)* Add package safety checks ([72205bf](https://github.com/binbandit/snpm/commit/72205bf67abbe03032bc7decbd14dbdb3611e143))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -286,7 +287,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Bump version to 2026.3.31 [skip ci] ([759c283](https://github.com/binbandit/snpm/commit/759c2834a74406480972ed09512c8ed7ddd622d2))
 - *(release)* Merge 2026.3.31 release [skip ci] ([262c109](https://github.com/binbandit/snpm/commit/262c109e401733f34320a81cea2801c8d79d73e0))
 - *(npm-package)* Bump packaged version to 2026.3.31 ([696e3f6](https://github.com/binbandit/snpm/commit/696e3f6a1604fb8a9b619b24b5c5df39ee3322be))
-- *(release)* Bump version to 2026.4.1 [skip ci] ([a481cd0](https://github.com/binbandit/snpm/commit/a481cd0e2b6fd0ad6520420d119673195bdeccdf))
+- *(release)* Bump version to 2026.4.1 [skip ci] ([e6b9264](https://github.com/binbandit/snpm/commit/e6b9264d32cea808411e86d33de7d905967dbaf8))
+- *(release)* Merge 2026.4.1 release [skip ci] ([616a96f](https://github.com/binbandit/snpm/commit/616a96f31f05f7ce16a363664d115251baf912e3))
+- *(release)* Bump version to 2026.4.2 [skip ci] ([27feabd](https://github.com/binbandit/snpm/commit/27feabdfd396250ed310f9f63c6dc891ad414fde))
 
 ## [2025.12.24] - 2025-12-24
 

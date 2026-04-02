@@ -13,6 +13,7 @@ fn collect_workspace_protocol_deps_filters_correctly() {
         manifest: Manifest {
             name: Some("test".to_string()),
             version: None,
+            private: false,
             dependencies: BTreeMap::from([
                 ("lib-a".to_string(), "workspace:*".to_string()),
                 ("lodash".to_string(), "^4.0.0".to_string()),

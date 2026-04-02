@@ -11,6 +11,7 @@ fn make_workspace_with_project(name: &str, version: &str) -> Workspace {
         manifest: Manifest {
             name: Some(name.to_string()),
             version: Some(version.to_string()),
+            private: false,
             dependencies: BTreeMap::new(),
             dev_dependencies: BTreeMap::new(),
             optional_dependencies: BTreeMap::new(),

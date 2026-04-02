@@ -22,6 +22,7 @@ pub(super) fn update_manifest_with_patch(
     let snpm = manifest.snpm.get_or_insert_with(|| ManifestSnpm {
         overrides: BTreeMap::new(),
         patched_dependencies: None,
+        publish: None,
     });
 
     snpm.patched_dependencies

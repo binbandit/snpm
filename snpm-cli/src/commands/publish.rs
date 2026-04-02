@@ -20,6 +20,10 @@ pub struct PublishArgs {
     /// Show what would be published without publishing
     #[arg(long = "dry-run")]
     pub dry_run: bool,
+
+    /// Allow a specific blocking risk code for this publish only
+    #[arg(long = "allow-risk", value_name = "CODE")]
+    pub allow_risks: Vec<String>,
 }
 
 pub async fn run(args: PublishArgs, config: &SnpmConfig) -> Result<()> {
@@ -28,11 +32,13 @@ pub async fn run(args: PublishArgs, config: &SnpmConfig) -> Result<()> {
 
     console::step("Packing");
     let pack_result = operations::pack(&project, &cwd)?;
+    print_findings(&pack_result.inspection.findings);
 
     console::info(&format!(
-        "Packed {} files ({})",
-        pack_result.file_count,
-        operations::format_bytes(pack_result.size)
+        "Packed {} files ({} packed, {} unpacked)",
+        pack_result.file_count(),
+        operations::format_bytes(pack_result.packed_size),
+        operations::format_bytes(pack_result.inspection.unpacked_size)
     ));
 
     let options = operations::PublishOptions {
@@ -40,9 +46,17 @@ pub async fn run(args: PublishArgs, config: &SnpmConfig) -> Result<()> {
         access: args.access,
         otp: args.otp,
         dry_run: args.dry_run,
+        allow_risks: args.allow_risks,
     };
 
-    operations::publish(config, &project, &pack_result.tarball_path, &options).await?;
+    operations::publish(
+        config,
+        &project,
+        &pack_result.inspection,
+        &pack_result.tarball_path,
+        &options,
+    )
+    .await?;
 
     // Clean up tarball after successful publish
     if !args.dry_run {
@@ -50,4 +64,19 @@ pub async fn run(args: PublishArgs, config: &SnpmConfig) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_findings(findings: &[operations::PackFinding]) {
+    for finding in findings {
+        let message = match finding.path.as_deref() {
+            Some(path) => format!("{}: {} ({})", finding.code, finding.message, path),
+            None => format!("{}: {}", finding.code, finding.message),
+        };
+
+        if finding.is_blocking() {
+            console::error(&message);
+        } else {
+            console::warn(&message);
+        }
+    }
 }

@@ -20,6 +20,7 @@ pub fn init(root: &Path) -> Result<()> {
     let manifest = Manifest {
         name: Some(name),
         version: Some("0.1.0".to_string()),
+        private: false,
         dependencies: BTreeMap::new(),
         dev_dependencies: BTreeMap::new(),
         optional_dependencies: BTreeMap::new(),

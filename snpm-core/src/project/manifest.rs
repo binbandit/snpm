@@ -43,6 +43,8 @@ pub struct Manifest {
     pub name: Option<String>,
     pub version: Option<String>,
     #[serde(default)]
+    pub private: bool,
+    #[serde(default)]
     pub dependencies: BTreeMap<String, String>,
     #[serde(default)]
     pub dev_dependencies: BTreeMap<String, String>,
@@ -87,4 +89,29 @@ pub struct ManifestSnpm {
     pub overrides: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patched_dependencies: Option<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish: Option<ManifestSnpmPublish>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestSnpmPublish {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deny: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_risks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_files: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_maps: Option<SourceMapPolicy>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceMapPolicy {
+    Forbid,
+    ExternalOnly,
+    Allow,
 }

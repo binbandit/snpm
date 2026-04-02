@@ -94,6 +94,7 @@ mod tests {
             manifest: Manifest {
                 name: Some("my-project".to_string()),
                 version: None,
+                private: false,
                 dependencies: BTreeMap::new(),
                 dev_dependencies: BTreeMap::new(),
                 optional_dependencies: BTreeMap::new(),
@@ -119,6 +120,7 @@ mod tests {
             manifest: Manifest {
                 name: None,
                 version: None,
+                private: false,
                 dependencies: BTreeMap::new(),
                 dev_dependencies: BTreeMap::new(),
                 optional_dependencies: BTreeMap::new(),

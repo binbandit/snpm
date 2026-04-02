@@ -138,6 +138,7 @@ mod tests {
             manifest: Manifest {
                 name: Some(name.to_string()),
                 version: Some("1.0.0".to_string()),
+                private: false,
                 dependencies: BTreeMap::new(),
                 dev_dependencies: BTreeMap::new(),
                 optional_dependencies: BTreeMap::new(),

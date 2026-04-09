@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.4.8] - 2026-04-08
+## [2026.4.9] - 2026-04-09
 
 ### <!-- 0 -->🚀 Features
 
@@ -92,6 +92,7 @@ All notable changes to this project will be documented in this file.
 - *(linker)* Resolve Node.js module resolution in virtual store ([a05d41b](https://github.com/binbandit/snpm/commit/a05d41b401732745c39cfd07c162705b297d147a))
 - *(bench)* Build and use snpm from source instead of PATH ([601fc6d](https://github.com/binbandit/snpm/commit/601fc6d511ec2f5e2af26b65673d0fc0838a3b76))
 - *(snpm-core)* Preserve bin permissions and run root postinstall ([2cb70e3](https://github.com/binbandit/snpm/commit/2cb70e34ababea3dbcb18c358982428a877a990f))
+- *(lifecycle)* Add node_modules bin to install script path ([ce8e1c2](https://github.com/binbandit/snpm/commit/ce8e1c2d52998c0f8f7a9f387a89047045e73ccc))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -301,7 +302,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.4.6 release [skip ci] ([bf93048](https://github.com/binbandit/snpm/commit/bf93048f91d629ec85603b4dea8134cf988e8202))
 - *(release)* Bump version to 2026.4.7 [skip ci] ([d6b9fa2](https://github.com/binbandit/snpm/commit/d6b9fa25d94d9669080b71c8e9ea98601f683891))
 - *(release)* Merge 2026.4.7 release [skip ci] ([2c48c77](https://github.com/binbandit/snpm/commit/2c48c77d64cc57336f94c59796527224452de7d6))
-- *(release)* Bump version to 2026.4.8 [skip ci] ([38fd75d](https://github.com/binbandit/snpm/commit/38fd75df001992d85c68b3c5d0397b8a515a29f2))
+- *(release)* Bump version to 2026.4.8 [skip ci] ([d1579d2](https://github.com/binbandit/snpm/commit/d1579d2555466e624ec5ad019b589807b5c86045))
+- *(release)* Merge 2026.4.8 release [skip ci] ([37cc0b4](https://github.com/binbandit/snpm/commit/37cc0b46037af335fb7364d70c54b727f558b8b9))
+- *(release)* Bump version to 2026.4.9 [skip ci] ([6990abc](https://github.com/binbandit/snpm/commit/6990abc2620637465bbef531034d20eff2faec2b))
 
 ## [2025.12.24] - 2025-12-24
 

@@ -1,5 +1,7 @@
 mod dependencies;
 mod metadata;
+#[cfg(test)]
+mod tests;
 
 use super::engine::ResolverContext;
 use super::query::build_dep_request;

@@ -242,3 +242,212 @@ fn require_cache<T>(cache_check: Option<T>, message: &str) -> Result<T> {
         reason: message.to_string(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{pinned_root_dependencies_for_fix, read_lockfile_for_fix, ProjectInstallPlan};
+    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::lockfile::{self, LockRoot, LockRootDependency, Lockfile};
+    use crate::operations::install::manifest::RootSpecSet;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    fn make_config() -> SnpmConfig {
+        SnpmConfig {
+            cache_dir: Path::new("/tmp/cache").to_path_buf(),
+            data_dir: Path::new("/tmp/data").to_path_buf(),
+            allow_scripts: BTreeSet::new(),
+            min_package_age_days: None,
+            min_package_cache_age_days: None,
+            default_registry: "https://registry.npmjs.org".to_string(),
+            scoped_registries: BTreeMap::new(),
+            registry_auth: BTreeMap::new(),
+            default_registry_auth_token: None,
+            default_registry_auth_scheme: AuthScheme::Bearer,
+            registry_auth_schemes: BTreeMap::new(),
+            hoisting: HoistingMode::SingleVersion,
+            link_backend: LinkBackend::Auto,
+            strict_peers: false,
+            frozen_lockfile_default: false,
+            always_auth: false,
+            registry_concurrency: 64,
+            verbose: false,
+            log_file: None,
+        }
+    }
+
+    fn make_plan(
+        lockfile_path: std::path::PathBuf,
+        required: BTreeMap<String, String>,
+        optional: BTreeMap<String, String>,
+    ) -> ProjectInstallPlan {
+        let mut root_dependencies = required.clone();
+        root_dependencies.extend(optional.clone());
+
+        ProjectInstallPlan {
+            workspace: None,
+            catalog: None,
+            overrides: BTreeMap::new(),
+            additions: BTreeMap::new(),
+            local_deps: BTreeSet::new(),
+            local_dev_deps: BTreeSet::new(),
+            local_optional_deps: BTreeSet::new(),
+            manifest_root: BTreeMap::new(),
+            root_specs: RootSpecSet {
+                required,
+                optional,
+            },
+            root_dependencies,
+            root_protocols: BTreeMap::new(),
+            optional_root_names: BTreeSet::new(),
+            lockfile_path,
+            compatible_lockfile: None,
+            is_fresh_install: true,
+        }
+    }
+
+    fn write_lockfile(path: &std::path::Path, deps: Vec<(&str, (&str, Option<&str>, bool))>) {
+        let lockfile = Lockfile {
+            version: 1,
+            root: LockRoot {
+                dependencies: deps
+                    .into_iter()
+                    .map(|(name, (requested, version, optional))| {
+                        (
+                            name.to_string(),
+                            LockRootDependency {
+                                requested: requested.to_string(),
+                                package: None,
+                                version: version.map(ToString::to_string),
+                                optional: *optional,
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+            packages: BTreeMap::new(),
+        };
+
+        let lockfile_path = path.join("snpm-lock.yaml");
+        lockfile::write(&lockfile_path, &lockfile, &BTreeMap::new()).unwrap();
+    }
+
+    #[test]
+    fn pinned_root_dependencies_for_fix_rewrites_matching_required_and_optional() {
+        let dir = tempdir().unwrap();
+        write_lockfile(
+            dir.path(),
+            vec![
+                ("left", ("^1.0.0", Some("1.2.3"), false)),
+                ("opt", ("^2.0.0", Some("2.0.1"), true)),
+            ],
+        );
+        let config = make_config();
+        let plan = make_plan(
+            dir.path().join("snpm-lock.yaml"),
+            BTreeMap::from([("left".to_string(), "^1.0.0".to_string())]),
+            BTreeMap::from([("opt".to_string(), "^2.0.0".to_string())]),
+        );
+
+        let pinned = pinned_root_dependencies_for_fix(&plan, &config).unwrap();
+        let expected = BTreeMap::from([
+            ("left".to_string(), "1.2.3".to_string()),
+            ("opt".to_string(), "2.0.1".to_string()),
+        ]);
+        assert_eq!(pinned, expected);
+        assert_eq!(plan.lockfile_path, dir.path().join("snpm-lock.yaml"));
+        assert_eq!(
+            pinned_root_dependencies_for_fix(&plan, &config).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn pinned_root_dependencies_for_fix_keeps_ranges_when_request_changed() {
+        let dir = tempdir().unwrap();
+        write_lockfile(
+            dir.path(),
+            vec![("left", ("^1.0.0", Some("1.2.3"), false))],
+        );
+        let config = make_config();
+        let plan = make_plan(
+            dir.path().join("snpm-lock.yaml"),
+            BTreeMap::from([("left".to_string(), "^2.0.0".to_string())]),
+            BTreeMap::new(),
+        );
+
+        let pinned = pinned_root_dependencies_for_fix(&plan, &config).unwrap();
+        let expected = BTreeMap::from([("left".to_string(), "^2.0.0".to_string())]);
+        assert_eq!(pinned, expected);
+    }
+
+    #[test]
+    fn pinned_root_dependencies_for_fix_uses_unlocked_dependency_without_lockfile() {
+        let dir = tempdir().unwrap();
+        let config = make_config();
+        let plan = make_plan(
+            dir.path().join("missing-lockfile.yaml"),
+            BTreeMap::from([("left".to_string(), "^1.0.0".to_string())]),
+            BTreeMap::new(),
+        );
+
+        let pinned = pinned_root_dependencies_for_fix(&plan, &config).unwrap();
+        let expected = BTreeMap::from([("left".to_string(), "^1.0.0".to_string())]);
+        assert_eq!(pinned, expected);
+    }
+
+    #[test]
+    fn read_lockfile_for_fix_reads_workspace_lockfile_when_available() {
+        let dir = tempdir().unwrap();
+        write_lockfile(
+            dir.path(),
+            vec![("left", ("^1.0.0", Some("1.2.3"), false))],
+        );
+        let config = make_config();
+        let plan = make_plan(
+            dir.path().join("snpm-lock.yaml"),
+            BTreeMap::from([("left".to_string(), "^1.0.0".to_string())]),
+            BTreeMap::new(),
+        );
+
+        let loaded = read_lockfile_for_fix(&plan, &config).unwrap();
+        assert_eq!(loaded.root.dependencies["left"].version.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            loaded.root.dependencies["left"].requested,
+            "^1.0.0".to_string()
+        );
+    }
+
+    #[test]
+    fn pinned_root_dependencies_for_fix_does_not_use_incomplete_optional_match() {
+        let dir = tempdir().unwrap();
+        write_lockfile(
+            dir.path(),
+            vec![("opt", ("^2.0.0", None, true))],
+        );
+        let config = make_config();
+        let plan = make_plan(
+            dir.path().join("snpm-lock.yaml"),
+            BTreeMap::new(),
+            BTreeMap::from([("opt".to_string(), "^2.0.0".to_string())]),
+        );
+
+        let pinned = pinned_root_dependencies_for_fix(&plan, &config).unwrap();
+        let expected = BTreeMap::from([("opt".to_string(), "^2.0.0".to_string())]);
+        assert_eq!(pinned, expected);
+    }
+
+    #[test]
+    fn read_lockfile_for_fix_errors_without_lockfile_or_compatible_source() {
+        let config = make_config();
+        let missing_path = tempdir().unwrap().path().join("missing.yaml");
+        let plan = make_plan(
+            missing_path,
+            BTreeMap::new(),
+            BTreeMap::new(),
+        );
+
+        assert!(read_lockfile_for_fix(&plan, &config).is_err());
+    }
+}

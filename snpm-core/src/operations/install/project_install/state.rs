@@ -3,9 +3,9 @@ use super::plan::ProjectInstallPlan;
 use crate::SnpmError;
 use crate::console;
 use crate::lockfile;
+use crate::operations::install::utils::FrozenLockfileMode;
 use crate::resolve::{PackageId, ResolutionGraph};
 use crate::{Project, Result, SnpmConfig};
-use crate::operations::install::utils::FrozenLockfileMode;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -31,10 +31,18 @@ pub(super) async fn resolve_install_state(
     options: &InstallOptions,
     registry_client: &reqwest::Client,
 ) -> Result<ResolvedInstall> {
+    let planned_root_dependencies = if matches!(options.frozen_lockfile, FrozenLockfileMode::Fix) {
+        pinned_root_dependencies_for_fix(plan, config)?
+    } else {
+        plan.root_dependencies.clone()
+    };
+
     let scenario_result = if options.include_dev
         && plan.additions.is_empty()
-        && !matches!(options.frozen_lockfile, FrozenLockfileMode::No)
-    {
+        && !matches!(
+            options.frozen_lockfile,
+            FrozenLockfileMode::No | FrozenLockfileMode::Fix
+        ) {
         detect_install_scenario(
             project,
             &plan.lockfile_path,
@@ -111,8 +119,14 @@ pub(super) async fn resolve_install_state(
             graph
         }
         InstallScenario::Cold => {
-            let (graph, resolved_store_paths) =
-                resolve_cold_install(config, registry_client, plan, options.force).await?;
+            let (graph, resolved_store_paths) = resolve_cold_install(
+                config,
+                registry_client,
+                plan,
+                &planned_root_dependencies,
+                options.force,
+            )
+            .await?;
 
             store_paths = resolved_store_paths;
 
@@ -146,6 +160,66 @@ pub(super) async fn resolve_install_state(
         integrity_state,
         wrote_lockfile,
     })
+}
+
+fn pinned_root_dependencies_for_fix(
+    plan: &ProjectInstallPlan,
+    config: &SnpmConfig,
+) -> Result<BTreeMap<String, String>> {
+    let mut root_dependencies = plan.root_dependencies.clone();
+    let existing = match read_lockfile_for_fix(plan, config) {
+        Ok(lockfile) => lockfile,
+        Err(_) => return Ok(root_dependencies),
+    };
+
+    for (name, requested) in &plan.root_specs.required {
+        let Some(dep) = existing.root.dependencies.get(name) else {
+            continue;
+        };
+
+        if dep.optional || dep.version.is_none() || dep.requested != *requested {
+            continue;
+        }
+
+        if let Some(version) = dep.version.as_ref() {
+            root_dependencies.insert(name.clone(), version.clone());
+        }
+    }
+
+    for (name, requested) in &plan.root_specs.optional {
+        let Some(dep) = existing.root.dependencies.get(name) else {
+            continue;
+        };
+
+        if dep.requested != *requested || dep.version.is_none() {
+            continue;
+        }
+
+        if let Some(version) = dep.version.as_ref() {
+            root_dependencies.insert(name.clone(), version.clone());
+        }
+    }
+
+    Ok(root_dependencies)
+}
+
+fn read_lockfile_for_fix(
+    plan: &ProjectInstallPlan,
+    config: &SnpmConfig,
+) -> Result<crate::lockfile::Lockfile> {
+    if plan.lockfile_path.is_file() {
+        return lockfile::read(&plan.lockfile_path);
+    }
+
+    let source = plan
+        .compatible_lockfile
+        .as_ref()
+        .ok_or_else(|| crate::SnpmError::Lockfile {
+            path: plan.lockfile_path.clone(),
+            reason: "no lockfile was found".into(),
+        })?;
+
+    lockfile::read_compatible_lockfile(source, config)
 }
 
 fn require_graph(graph: Option<ResolutionGraph>, scenario: &str) -> Result<ResolutionGraph> {

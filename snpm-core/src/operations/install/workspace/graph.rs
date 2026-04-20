@@ -16,6 +16,7 @@ use super::resolution::resolve_workspace_deps;
 pub(super) struct WorkspaceGraphLoad {
     pub(super) graph: ResolutionGraph,
     pub(super) store_paths_map: BTreeMap<PackageId, PathBuf>,
+    pub(super) wrote_lockfile: bool,
 }
 
 pub(super) async fn load_workspace_graph(
@@ -25,7 +26,7 @@ pub(super) async fn load_workspace_graph(
     include_dev: bool,
     force: bool,
 ) -> Result<WorkspaceGraphLoad> {
-    match plan.scenario {
+    let mut workspace_graph = match plan.scenario {
         InstallScenario::Hot => load_hot_graph(plan),
         InstallScenario::WarmLinkOnly => load_warm_link_graph(config, plan),
         InstallScenario::WarmPartialCache => {
@@ -34,7 +35,23 @@ pub(super) async fn load_workspace_graph(
         InstallScenario::Cold => {
             load_cold_graph(config, registry_client, plan, include_dev, force).await
         }
+    }?;
+
+    if include_dev
+        && !workspace_graph.wrote_lockfile
+        && plan.setup.has_compatible_lockfile()
+        && !plan.setup.lockfile_path.is_file()
+    {
+        lockfile::write(
+            &plan.setup.lockfile_path,
+            &workspace_graph.graph,
+            &plan.setup.root_specs.optional,
+        )?;
+        console::step("Saved lockfile");
+        workspace_graph.wrote_lockfile = true;
     }
+
+    Ok(workspace_graph)
 }
 
 fn load_hot_graph(plan: &WorkspaceInstallPlan) -> Result<WorkspaceGraphLoad> {
@@ -43,6 +60,7 @@ fn load_hot_graph(plan: &WorkspaceInstallPlan) -> Result<WorkspaceGraphLoad> {
     Ok(WorkspaceGraphLoad {
         graph: lockfile::to_graph(existing_lockfile(plan, "Hot")?),
         store_paths_map: BTreeMap::new(),
+        wrote_lockfile: false,
     })
 }
 
@@ -58,6 +76,7 @@ fn load_warm_link_graph(
     Ok(WorkspaceGraphLoad {
         graph,
         store_paths_map: cache_check.cached,
+        wrote_lockfile: false,
     })
 }
 
@@ -82,6 +101,7 @@ async fn load_warm_partial_graph(
     Ok(WorkspaceGraphLoad {
         graph,
         store_paths_map,
+        wrote_lockfile: false,
     })
 }
 
@@ -116,6 +136,7 @@ async fn load_cold_graph(
             &graph,
             &plan.setup.root_specs.optional,
         )?;
+        console::step("Saved lockfile");
     }
 
     console::step_with_count("Resolved, downloaded and extracted", store_paths_map.len());
@@ -123,6 +144,7 @@ async fn load_cold_graph(
     Ok(WorkspaceGraphLoad {
         graph,
         store_paths_map,
+        wrote_lockfile: include_dev,
     })
 }
 

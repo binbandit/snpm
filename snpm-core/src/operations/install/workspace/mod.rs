@@ -8,6 +8,7 @@ mod root_specs;
 mod setup;
 
 pub use linking::link_local_workspace_deps;
+pub(crate) use root_specs::is_local_workspace_dependency;
 pub use root_specs::{
     collect_workspace_root_deps, collect_workspace_root_specs, insert_workspace_root_dep,
     validate_workspace_spec,
@@ -27,7 +28,8 @@ pub async fn install_workspace(
     config: &SnpmConfig,
     workspace: &mut Workspace,
     include_dev: bool,
-    frozen_lockfile: bool,
+    frozen_lockfile: super::utils::FrozenLockfileMode,
+    strict_no_lockfile: bool,
     force: bool,
 ) -> Result<InstallResult> {
     let started = Instant::now();
@@ -40,7 +42,14 @@ pub async fn install_workspace(
     }
 
     let registry_client = http::create_client()?;
-    let plan = plan_workspace_install(config, workspace, include_dev, frozen_lockfile, force)?;
+    let plan = plan_workspace_install(
+        config,
+        workspace,
+        include_dev,
+        frozen_lockfile,
+        strict_no_lockfile,
+        force,
+    )?;
 
     if plan.setup.root_dependencies.is_empty() {
         console::summary(0, 0.0);
@@ -62,11 +71,10 @@ pub async fn install_workspace(
         plan.scenario,
     )?;
 
-    if include_dev {
-        console::step("Saved lockfile");
-    }
-
-    console::clear_steps(if include_dev { 4 } else { 3 });
+    console::clear_steps(step_count_for_workspace(
+        plan.scenario,
+        workspace_graph.wrote_lockfile,
+    ));
 
     let seconds = started.elapsed().as_secs_f32();
     let package_count = workspace_graph.graph.packages.len();
@@ -82,4 +90,16 @@ pub async fn install_workspace(
         package_count,
         elapsed_seconds: seconds,
     })
+}
+
+fn step_count_for_workspace(
+    scenario: super::utils::InstallScenario,
+    wrote_lockfile: bool,
+) -> usize {
+    let load_steps = match scenario {
+        super::utils::InstallScenario::Hot | super::utils::InstallScenario::WarmLinkOnly => 1,
+        super::utils::InstallScenario::WarmPartialCache | super::utils::InstallScenario::Cold => 2,
+    };
+
+    load_steps + 1 + usize::from(wrote_lockfile)
 }

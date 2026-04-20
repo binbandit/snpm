@@ -1,19 +1,25 @@
+mod npm;
 mod pnpm;
 
 use super::types::Lockfile;
 use crate::{Result, SnpmConfig};
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompatibleLockfileKind {
     Pnpm,
+    NpmShrinkwrap,
+    Npm,
 }
 
 impl CompatibleLockfileKind {
     pub fn filename(self) -> &'static str {
         match self {
             CompatibleLockfileKind::Pnpm => "pnpm-lock.yaml",
+            CompatibleLockfileKind::NpmShrinkwrap => "npm-shrinkwrap.json",
+            CompatibleLockfileKind::Npm => "package-lock.json",
         }
     }
 }
@@ -31,11 +37,9 @@ impl CompatibleLockfile {
 }
 
 pub fn detect_compatible_lockfile(project_root: &Path) -> Option<CompatibleLockfile> {
-    let path = project_root.join(CompatibleLockfileKind::Pnpm.filename());
-    path.is_file().then_some(CompatibleLockfile {
-        kind: CompatibleLockfileKind::Pnpm,
-        path,
-    })
+    compatible_lockfile_candidates(project_root)
+        .into_iter()
+        .find(|candidate| candidate.path.is_file())
 }
 
 pub fn read_compatible_lockfile(
@@ -44,5 +48,104 @@ pub fn read_compatible_lockfile(
 ) -> Result<Lockfile> {
     match source.kind {
         CompatibleLockfileKind::Pnpm => pnpm::read(&source.path, config),
+        CompatibleLockfileKind::NpmShrinkwrap | CompatibleLockfileKind::Npm => {
+            npm::read(&source.path, config)
+        }
+    }
+}
+
+fn compatible_lockfile_candidates(project_root: &Path) -> Vec<CompatibleLockfile> {
+    let mut candidates = Vec::new();
+
+    if let Some(branch) = current_git_branch(project_root) {
+        candidates.push(CompatibleLockfile {
+            kind: CompatibleLockfileKind::Pnpm,
+            path: project_root.join(pnpm_branch_lockfile_name(&branch)),
+        });
+    }
+
+    candidates.push(CompatibleLockfile {
+        kind: CompatibleLockfileKind::Pnpm,
+        path: project_root.join(CompatibleLockfileKind::Pnpm.filename()),
+    });
+    candidates.push(CompatibleLockfile {
+        kind: CompatibleLockfileKind::NpmShrinkwrap,
+        path: project_root.join(CompatibleLockfileKind::NpmShrinkwrap.filename()),
+    });
+    candidates.push(CompatibleLockfile {
+        kind: CompatibleLockfileKind::Npm,
+        path: project_root.join(CompatibleLockfileKind::Npm.filename()),
+    });
+
+    candidates
+}
+
+fn current_git_branch(project_root: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["-C"])
+        .arg(project_root)
+        .args(["branch", "--show-current"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let branch = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if branch.is_empty() {
+        None
+    } else {
+        Some(branch)
+    }
+}
+
+fn pnpm_branch_lockfile_name(branch: &str) -> String {
+    format!("pnpm-lock.{}.yaml", branch.replace('/', "!"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CompatibleLockfileKind, detect_compatible_lockfile, pnpm_branch_lockfile_name};
+
+    #[test]
+    fn pnpm_branch_lockfile_name_replaces_slashes() {
+        assert_eq!(
+            pnpm_branch_lockfile_name("feature/lockfile-import"),
+            "pnpm-lock.feature!lockfile-import.yaml"
+        );
+    }
+
+    #[test]
+    fn detect_compatible_lockfile_falls_back_to_base_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(CompatibleLockfileKind::Pnpm.filename());
+        std::fs::write(&path, "lockfileVersion: '9.0'\nimporters: {}\n").unwrap();
+
+        let detected = detect_compatible_lockfile(dir.path()).unwrap();
+        assert_eq!(detected.path, path);
+    }
+
+    #[test]
+    fn detect_compatible_lockfile_prefers_npm_shrinkwrap() {
+        let dir = tempfile::tempdir().unwrap();
+        let shrinkwrap = dir
+            .path()
+            .join(CompatibleLockfileKind::NpmShrinkwrap.filename());
+        let package_lock = dir.path().join(CompatibleLockfileKind::Npm.filename());
+
+        std::fs::write(
+            &package_lock,
+            "{ \"lockfileVersion\": 3, \"packages\": { \"\": {} } }",
+        )
+        .unwrap();
+        std::fs::write(
+            &shrinkwrap,
+            "{ \"lockfileVersion\": 3, \"packages\": { \"\": {} } }",
+        )
+        .unwrap();
+
+        let detected = detect_compatible_lockfile(dir.path()).unwrap();
+        assert_eq!(detected.kind, CompatibleLockfileKind::NpmShrinkwrap);
+        assert_eq!(detected.path, shrinkwrap);
     }
 }

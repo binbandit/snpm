@@ -2,8 +2,8 @@ use super::integrity::{build_project_integrity_state, check_integrity_file};
 use super::store::check_store_cache;
 use super::types::{InstallScenario, ScenarioResult};
 use crate::console;
-use crate::{Project, SnpmConfig, lockfile};
 use crate::operations::install::utils::FrozenLockfileMode;
+use crate::{Project, SnpmConfig, lockfile};
 use std::collections::BTreeMap;
 use std::path::Path;
 

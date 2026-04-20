@@ -3,8 +3,8 @@ use crate::console;
 use crate::lockfile;
 use crate::{Result, SnpmConfig, SnpmError};
 
-use super::super::super::utils::InstallOptions;
 use super::super::super::utils::FrozenLockfileMode;
+use super::super::super::utils::InstallOptions;
 
 pub(in crate::operations::install::project_install) fn validate_frozen_lockfile(
     config: &SnpmConfig,
@@ -12,6 +12,13 @@ pub(in crate::operations::install::project_install) fn validate_frozen_lockfile(
     plan: &ProjectInstallPlan,
 ) -> Result<()> {
     if !matches!(options.frozen_lockfile, FrozenLockfileMode::Frozen) {
+        return Ok(());
+    }
+
+    if !options.strict_no_lockfile
+        && !plan.lockfile_path.is_file()
+        && plan.compatible_lockfile.is_none()
+    {
         return Ok(());
     }
 

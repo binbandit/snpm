@@ -16,7 +16,6 @@ use finalize::{finalize_install, run_install_scripts};
 use plan::{prepare_install_plan, validate_frozen_lockfile};
 use report::print_install_changes;
 use state::resolve_install_state;
-use super::utils::FrozenLockfileMode;
 
 pub async fn install(
     config: &SnpmConfig,
@@ -31,14 +30,7 @@ pub async fn install(
         options.requested.join(", "),
         options.dev,
         options.include_dev,
-        format!(
-            "{}",
-            match options.frozen_lockfile {
-                FrozenLockfileMode::Frozen => "frozen",
-                FrozenLockfileMode::Prefer => "prefer",
-                FrozenLockfileMode::No => "off",
-            }
-        ),
+        options.frozen_lockfile.as_str(),
         options.force,
     ));
 

@@ -5,10 +5,16 @@ use std::collections::BTreeMap;
 
 use super::super::manifest::{is_special_protocol_spec, parse_spec};
 use super::super::project_install::install;
-use super::super::utils::InstallOptions;
+use super::super::utils::{FrozenLockfileMode, InstallOptions};
 use super::outdated::outdated;
 
-pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<String>) -> Result<()> {
+pub async fn remove(
+    config: &SnpmConfig,
+    project: &mut Project,
+    specs: Vec<String>,
+    frozen_lockfile: FrozenLockfileMode,
+    strict_no_lockfile: bool,
+) -> Result<()> {
     if specs.is_empty() {
         return Ok(());
     }
@@ -28,20 +34,38 @@ pub async fn remove(config: &SnpmConfig, project: &mut Project, specs: Vec<Strin
     project.write_manifest(&manifest)?;
     project.manifest = manifest;
 
-    reinstall(config, project, true, false).await
+    reinstall(
+        config,
+        project,
+        true,
+        frozen_lockfile,
+        strict_no_lockfile,
+        false,
+    )
+    .await
 }
 
 pub async fn upgrade(
     config: &SnpmConfig,
     project: &mut Project,
     packages: Vec<String>,
+    frozen_lockfile: FrozenLockfileMode,
+    strict_no_lockfile: bool,
     production: bool,
     force: bool,
 ) -> Result<()> {
     let include_dev = !production;
 
     if packages.is_empty() {
-        return reinstall(config, project, include_dev, force).await;
+        return reinstall(
+            config,
+            project,
+            include_dev,
+            frozen_lockfile,
+            strict_no_lockfile,
+            force,
+        )
+        .await;
     }
 
     let entries = outdated(config, project, include_dev, force).await?;
@@ -70,7 +94,15 @@ pub async fn upgrade(
     project.write_manifest(&manifest)?;
     project.manifest = manifest;
 
-    reinstall(config, project, include_dev, force).await
+    reinstall(
+        config,
+        project,
+        include_dev,
+        frozen_lockfile,
+        strict_no_lockfile,
+        force,
+    )
+    .await
 }
 
 fn wanted_versions(entries: Vec<super::super::utils::OutdatedEntry>) -> BTreeMap<String, String> {
@@ -114,6 +146,8 @@ async fn reinstall(
     config: &SnpmConfig,
     project: &mut Project,
     include_dev: bool,
+    frozen_lockfile: FrozenLockfileMode,
+    strict_no_lockfile: bool,
     force: bool,
 ) -> Result<()> {
     install(
@@ -123,7 +157,8 @@ async fn reinstall(
             requested: Vec::new(),
             dev: false,
             include_dev,
-            frozen_lockfile: false,
+            frozen_lockfile,
+            strict_no_lockfile,
             force,
             silent_summary: false,
         },

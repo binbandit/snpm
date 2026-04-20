@@ -178,17 +178,6 @@ fn validate_importers(path: &Path, importers: &BTreeMap<String, RawImporter>) ->
         });
     }
 
-    if importer_keys.len() > 1
-        || !importer_keys
-            .iter()
-            .all(|key| *key == "." || key.is_empty())
-    {
-        return Err(SnpmError::Lockfile {
-            path: path.to_path_buf(),
-            reason: "workspace pnpm lockfile import is not supported yet; this first pass only supports single-package projects".into(),
-        });
-    }
-
     Ok(())
 }
 
@@ -339,47 +328,43 @@ fn build_root(
     raw: &RawPnpmLockfile,
     dep_path_to_package_key: &BTreeMap<String, String>,
 ) -> Result<LockRoot> {
-    let importer = raw
-        .importers
-        .get(".")
-        .or_else(|| raw.importers.get(""))
-        .ok_or_else(|| SnpmError::Lockfile {
-            path: path.to_path_buf(),
-            reason: "pnpm-lock.yaml is missing the root importer".into(),
-        })?;
-
     let mut dependencies = BTreeMap::new();
-
-    insert_root_block(
-        path,
-        importer,
-        &importer.dependencies,
-        false,
-        dep_path_to_package_key,
-        &mut dependencies,
-    )?;
-    insert_root_block(
-        path,
-        importer,
-        &importer.dev_dependencies,
-        false,
-        dep_path_to_package_key,
-        &mut dependencies,
-    )?;
-    insert_root_block(
-        path,
-        importer,
-        &importer.optional_dependencies,
-        true,
-        dep_path_to_package_key,
-        &mut dependencies,
-    )?;
+    for (importer_path, importer) in &raw.importers {
+        insert_root_block(
+            path,
+            importer_path,
+            importer,
+            &importer.dependencies,
+            false,
+            dep_path_to_package_key,
+            &mut dependencies,
+        )?;
+        insert_root_block(
+            path,
+            importer_path,
+            importer,
+            &importer.dev_dependencies,
+            false,
+            dep_path_to_package_key,
+            &mut dependencies,
+        )?;
+        insert_root_block(
+            path,
+            importer_path,
+            importer,
+            &importer.optional_dependencies,
+            true,
+            dep_path_to_package_key,
+            &mut dependencies,
+        )?;
+    }
 
     Ok(LockRoot { dependencies })
 }
 
 fn insert_root_block(
     path: &Path,
+    importer_path: &str,
     importer: &RawImporter,
     block: &BTreeMap<String, RawImporterDependency>,
     optional: bool,
@@ -393,54 +378,143 @@ fn insert_root_block(
             .to_string();
         let resolved = resolve_dependency_key(dep_name, dep.version(), dep_path_to_package_key);
 
-        if optional {
-            root.entry(dep_name.clone()).or_insert_with(|| {
-                if let Some(dep_key) = resolved.as_ref() {
-                    if let Some((resolved_name, version)) = split_dep_key(dep_key) {
-                        return LockRootDependency {
-                            requested: requested.clone(),
-                            package: (resolved_name != *dep_name).then_some(resolved_name),
-                            version: Some(version),
-                            optional: true,
-                        };
-                    }
-                }
+        let incoming = if optional {
+            build_optional_root_dependency(dep_name, &requested, resolved.as_deref())
+        } else {
+            build_required_root_dependency(path, dep_name, dep.version(), resolved.as_deref())?
+        };
 
-                LockRootDependency {
-                    requested: requested.clone(),
-                    package: None,
-                    version: None,
-                    optional: true,
-                }
-            });
-            continue;
-        }
-
-        let dep_key = resolved.ok_or_else(|| SnpmError::Lockfile {
-            path: path.to_path_buf(),
-            reason: format!(
-                "pnpm root dependency `{dep_name}` -> `{}` could not be resolved from the imported lockfile",
-                dep.version()
-            ),
-        })?;
-        let (resolved_name, version) =
-            split_dep_key(&dep_key).ok_or_else(|| SnpmError::Lockfile {
-                path: path.to_path_buf(),
-                reason: format!("unsupported resolved dependency key `{dep_key}`"),
-            })?;
-
-        root.insert(
-            dep_name.clone(),
-            LockRootDependency {
-                requested,
-                package: (resolved_name != *dep_name).then_some(resolved_name),
-                version: Some(version),
-                optional: false,
-            },
-        );
+        merge_root_dependency(path, importer_path, dep_name, incoming, root)?;
     }
 
     Ok(())
+}
+
+fn build_optional_root_dependency(
+    dep_name: &str,
+    requested: &str,
+    resolved: Option<&str>,
+) -> LockRootDependency {
+    if let Some(dep_key) = resolved {
+        if let Some((resolved_name, version)) = split_dep_key(dep_key) {
+            return LockRootDependency {
+                requested: requested.to_string(),
+                package: (resolved_name != dep_name).then_some(resolved_name),
+                version: Some(version),
+                optional: true,
+            };
+        }
+    }
+
+    LockRootDependency {
+        requested: requested.to_string(),
+        package: None,
+        version: None,
+        optional: true,
+    }
+}
+
+fn build_required_root_dependency(
+    path: &Path,
+    dep_name: &str,
+    original_ref: &str,
+    resolved: Option<&str>,
+) -> Result<LockRootDependency> {
+    let dep_key = resolved.ok_or_else(|| SnpmError::Lockfile {
+        path: path.to_path_buf(),
+        reason: format!(
+            "pnpm root dependency `{dep_name}` -> `{original_ref}` could not be resolved from the imported lockfile"
+        ),
+    })?;
+    let (resolved_name, version) = split_dep_key(dep_key).ok_or_else(|| SnpmError::Lockfile {
+        path: path.to_path_buf(),
+        reason: format!("unsupported resolved dependency key `{dep_key}`"),
+    })?;
+
+    Ok(LockRootDependency {
+        requested: original_ref.to_string(),
+        package: (resolved_name != dep_name).then_some(resolved_name),
+        version: Some(version),
+        optional: false,
+    })
+}
+
+fn merge_root_dependency(
+    path: &Path,
+    importer_path: &str,
+    dep_name: &str,
+    incoming: LockRootDependency,
+    root: &mut BTreeMap<String, LockRootDependency>,
+) -> Result<()> {
+    let Some(existing) = root.get_mut(dep_name) else {
+        root.insert(dep_name.to_string(), incoming);
+        return Ok(());
+    };
+
+    if existing.requested != incoming.requested {
+        return Err(importer_conflict_error(
+            path,
+            importer_path,
+            dep_name,
+            &existing.requested,
+            &incoming.requested,
+        ));
+    }
+
+    match (&existing.package, &incoming.package) {
+        (Some(left), Some(right)) if left != right => {
+            return Err(importer_conflict_error(
+                path,
+                importer_path,
+                dep_name,
+                left,
+                right,
+            ));
+        }
+        (None, Some(package)) => existing.package = Some(package.clone()),
+        _ => {}
+    }
+
+    match (&existing.version, &incoming.version) {
+        (Some(left), Some(right)) if left != right => {
+            return Err(importer_conflict_error(
+                path,
+                importer_path,
+                dep_name,
+                left,
+                right,
+            ));
+        }
+        (None, Some(version)) => existing.version = Some(version.clone()),
+        _ => {}
+    }
+
+    existing.optional &= incoming.optional;
+    Ok(())
+}
+
+fn importer_conflict_error(
+    path: &Path,
+    importer_path: &str,
+    dep_name: &str,
+    left: &str,
+    right: &str,
+) -> SnpmError {
+    SnpmError::Lockfile {
+        path: path.to_path_buf(),
+        reason: format!(
+            "pnpm importer `{}` declares dependency `{dep_name}` with conflicting values `{left}` and `{right}`",
+            display_importer_path(importer_path)
+        ),
+    }
+}
+
+fn display_importer_path(importer_path: &str) -> &str {
+    if importer_path.is_empty() {
+        "."
+    } else {
+        importer_path
+    }
 }
 
 fn resolve_dependency_key(
@@ -610,21 +684,97 @@ snapshots:
     }
 
     #[test]
-    fn rejects_workspace_lockfiles_for_now() {
+    fn imports_workspace_lockfiles_when_importers_agree() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pnpm-lock.yaml");
         std::fs::write(
             &path,
             r#"lockfileVersion: '9.0'
 importers:
-  project-a: {}
-  project-b: {}
+  packages/a:
+    dependencies:
+      shared:
+        specifier: ^1.0.0
+        version: 1.0.0
+    optionalDependencies:
+      optional-shared:
+        specifier: ^2.0.0
+        version: 2.0.0
+  packages/b:
+    dependencies:
+      shared:
+        specifier: ^1.0.0
+        version: 1.0.0
+      required-optional:
+        specifier: ^3.0.0
+        version: 3.0.0
+  packages/c:
+    optionalDependencies:
+      required-optional:
+        specifier: ^3.0.0
+        version: 3.0.0
+packages:
+  shared@1.0.0:
+    resolution:
+      integrity: sha512-shared
+  optional-shared@2.0.0:
+    resolution:
+      integrity: sha512-optional
+  required-optional@3.0.0:
+    resolution:
+      integrity: sha512-required-optional
+snapshots:
+  shared@1.0.0: {}
+  optional-shared@2.0.0: {}
+  required-optional@3.0.0: {}
+"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+
+        assert_eq!(
+            lockfile.root.dependencies["shared"].version.as_deref(),
+            Some("1.0.0")
+        );
+        assert!(lockfile.root.dependencies["optional-shared"].optional);
+        assert!(!lockfile.root.dependencies["required-optional"].optional);
+    }
+
+    #[test]
+    fn rejects_workspace_lockfiles_with_conflicting_importers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pnpm-lock.yaml");
+        std::fs::write(
+            &path,
+            r#"lockfileVersion: '9.0'
+importers:
+  packages/a:
+    dependencies:
+      shared:
+        specifier: ^1.0.0
+        version: 1.0.0
+  packages/b:
+    dependencies:
+      shared:
+        specifier: ^2.0.0
+        version: 2.0.0
+packages:
+  shared@1.0.0:
+    resolution:
+      integrity: sha512-one
+  shared@2.0.0:
+    resolution:
+      integrity: sha512-two
+snapshots:
+  shared@1.0.0: {}
+  shared@2.0.0: {}
 "#,
         )
         .unwrap();
 
         let err = read(&path, &test_config()).unwrap_err();
-        assert!(err.to_string().contains("workspace pnpm lockfile import"));
+        assert!(err.to_string().contains("conflicting values"));
     }
 
     #[test]

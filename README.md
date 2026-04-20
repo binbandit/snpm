@@ -76,7 +76,7 @@ We love pnpm. We just think it can be faster and simpler.
 
 ## Features
 
-**Security first** — Install scripts are blocked by default. Packages must be explicitly whitelisted. Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` to ignore recently published packages.
+**Security first** — Install scripts are blocked by default. Add allowed packages to `SNPM_ALLOW_SCRIPTS` as a comma-separated allowlist (for example `SNPM_ALLOW_SCRIPTS=esbuild,rollup`), and set `SNPM_MIN_PACKAGE_AGE_DAYS=7` to ignore recently published packages.
 
 **pnpm compatible** — Reads `pnpm-workspace.yaml`, `pnpm-lock.yaml`, and `.npmrc`. Migration is straightforward.
 

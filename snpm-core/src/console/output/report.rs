@@ -80,8 +80,15 @@ pub fn blocked_scripts(packages: &[String]) {
         "dependencies"
     };
     let msg = format!(
-        "Blocked install scripts for {} {}. Set SNPM_ALLOW_SCRIPTS to enable.",
-        count, noun
+        "Blocked install scripts for {} {}. Set SNPM_ALLOW_SCRIPTS to a comma-separated allowlist, for example: {}",
+        count,
+        noun,
+        packages
+            .iter()
+            .take(1)
+            .map(|package| format!("SNPM_ALLOW_SCRIPTS={package}"))
+            .next()
+            .unwrap_or_else(|| "SNPM_ALLOW_SCRIPTS=package-name".to_string())
     );
     println!("{}", dim(&msg));
     log_prefixed("INFO", &msg);

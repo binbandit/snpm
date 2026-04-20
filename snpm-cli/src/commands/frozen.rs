@@ -80,9 +80,7 @@ pub(crate) fn frozen_override_from_cli(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use snpm_core::config::{
-        AuthScheme, HoistingMode, LinkBackend, SnpmConfig,
-    };
+    use snpm_core::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::Path;
 
@@ -113,7 +111,8 @@ mod tests {
     #[test]
     fn resolve_frozen_lockfile_mode_for_flags_respects_fix_flag() {
         let config = make_config(false);
-        let resolved = resolve_frozen_lockfile_mode_for_flags(&config, false, false, false, true, false);
+        let resolved =
+            resolve_frozen_lockfile_mode_for_flags(&config, false, false, false, true, false);
 
         assert!(matches!(resolved.mode, FrozenLockfileMode::Fix));
         assert!(!resolved.strict_no_lockfile);
@@ -122,7 +121,8 @@ mod tests {
     #[test]
     fn resolve_frozen_lockfile_mode_for_flags_force_sets_no_lockfile_without_cli_override() {
         let config = make_config(false);
-        let resolved = resolve_frozen_lockfile_mode_for_flags(&config, false, false, false, false, true);
+        let resolved =
+            resolve_frozen_lockfile_mode_for_flags(&config, false, false, false, false, true);
 
         assert!(matches!(resolved.mode, FrozenLockfileMode::No));
         assert!(!resolved.strict_no_lockfile);
@@ -131,7 +131,8 @@ mod tests {
     #[test]
     fn resolve_frozen_lockfile_mode_for_flags_uses_config_default_without_cli_override() {
         let config = make_config(true);
-        let resolved = resolve_frozen_lockfile_mode_for_flags(&config, false, false, false, false, false);
+        let resolved =
+            resolve_frozen_lockfile_mode_for_flags(&config, false, false, false, false, false);
 
         assert!(matches!(resolved.mode, FrozenLockfileMode::Frozen));
         assert!(!resolved.strict_no_lockfile);
@@ -140,7 +141,8 @@ mod tests {
     #[test]
     fn resolve_frozen_lockfile_mode_for_flags_prefers_preferred_when_no_force() {
         let config = make_config(false);
-        let resolved = resolve_frozen_lockfile_mode_for_flags(&config, false, false, true, false, false);
+        let resolved =
+            resolve_frozen_lockfile_mode_for_flags(&config, false, false, true, false, false);
 
         assert!(matches!(resolved.mode, FrozenLockfileMode::Prefer));
     }

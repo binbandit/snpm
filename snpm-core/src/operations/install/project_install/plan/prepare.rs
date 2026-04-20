@@ -19,7 +19,12 @@ pub(in crate::operations::install::project_install) fn prepare_install_plan(
     let overrides = load_overrides(project, workspace.as_ref())?;
 
     let resolved_manifest = resolve_manifest_specs(project, workspace.as_ref(), catalog.as_ref())?;
-    let root_specs = build_root_specs(workspace.as_ref(), &resolved_manifest, options.include_dev)?;
+    let root_specs = build_root_specs(
+        workspace.as_ref(),
+        &resolved_manifest,
+        options.include_dev,
+        &overrides,
+    )?;
 
     let manifest_root = root_specs.required.clone();
     let optional_root_names = root_specs.optional.keys().cloned().collect();

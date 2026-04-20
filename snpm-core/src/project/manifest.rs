@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
 pub type CatalogMap = BTreeMap<String, String>;
@@ -42,7 +42,7 @@ impl WorkspacesField {
 pub struct Manifest {
     pub name: Option<String>,
     pub version: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_boolish")]
     pub private: bool,
     #[serde(default)]
     pub dependencies: BTreeMap<String, String>,
@@ -114,4 +114,30 @@ pub enum SourceMapPolicy {
     Forbid,
     ExternalOnly,
     Allow,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BoolishValue {
+    Bool(bool),
+    String(String),
+}
+
+fn deserialize_boolish<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<BoolishValue>::deserialize(deserializer)?;
+
+    match value {
+        None => Ok(false),
+        Some(BoolishValue::Bool(value)) => Ok(value),
+        Some(BoolishValue::String(value)) => match value.trim().to_ascii_lowercase().as_str() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            other => Err(serde::de::Error::custom(format!(
+                "expected a boolean, got {other}"
+            ))),
+        },
+    }
 }

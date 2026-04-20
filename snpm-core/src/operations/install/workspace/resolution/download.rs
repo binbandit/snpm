@@ -17,6 +17,7 @@ pub(crate) async fn resolve_workspace_deps(
     root_protocols: &BTreeMap<String, crate::registry::RegistryProtocol>,
     optional_root_names: &BTreeSet<String>,
     force: bool,
+    overrides: Option<&BTreeMap<String, String>>,
     existing_graph: Option<&ResolutionGraph>,
     store_paths: &mut BTreeMap<PackageId, PathBuf>,
 ) -> Result<ResolutionGraph> {
@@ -44,7 +45,7 @@ pub(crate) async fn resolve_workspace_deps(
                 optional_root_names,
                 min_age,
                 force,
-                None,
+                overrides,
                 Some(seed_graph),
                 move |package| {
                     let config = config_clone.clone();
@@ -88,7 +89,7 @@ pub(crate) async fn resolve_workspace_deps(
                 optional_root_names,
                 min_age,
                 force,
-                None,
+                overrides,
                 move |package| {
                     let config = config_clone.clone();
                     let client = client_clone.clone();
@@ -122,7 +123,7 @@ pub(crate) async fn resolve_workspace_deps(
                 },
             )
             .await?
-        };
+        }
     };
 
     await_store_tasks(&tasks).await?;

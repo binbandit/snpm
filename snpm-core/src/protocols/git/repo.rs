@@ -14,9 +14,9 @@ pub(super) async fn prepare_repo(cache_dir: &Path, spec: &GitSpec, raw: &str) ->
 
     let repo_dir = cache_dir.join("repo");
     if repo_dir.exists() {
-        fetch_repo(&repo_dir, raw).await?;
+        fetch_repo(&repo_dir, spec.committish.as_deref(), raw).await?;
     } else {
-        clone_repo(cache_dir, &spec.repo, raw).await?;
+        clone_repo(cache_dir, &spec.repo, spec.committish.as_deref(), raw).await?;
     }
 
     checkout_repo(&repo_dir, spec.committish.as_deref(), raw).await?;
@@ -34,7 +34,21 @@ fn ensure_cache_dir(cache_dir: &Path) -> Result<()> {
     })
 }
 
-async fn fetch_repo(repo_dir: &Path, raw: &str) -> Result<()> {
+async fn fetch_repo(repo_dir: &Path, committish: Option<&str>, raw: &str) -> Result<()> {
+    if let Some(revision) = committish
+        && run_git_command(
+            repo_dir,
+            raw,
+            revision,
+            ["fetch", "--depth", "1", "origin", revision],
+            "fetch",
+        )
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
     run_git_command(
         repo_dir,
         raw,
@@ -45,7 +59,26 @@ async fn fetch_repo(repo_dir: &Path, raw: &str) -> Result<()> {
     .await
 }
 
-async fn clone_repo(cache_dir: &Path, repo: &str, raw: &str) -> Result<()> {
+async fn clone_repo(
+    cache_dir: &Path,
+    repo: &str,
+    committish: Option<&str>,
+    raw: &str,
+) -> Result<()> {
+    if let Some(revision) = committish
+        && run_git_command(
+            cache_dir,
+            raw,
+            revision,
+            ["clone", "--depth", "1", "--branch", revision, repo, "repo"],
+            "clone",
+        )
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
     run_git_command(cache_dir, raw, "latest", ["clone", repo, "repo"], "clone").await
 }
 

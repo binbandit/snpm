@@ -72,6 +72,14 @@ fn protocol_from_range_git_plus() {
 }
 
 #[test]
+fn protocol_from_range_github_shorthand() {
+    assert_eq!(
+        protocol_from_range("webpack/tooling#v1.26.1"),
+        RegistryProtocol::git()
+    );
+}
+
+#[test]
 fn protocol_from_range_jsr() {
     assert_eq!(
         protocol_from_range("jsr:@scope/pkg@^1.0.0"),

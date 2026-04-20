@@ -39,6 +39,14 @@ fn build_dep_request_override_with_protocol() {
 }
 
 #[test]
+fn build_dep_request_git_shorthand_uses_spec_as_source() {
+    let protocol = RegistryProtocol::git();
+    let request = build_dep_request("tooling", "webpack/tooling#v1.26.1", &protocol, None);
+    assert_eq!(request.source, "webpack/tooling#v1.26.1");
+    assert_eq!(request.range, "latest");
+}
+
+#[test]
 fn split_protocol_spec_npm_scoped() {
     let result = split_protocol_spec("npm:@scope/pkg@^1.0.0");
     let (protocol, source, range) = result.unwrap();
@@ -80,6 +88,15 @@ fn split_protocol_spec_git() {
     let (protocol, source, _range) = result.unwrap();
     assert_eq!(protocol, RegistryProtocol::git());
     assert!(source.contains("github.com"));
+}
+
+#[test]
+fn split_protocol_spec_github_prefix() {
+    let result = split_protocol_spec("github:foo/bar#v1.0.0");
+    let (protocol, source, range) = result.unwrap();
+    assert_eq!(protocol, RegistryProtocol::git());
+    assert_eq!(source, "github:foo/bar#v1.0.0");
+    assert_eq!(range, "latest");
 }
 
 #[test]

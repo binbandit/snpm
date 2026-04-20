@@ -54,6 +54,10 @@ fn normalize_git_repo(raw: &str) -> std::result::Result<String, String> {
         repo = normalize_git_colon(stripped)?;
     }
 
+    if let Some(hosted) = normalize_hosted_repo(&repo) {
+        return Ok(hosted);
+    }
+
     Ok(correct_ssh_url(&repo))
 }
 
@@ -117,6 +121,52 @@ fn correct_ssh_url(url: &str) -> String {
     corrected
 }
 
+fn normalize_hosted_repo(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let (host, repo) = if let Some(repo) = trimmed.strip_prefix("github:") {
+        ("github.com", repo)
+    } else if let Some(repo) = trimmed.strip_prefix("gitlab:") {
+        ("gitlab.com", repo)
+    } else if let Some(repo) = trimmed.strip_prefix("bitbucket:") {
+        ("bitbucket.org", repo)
+    } else if looks_like_bare_hosted_repo(trimmed) {
+        ("github.com", trimmed)
+    } else {
+        return None;
+    };
+
+    let repo = repo.trim().trim_matches('/');
+    if repo.is_empty() {
+        return None;
+    }
+
+    let repo = repo.strip_suffix(".git").unwrap_or(repo);
+    Some(format!("https://{host}/{repo}.git"))
+}
+
+fn looks_like_bare_hosted_repo(spec: &str) -> bool {
+    if spec.is_empty()
+        || spec.starts_with('@')
+        || spec.starts_with('.')
+        || spec.starts_with('/')
+        || spec.contains("://")
+        || spec.contains('\\')
+        || spec.contains(' ')
+    {
+        return false;
+    }
+
+    let mut parts = spec.split('/');
+    let Some(owner) = parts.next() else {
+        return false;
+    };
+    let Some(name) = parts.next() else {
+        return false;
+    };
+
+    !owner.is_empty() && !name.is_empty() && parts.next().is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_git_spec;
@@ -150,5 +200,19 @@ mod tests {
     fn parse_git_spec_rewrites_scp_like_ssh_urls() {
         let spec = parse_git_spec("ssh://git@example.com:acme/pkg.git").unwrap();
         assert_eq!(spec.repo, "ssh://git@example.com/acme/pkg.git");
+    }
+
+    #[test]
+    fn parse_git_spec_normalizes_github_prefix() {
+        let spec = parse_git_spec("github:acme/pkg#main").unwrap();
+        assert_eq!(spec.repo, "https://github.com/acme/pkg.git");
+        assert_eq!(spec.committish.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn parse_git_spec_normalizes_bare_hosted_shorthand() {
+        let spec = parse_git_spec("acme/pkg#v1.0.0").unwrap();
+        assert_eq!(spec.repo, "https://github.com/acme/pkg.git");
+        assert_eq!(spec.committish.as_deref(), Some("v1.0.0"));
     }
 }

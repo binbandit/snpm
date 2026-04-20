@@ -1,6 +1,14 @@
 use crate::registry::RegistryProtocol;
 
 pub fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, String)> {
+    if looks_like_hosted_git_url(spec) {
+        return Some((
+            RegistryProtocol::git(),
+            spec.to_string(),
+            "latest".to_string(),
+        ));
+    }
+
     let colon = spec.find(':')?;
     let (prefix, rest) = spec.split_at(colon);
     let rest = &rest[1..];
@@ -17,6 +25,7 @@ pub fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, Stri
     let protocol = match prefix {
         "npm" => RegistryProtocol::npm(),
         "jsr" => RegistryProtocol::jsr(),
+        "file" | "link" => RegistryProtocol::file(),
         other => RegistryProtocol::custom(other),
     };
 
@@ -40,6 +49,57 @@ pub fn split_protocol_spec(spec: &str) -> Option<(RegistryProtocol, String, Stri
 fn is_git_protocol_prefix(prefix: &str) -> bool {
     matches!(
         prefix,
-        "git" | "git+http" | "git+https" | "git+rsync" | "git+ftp" | "git+file" | "git+ssh" | "ssh"
+        "git"
+            | "git+http"
+            | "git+https"
+            | "git+rsync"
+            | "git+ftp"
+            | "git+file"
+            | "git+ssh"
+            | "ssh"
+            | "github"
+            | "gitlab"
+            | "bitbucket"
     )
+}
+
+fn looks_like_hosted_git_url(spec: &str) -> bool {
+    matches_hosted_git_url(spec, "https://github.com/")
+        || matches_hosted_git_url(spec, "https://gitlab.com/")
+        || matches_hosted_git_url(spec, "https://bitbucket.org/")
+}
+
+fn matches_hosted_git_url(spec: &str, prefix: &str) -> bool {
+    let Some(rest) = spec.trim().strip_prefix(prefix) else {
+        return false;
+    };
+
+    let repo = rest.split('#').next().unwrap_or(rest).trim_matches('/');
+    let mut parts = repo.split('/');
+    let Some(owner) = parts.next() else {
+        return false;
+    };
+    let Some(name) = parts.next() else {
+        return false;
+    };
+
+    !owner.is_empty() && !name.is_empty() && parts.next().is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_protocol_spec;
+    use crate::registry::RegistryProtocol;
+
+    #[test]
+    fn split_link_protocol_spec_as_file() {
+        assert_eq!(
+            split_protocol_spec("link:./scripts/eslint-rules"),
+            Some((
+                RegistryProtocol::file(),
+                "./scripts/eslint-rules".to_string(),
+                "latest".to_string()
+            ))
+        );
+    }
 }

@@ -3,23 +3,15 @@ use snpm_semver::RangeSet;
 
 pub fn validate_workspace_spec(workspace: &Workspace, name: &str, spec: &str) -> Result<()> {
     let project = workspace
-        .projects
-        .iter()
-        .find(|candidate| candidate.manifest.name.as_deref() == Some(name))
+        .project_by_name(name)
         .ok_or_else(|| SnpmError::WorkspaceConfig {
             path: workspace.root.clone(),
             reason: format!("workspace dependency {name} not found in workspace projects"),
         })?;
 
-    let version =
-        project
-            .manifest
-            .version
-            .as_deref()
-            .ok_or_else(|| SnpmError::WorkspaceConfig {
-                path: workspace.root.clone(),
-                reason: format!("workspace dependency {name} has no version in its package.json"),
-            })?;
+    let Some(version) = project.manifest.version.as_deref() else {
+        return Ok(());
+    };
 
     let range_str = normalize_workspace_spec(name, spec, version)?;
     if range_str.is_empty() {
@@ -47,6 +39,38 @@ pub fn validate_workspace_spec(workspace: &Workspace, name: &str, spec: &str) ->
             ),
         })
     }
+}
+
+pub(crate) fn is_local_workspace_dependency(
+    workspace: &Workspace,
+    name: &str,
+    spec: &str,
+) -> Result<bool> {
+    let Some(project) = workspace.project_by_name(name) else {
+        return Ok(false);
+    };
+
+    if spec.starts_with("workspace:") {
+        validate_workspace_spec(workspace, name, spec)?;
+        return Ok(true);
+    }
+
+    let Some(version) = project.manifest.version.as_deref() else {
+        return Ok(false);
+    };
+
+    let ranges = match RangeSet::parse(spec) {
+        Ok(ranges) => ranges,
+        Err(_) => return Ok(false),
+    };
+
+    let version_parsed =
+        snpm_semver::parse_version(version).map_err(|error| SnpmError::Semver {
+            value: format!("{}@{}", name, version),
+            reason: error.to_string(),
+        })?;
+
+    Ok(ranges.matches(&version_parsed))
 }
 
 fn normalize_workspace_spec(name: &str, spec: &str, version: &str) -> Result<String> {

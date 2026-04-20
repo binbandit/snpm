@@ -5,7 +5,7 @@ use crate::{Result, SnpmError, Workspace};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use super::super::workspace::validate_workspace_spec;
+use super::super::workspace::is_local_workspace_dependency;
 
 pub fn apply_specs(
     specs: &BTreeMap<String, String>,
@@ -17,21 +17,18 @@ pub fn apply_specs(
     let mut result = BTreeMap::new();
 
     for (name, value) in specs {
-        if value.starts_with("workspace:") {
-            local_set.insert(name.clone());
-
-            if let Some(workspace) = workspace {
-                validate_workspace_spec(workspace, name, value)?;
-            }
-
-            continue;
-        }
-
         let resolved = if value.starts_with("catalog:") {
             resolve_catalog_spec(name, value, workspace, catalog)?
         } else {
             value.clone()
         };
+
+        if let Some(workspace) = workspace
+            && is_local_workspace_dependency(workspace, name, &resolved)?
+        {
+            local_set.insert(name.clone());
+            continue;
+        }
 
         if let Some(map) = &mut protocol_map
             && let Some(protocol) = detect_manifest_protocol(&resolved)

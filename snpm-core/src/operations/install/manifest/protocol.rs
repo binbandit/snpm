@@ -3,7 +3,7 @@ use crate::registry::RegistryProtocol;
 pub fn detect_manifest_protocol(spec: &str) -> Option<RegistryProtocol> {
     if spec.starts_with("npm:") {
         Some(RegistryProtocol::npm())
-    } else if spec.starts_with("file:") {
+    } else if spec.starts_with("file:") || spec.starts_with("link:") {
         Some(RegistryProtocol::file())
     } else if spec.starts_with("jsr:") {
         Some(RegistryProtocol::jsr())
@@ -18,6 +18,7 @@ pub fn is_special_protocol_spec(spec: &str) -> bool {
     spec.starts_with("catalog:")
         || spec.starts_with("workspace:")
         || spec.starts_with("npm:")
+        || spec.starts_with("link:")
         || spec.starts_with("jsr:")
         || is_git_spec(spec)
 }
@@ -133,6 +134,14 @@ mod tests {
     }
 
     #[test]
+    fn detect_manifest_protocol_link() {
+        assert_eq!(
+            detect_manifest_protocol("link:../local-pkg"),
+            Some(RegistryProtocol::file())
+        );
+    }
+
+    #[test]
     fn detect_manifest_protocol_none() {
         assert_eq!(detect_manifest_protocol("^1.0.0"), None);
     }
@@ -143,6 +152,7 @@ mod tests {
         assert!(is_special_protocol_spec("catalog:build"));
         assert!(is_special_protocol_spec("workspace:*"));
         assert!(is_special_protocol_spec("npm:other@^1.0.0"));
+        assert!(is_special_protocol_spec("link:../local-pkg"));
         assert!(is_special_protocol_spec("git+https://example.com/repo.git"));
         assert!(is_special_protocol_spec("jsr:@std/path@^1.0.0"));
         assert!(!is_special_protocol_spec("^1.0.0"));

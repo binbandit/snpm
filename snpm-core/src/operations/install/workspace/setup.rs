@@ -1,17 +1,17 @@
 use crate::lockfile::CompatibleLockfile;
 use crate::operations::install::utils::FrozenLockfileMode;
 use crate::registry::RegistryProtocol;
+use crate::workspace::OverridesConfig;
 use crate::{Result, SnpmError, Workspace};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use super::super::manifest::{RootSpecSet, detect_manifest_protocol};
-use super::root_specs::collect_workspace_root_specs;
-
 pub(super) struct WorkspaceInstallSetup {
     pub(super) lockfile_path: PathBuf,
     pub(super) compatible_lockfile: Option<CompatibleLockfile>,
+    pub(super) overrides: BTreeMap<String, String>,
     pub(super) root_specs: RootSpecSet,
     pub(super) root_dependencies: BTreeMap<String, String>,
     pub(super) root_protocols: BTreeMap<String, RegistryProtocol>,
@@ -41,7 +41,13 @@ pub(super) fn prepare_workspace_install(
         });
     }
 
-    let root_specs = collect_workspace_root_specs(workspace, include_dev)?;
+    let overrides = load_workspace_overrides(workspace)?;
+    let root_specs =
+        crate::operations::install::workspace::collect_workspace_root_specs_with_overrides(
+            workspace,
+            include_dev,
+            &overrides,
+        )?;
     let mut root_dependencies = root_specs.required.clone();
     for (name, range) in &root_specs.optional {
         root_dependencies.insert(name.clone(), range.clone());
@@ -49,6 +55,7 @@ pub(super) fn prepare_workspace_install(
 
     Ok(WorkspaceInstallSetup {
         compatible_lockfile,
+        overrides,
         optional_root_names: root_specs.optional.keys().cloned().collect(),
         root_protocols: build_root_protocols(&root_dependencies),
         root_dependencies,
@@ -84,4 +91,30 @@ pub(super) fn build_root_protocols(
             (name.clone(), protocol)
         })
         .collect()
+}
+
+fn load_workspace_overrides(workspace: &Workspace) -> Result<BTreeMap<String, String>> {
+    let mut overrides = OverridesConfig::load(&workspace.root)?
+        .map(|config| config.overrides)
+        .unwrap_or_default();
+
+    if let Some(root_project) = workspace
+        .projects
+        .iter()
+        .find(|project| project.root == workspace.root)
+    {
+        if let Some(pnpm) = &root_project.manifest.pnpm {
+            for (name, range) in &pnpm.overrides {
+                overrides.insert(name.clone(), range.clone());
+            }
+        }
+
+        if let Some(snpm) = &root_project.manifest.snpm {
+            for (name, range) in &snpm.overrides {
+                overrides.insert(name.clone(), range.clone());
+            }
+        }
+    }
+
+    Ok(overrides)
 }

@@ -45,6 +45,7 @@ impl<'a> ResolverContext<'a> {
             }
 
             let context = self.clone();
+            let parent_id = parent_id.clone();
             let name = name.clone();
             let range = normalize_dependency_range(&version_meta.dist.tarball, range);
             let protocol = protocol_from_range(&range);
@@ -81,6 +82,7 @@ impl<'a> ResolverContext<'a> {
             }
 
             let context = self.clone();
+            let parent_id = parent_id.clone();
             let name = name.clone();
             let range = range.clone();
             let protocol = protocol_from_range(&range);

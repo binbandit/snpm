@@ -1,7 +1,7 @@
 use crate::registry::RegistryProtocol;
 
 pub(in crate::resolve) fn protocol_from_range(range: &str) -> RegistryProtocol {
-    if range.starts_with("file:") {
+    if range.starts_with("file:") || range.starts_with("link:") {
         RegistryProtocol::file()
     } else if range.starts_with("jsr:") {
         RegistryProtocol::jsr()
@@ -65,4 +65,18 @@ fn looks_like_hosted_git_shorthand(spec: &str) -> bool {
     };
 
     !owner.is_empty() && !name.is_empty() && parts.next().is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::protocol_from_range;
+    use crate::registry::RegistryProtocol;
+
+    #[test]
+    fn link_ranges_use_file_protocol() {
+        assert_eq!(
+            protocol_from_range("link:./scripts/eslint-rules"),
+            RegistryProtocol::file()
+        );
+    }
 }

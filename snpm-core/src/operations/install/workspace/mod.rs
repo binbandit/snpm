@@ -8,6 +8,7 @@ mod root_specs;
 mod setup;
 
 pub use linking::link_local_workspace_deps;
+pub(crate) use root_specs::collect_workspace_root_specs_with_overrides;
 pub(crate) use root_specs::is_local_workspace_dependency;
 pub use root_specs::{
     collect_workspace_root_deps, collect_workspace_root_specs, insert_workspace_root_dep,

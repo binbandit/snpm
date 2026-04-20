@@ -21,6 +21,12 @@ pub fn build_dep_request(
             range,
             protocol,
         }
+    } else if protocol.name == "git" {
+        DepRequest {
+            source: overridden.to_string(),
+            range: "latest".to_string(),
+            protocol: protocol.clone(),
+        }
     } else {
         DepRequest {
             source: name.to_string(),

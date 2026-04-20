@@ -4,16 +4,20 @@ use crate::{Result, Workspace};
 use std::collections::BTreeMap;
 
 use super::super::super::super::manifest::{RootSpecSet, build_project_root_specs};
-use super::super::super::super::workspace::collect_workspace_root_specs;
 use super::ResolvedManifestSpecs;
 
 pub(crate) fn build_root_specs(
     workspace: Option<&Workspace>,
     resolved_manifest: &ResolvedManifestSpecs,
     include_dev: bool,
+    overrides: &BTreeMap<String, String>,
 ) -> Result<RootSpecSet> {
     if let Some(workspace) = workspace {
-        collect_workspace_root_specs(workspace, include_dev)
+        super::super::super::super::workspace::collect_workspace_root_specs_with_overrides(
+            workspace,
+            include_dev,
+            overrides,
+        )
     } else {
         Ok(build_project_root_specs(
             &resolved_manifest.dependencies,

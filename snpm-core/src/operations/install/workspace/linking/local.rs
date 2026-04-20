@@ -3,6 +3,7 @@ use crate::{Project, Result, SnpmError, Workspace};
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 pub fn link_local_workspace_deps(
@@ -33,14 +34,12 @@ pub fn link_local_workspace_deps(
             continue;
         }
 
-        let source_project = workspace_reference
-            .projects
-            .iter()
-            .find(|candidate| candidate.manifest.name.as_deref() == Some(name.as_str()))
-            .ok_or_else(|| SnpmError::WorkspaceConfig {
+        let source_project = workspace_reference.project_by_name(name).ok_or_else(|| {
+            SnpmError::WorkspaceConfig {
                 path: workspace_reference.root.clone(),
                 reason: format!("workspace dependency {name} not found in workspace projects"),
-            })?;
+            }
+        })?;
 
         let destination = node_modules.join(name);
         ensure_parent_dir(&destination)?;
@@ -52,11 +51,18 @@ pub fn link_local_workspace_deps(
 }
 
 fn remove_existing_destination(destination: &Path) -> Result<()> {
-    if !destination.exists() {
-        return Ok(());
-    }
+    let metadata = match fs::symlink_metadata(destination) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(SnpmError::WriteFile {
+                path: destination.to_path_buf(),
+                source,
+            });
+        }
+    };
 
-    let remove = if destination.is_dir() {
+    let remove = if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
         fs::remove_dir_all(destination)
     } else {
         fs::remove_file(destination)

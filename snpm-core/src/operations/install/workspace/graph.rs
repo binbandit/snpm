@@ -128,6 +128,7 @@ async fn load_cold_graph(
         &plan.setup.root_protocols,
         &plan.setup.optional_root_names,
         force,
+        Some(&plan.setup.overrides),
         existing_graph.as_ref(),
         &mut store_paths_map,
     )

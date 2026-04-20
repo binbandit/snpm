@@ -26,7 +26,7 @@ pub(in crate::operations::install::workspace) fn link_project_dependencies(
     })?;
 
     let (workspace_deps, workspace_dev_deps, workspace_optional_deps) =
-        collect_workspace_protocol_deps(project);
+        collect_workspace_protocol_deps(project, workspace)?;
 
     link_external_deps(
         &project.manifest.dependencies,

@@ -1,10 +1,12 @@
-use super::super::engine::{ResolverContext, ResolverState};
+use super::super::engine::ResolverContext;
 use super::super::resolve_with_optional_roots_with_seed;
-use super::super::types::{PackageId, ResolutionGraph, ResolutionRoot, RootDependency, ResolvedPackage};
+use super::super::types::{
+    PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
+};
 use crate::config::{OfflineMode, SnpmConfig};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn make_config() -> SnpmConfig {
     SnpmConfig {
@@ -163,20 +165,15 @@ fn make_context<'a>(
     client: &'a reqwest::Client,
     existing_graph: &'a ResolutionGraph,
 ) -> ResolverContext<'a> {
-    let state = ResolverState::new(64);
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-
-    ResolverContext {
+    ResolverContext::new_for_tests(
         config,
         client,
-        min_age_days: None,
-        force: false,
-        overrides: None,
-        existing_graph: Some(existing_graph),
-        offline_mode: OfflineMode::Online,
-        state,
-        prefetch_tx: tx,
-    }
+        Some(existing_graph),
+        None,
+        false,
+        None,
+        OfflineMode::Online,
+    )
 }
 
 #[tokio::test]
@@ -271,7 +268,11 @@ fn seeded_dependency_id_filters_incompatible_range_and_uses_parent_lookup() {
         context.seeded_dependency_id("foo", "^1.0.0", None, &seed_graph),
         Some(foo_id.clone())
     );
-    assert!(context.seeded_dependency_id("foo", "^2.0.0", None, &seed_graph).is_none());
+    assert!(
+        context
+            .seeded_dependency_id("foo", "^2.0.0", None, &seed_graph)
+            .is_none()
+    );
     assert_eq!(
         context.seeded_dependency_id("bar", "^1.0.0", Some(&foo_id), &seed_graph),
         Some(bar_parent_id)
@@ -291,24 +292,25 @@ async fn import_seed_package_chain_imports_complete_graph_and_reports_missing() 
     };
 
     assert!(context.seeded_subgraph_complete(foo_id.clone(), &complete_graph));
-    assert!(context
-        .import_seed_package_chain(foo_id.clone(), &complete_graph)
-        .await
-        .unwrap());
+    assert!(
+        context
+            .import_seed_package_chain(foo_id.clone(), &complete_graph)
+            .await
+            .unwrap()
+    );
     assert!(context.package_already_resolved(&foo_id).await);
 
     let partial_graph = ResolutionGraph {
         root: complete_graph.root.clone(),
-        packages: BTreeMap::from([(
-            foo_id.clone(),
-            complete_graph.packages[&foo_id].clone(),
-        )]),
+        packages: BTreeMap::from([(foo_id.clone(), complete_graph.packages[&foo_id].clone())]),
     };
     let missing_context = make_context(&config, &client, &partial_graph);
 
     assert!(!missing_context.seeded_subgraph_complete(foo_id.clone(), &partial_graph));
-    assert!(!missing_context
-        .import_seed_package_chain(foo_id, &partial_graph)
-        .await
-        .unwrap());
+    assert!(
+        !missing_context
+            .import_seed_package_chain(foo_id, &partial_graph)
+            .await
+            .unwrap()
+    );
 }

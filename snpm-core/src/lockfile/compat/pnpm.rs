@@ -381,7 +381,7 @@ fn insert_root_block(
         let incoming = if optional {
             build_optional_root_dependency(dep_name, &requested, resolved.as_deref())
         } else {
-            build_required_root_dependency(path, dep_name, dep.version(), resolved.as_deref())?
+            build_required_root_dependency(path, dep_name, &requested, resolved.as_deref())?
         };
 
         merge_root_dependency(path, importer_path, dep_name, incoming, root)?;
@@ -417,13 +417,13 @@ fn build_optional_root_dependency(
 fn build_required_root_dependency(
     path: &Path,
     dep_name: &str,
-    original_ref: &str,
+    requested: &str,
     resolved: Option<&str>,
 ) -> Result<LockRootDependency> {
     let dep_key = resolved.ok_or_else(|| SnpmError::Lockfile {
         path: path.to_path_buf(),
         reason: format!(
-            "pnpm root dependency `{dep_name}` -> `{original_ref}` could not be resolved from the imported lockfile"
+            "pnpm root dependency `{dep_name}` -> `{requested}` could not be resolved from the imported lockfile"
         ),
     })?;
     let (resolved_name, version) = split_dep_key(dep_key).ok_or_else(|| SnpmError::Lockfile {
@@ -432,7 +432,7 @@ fn build_required_root_dependency(
     })?;
 
     Ok(LockRootDependency {
-        requested: original_ref.to_string(),
+        requested: requested.to_string(),
         package: (resolved_name != dep_name).then_some(resolved_name),
         version: Some(version),
         optional: false,

@@ -6,7 +6,10 @@ use super::types::{Workspace, WorkspaceConfig};
 use crate::Result;
 use std::path::Path;
 
-use config::{empty_workspace_config, merge_catalog_entries, merge_snpm_catalog, read_config};
+use config::{
+    empty_workspace_config, merge_catalog_entries, merge_snpm_catalog, merge_yarn_catalog,
+    read_config,
+};
 use package_json::read_package_json_workspaces;
 use projects::load_projects;
 
@@ -43,6 +46,8 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
         None => empty_workspace_config(),
     };
 
+    let include_root_project = package_json_workspaces.is_none();
+
     if let Some((patterns, catalog, catalogs)) =
         package_json_workspaces.map(|workspaces| workspaces.into_parts())
     {
@@ -51,7 +56,8 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
     }
 
     merge_snpm_catalog(&root, &mut config)?;
-    let projects = load_projects(&root, &config)?;
+    merge_yarn_catalog(&root, &mut config)?;
+    let projects = load_projects(&root, &config, include_root_project)?;
 
     Ok(Some(Workspace {
         root,

@@ -3,12 +3,12 @@ use crate::registry::RegistryProtocol;
 pub fn detect_manifest_protocol(spec: &str) -> Option<RegistryProtocol> {
     if spec.starts_with("npm:") {
         Some(RegistryProtocol::npm())
-    } else if is_git_spec(spec) {
-        Some(RegistryProtocol::git())
-    } else if spec.starts_with("jsr:") {
-        Some(RegistryProtocol::jsr())
     } else if spec.starts_with("file:") {
         Some(RegistryProtocol::file())
+    } else if spec.starts_with("jsr:") {
+        Some(RegistryProtocol::jsr())
+    } else if is_git_spec(spec) {
+        Some(RegistryProtocol::git())
     } else {
         None
     }
@@ -18,12 +18,66 @@ pub fn is_special_protocol_spec(spec: &str) -> bool {
     spec.starts_with("catalog:")
         || spec.starts_with("workspace:")
         || spec.starts_with("npm:")
-        || is_git_spec(spec)
         || spec.starts_with("jsr:")
+        || is_git_spec(spec)
 }
 
 fn is_git_spec(spec: &str) -> bool {
-    spec.starts_with("git:") || spec.starts_with("git+")
+    spec.starts_with("git:")
+        || spec.starts_with("git+")
+        || spec.starts_with("github:")
+        || spec.starts_with("gitlab:")
+        || spec.starts_with("bitbucket:")
+        || looks_like_hosted_git_url(spec)
+        || looks_like_hosted_git_shorthand(spec)
+}
+
+fn looks_like_hosted_git_url(spec: &str) -> bool {
+    matches_hosted_git_url(spec, "https://github.com/")
+        || matches_hosted_git_url(spec, "https://gitlab.com/")
+        || matches_hosted_git_url(spec, "https://bitbucket.org/")
+}
+
+fn matches_hosted_git_url(spec: &str, prefix: &str) -> bool {
+    let Some(rest) = spec.trim().strip_prefix(prefix) else {
+        return false;
+    };
+
+    let repo = rest.split('#').next().unwrap_or(rest).trim_matches('/');
+    let mut parts = repo.split('/');
+    let Some(owner) = parts.next() else {
+        return false;
+    };
+    let Some(name) = parts.next() else {
+        return false;
+    };
+
+    !owner.is_empty() && !name.is_empty() && parts.next().is_none()
+}
+
+fn looks_like_hosted_git_shorthand(spec: &str) -> bool {
+    let trimmed = spec.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('@')
+        || trimmed.starts_with('.')
+        || trimmed.starts_with('/')
+        || trimmed.contains("://")
+        || trimmed.contains('\\')
+        || trimmed.contains(' ')
+    {
+        return false;
+    }
+
+    let repo = trimmed.split('#').next().unwrap_or(trimmed);
+    let mut parts = repo.split('/');
+    let Some(owner) = parts.next() else {
+        return false;
+    };
+    let Some(name) = parts.next() else {
+        return false;
+    };
+
+    !owner.is_empty() && !name.is_empty() && parts.next().is_none()
 }
 
 #[cfg(test)]
@@ -42,6 +96,22 @@ mod tests {
     fn detect_manifest_protocol_git() {
         assert_eq!(
             detect_manifest_protocol("git+https://github.com/foo/bar.git"),
+            Some(RegistryProtocol::git())
+        );
+    }
+
+    #[test]
+    fn detect_manifest_protocol_github_shorthand() {
+        assert_eq!(
+            detect_manifest_protocol("webpack/tooling#v1.26.1"),
+            Some(RegistryProtocol::git())
+        );
+    }
+
+    #[test]
+    fn detect_manifest_protocol_hosted_git_url() {
+        assert_eq!(
+            detect_manifest_protocol("https://github.com/uNetworking/uWebSockets.js#v20.49.0"),
             Some(RegistryProtocol::git())
         );
     }

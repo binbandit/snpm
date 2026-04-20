@@ -22,6 +22,7 @@ pub async fn resolve_with_offline<F, Fut>(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    existing_graph: Option<&super::types::ResolutionGraph>,
     offline_mode: OfflineMode,
     on_package: F,
 ) -> Result<ResolutionGraph>
@@ -38,6 +39,7 @@ where
         min_age_days,
         force,
         overrides,
+        existing_graph,
         offline_mode,
         state: state.clone(),
         prefetch_tx: prefetch_tx.clone(),

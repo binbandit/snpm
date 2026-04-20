@@ -17,6 +17,7 @@ pub(crate) async fn resolve_workspace_deps(
     root_protocols: &BTreeMap<String, crate::registry::RegistryProtocol>,
     optional_root_names: &BTreeSet<String>,
     force: bool,
+    existing_graph: Option<&ResolutionGraph>,
     store_paths: &mut BTreeMap<PackageId, PathBuf>,
 ) -> Result<ResolutionGraph> {
     let paths = Arc::new(Mutex::new(BTreeMap::new()));
@@ -34,48 +35,94 @@ pub(crate) async fn resolve_workspace_deps(
         let config_clone = config.clone();
         let client_clone = client.clone();
 
-        resolve::resolve_with_optional_roots(
-            config,
-            client,
-            root_deps,
-            root_protocols,
-            optional_root_names,
-            min_age,
-            force,
-            None,
-            move |package| {
-                let config = config_clone.clone();
-                let client = client_clone.clone();
-                let paths = paths.clone();
-                let tasks = tasks.clone();
-                let count = count.clone();
-                let total = total.clone();
-                let name = package.id.name.clone();
+        if let Some(seed_graph) = existing_graph {
+            resolve::resolve_with_optional_roots_with_seed(
+                config,
+                client,
+                root_deps,
+                root_protocols,
+                optional_root_names,
+                min_age,
+                force,
+                None,
+                Some(seed_graph),
+                move |package| {
+                    let config = config_clone.clone();
+                    let client = client_clone.clone();
+                    let paths = paths.clone();
+                    let tasks = tasks.clone();
+                    let count = count.clone();
+                    let total = total.clone();
+                    let name = package.id.name.clone();
 
-                async move {
-                    let current = count.fetch_add(1, Ordering::Relaxed) + 1;
-                    let mut total_val = total.load(Ordering::Relaxed);
-                    if current > total_val {
-                        total_val = current;
-                        total.store(total_val, Ordering::Relaxed);
+                    async move {
+                        let current = count.fetch_add(1, Ordering::Relaxed) + 1;
+                        let mut total_val = total.load(Ordering::Relaxed);
+                        if current > total_val {
+                            total_val = current;
+                            total.store(total_val, Ordering::Relaxed);
+                        }
+                        console::progress("🚚", &name, current, total_val);
+
+                        let package_id = package.id.clone();
+                        let handle = tokio::spawn(async move {
+                            let path = store::ensure_package(&config, &package, &client).await?;
+                            let mut map = paths.lock().await;
+                            map.insert(package_id, path);
+                            Ok::<(), SnpmError>(())
+                        });
+
+                        let mut guard = tasks.lock().await;
+                        guard.push(handle);
+                        Ok(())
                     }
-                    console::progress("🚚", &name, current, total_val);
+                },
+            )
+            .await?
+        } else {
+            resolve::resolve_with_optional_roots(
+                config,
+                client,
+                root_deps,
+                root_protocols,
+                optional_root_names,
+                min_age,
+                force,
+                None,
+                move |package| {
+                    let config = config_clone.clone();
+                    let client = client_clone.clone();
+                    let paths = paths.clone();
+                    let tasks = tasks.clone();
+                    let count = count.clone();
+                    let total = total.clone();
+                    let name = package.id.name.clone();
 
-                    let package_id = package.id.clone();
-                    let handle = tokio::spawn(async move {
-                        let path = store::ensure_package(&config, &package, &client).await?;
-                        let mut map = paths.lock().await;
-                        map.insert(package_id, path);
-                        Ok::<(), SnpmError>(())
-                    });
+                    async move {
+                        let current = count.fetch_add(1, Ordering::Relaxed) + 1;
+                        let mut total_val = total.load(Ordering::Relaxed);
+                        if current > total_val {
+                            total_val = current;
+                            total.store(total_val, Ordering::Relaxed);
+                        }
+                        console::progress("🚚", &name, current, total_val);
 
-                    let mut guard = tasks.lock().await;
-                    guard.push(handle);
-                    Ok(())
-                }
-            },
-        )
-        .await?
+                        let package_id = package.id.clone();
+                        let handle = tokio::spawn(async move {
+                            let path = store::ensure_package(&config, &package, &client).await?;
+                            let mut map = paths.lock().await;
+                            map.insert(package_id, path);
+                            Ok::<(), SnpmError>(())
+                        });
+
+                        let mut guard = tasks.lock().await;
+                        guard.push(handle);
+                        Ok(())
+                    }
+                },
+            )
+            .await?
+        };
     };
 
     await_store_tasks(&tasks).await?;

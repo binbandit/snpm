@@ -19,6 +19,7 @@ pub(in crate::resolve) struct ResolverContext<'a> {
     pub(in crate::resolve) min_age_days: Option<u32>,
     pub(in crate::resolve) force: bool,
     pub(in crate::resolve) overrides: Option<&'a BTreeMap<String, String>>,
+    pub(in crate::resolve) existing_graph: Option<&'a super::types::ResolutionGraph>,
     pub(in crate::resolve) offline_mode: OfflineMode,
     pub(super) state: ResolverState,
     pub(super) prefetch_tx: mpsc::UnboundedSender<ResolvedPackage>,

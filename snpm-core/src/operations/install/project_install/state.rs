@@ -37,6 +37,14 @@ pub(super) async fn resolve_install_state(
         plan.root_dependencies.clone()
     };
 
+    let existing_graph = if matches!(options.frozen_lockfile, FrozenLockfileMode::Fix) {
+        read_lockfile_for_fix(plan, config)
+            .map(|lockfile| lockfile::to_graph(&lockfile))
+            .ok()
+    } else {
+        None
+    };
+
     let scenario_result = if options.include_dev
         && plan.additions.is_empty()
         && !matches!(
@@ -125,6 +133,7 @@ pub(super) async fn resolve_install_state(
                 plan,
                 &planned_root_dependencies,
                 options.force,
+                existing_graph.as_ref(),
             )
             .await?;
 

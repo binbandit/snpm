@@ -70,6 +70,40 @@ where
         min_age_days,
         force,
         overrides,
+        None,
+        OfflineMode::Online,
+        on_package,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn resolve_with_optional_roots_with_seed<F, Fut>(
+    config: &SnpmConfig,
+    client: &Client,
+    root_deps: &BTreeMap<String, String>,
+    root_protocols: &BTreeMap<String, RegistryProtocol>,
+    optional_root_names: &BTreeSet<String>,
+    min_age_days: Option<u32>,
+    force: bool,
+    overrides: Option<&BTreeMap<String, String>>,
+    existing_graph: Option<&ResolutionGraph>,
+    on_package: F,
+) -> Result<ResolutionGraph>
+where
+    F: FnMut(ResolvedPackage) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<()>> + Send,
+{
+    engine::resolve_with_offline(
+        config,
+        client,
+        root_deps,
+        root_protocols,
+        optional_root_names,
+        min_age_days,
+        force,
+        overrides,
+        existing_graph,
         OfflineMode::Online,
         on_package,
     )

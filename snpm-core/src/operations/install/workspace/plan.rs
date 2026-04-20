@@ -11,6 +11,7 @@ pub(super) struct WorkspaceInstallPlan {
     pub(super) setup: WorkspaceInstallSetup,
     pub(super) scenario: InstallScenario,
     pub(super) existing_lockfile: Option<lockfile::Lockfile>,
+    pub(super) is_fix_mode: bool,
 }
 
 fn pinned_workspace_root_dependencies_for_fix(
@@ -93,5 +94,6 @@ pub(super) fn plan_workspace_install(
         setup,
         scenario,
         existing_lockfile,
+        is_fix_mode: matches!(frozen_lockfile, FrozenLockfileMode::Fix),
     })
 }

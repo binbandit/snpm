@@ -27,7 +27,9 @@ impl<'a> ResolverContext<'a> {
             let is_optional = optional_root_names.contains(&name);
 
             tasks.push(async move {
-                match context.resolve_package(&name, &range, &protocol).await {
+                match context
+                    .resolve_package(&name, &range, &protocol, None)
+                    .await {
                     Ok(id) => Ok::<Option<(String, RootDependency)>, SnpmError>(Some((
                         name,
                         RootDependency {

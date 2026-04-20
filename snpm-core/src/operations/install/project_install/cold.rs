@@ -16,7 +16,9 @@ pub(super) async fn resolve_cold_install(
     config: &SnpmConfig,
     registry_client: &reqwest::Client,
     plan: &ProjectInstallPlan,
+    root_dependencies: &BTreeMap<String, String>,
     force: bool,
+    existing_graph: Option<&ResolutionGraph>,
 ) -> Result<(ResolutionGraph, BTreeMap<PackageId, PathBuf>)> {
     console::step("Resolving dependencies");
     console::verbose("cold path: full resolution required");
@@ -30,49 +32,94 @@ pub(super) async fn resolve_cold_install(
     let config_clone = config.clone();
     let client_clone = registry_client.clone();
     let progress_count = Arc::new(AtomicUsize::new(0));
-    let progress_total = Arc::new(AtomicUsize::new(plan.root_dependencies.len()));
+    let progress_total = Arc::new(AtomicUsize::new(root_dependencies.len()));
 
-    let graph = resolve::resolve_with_optional_roots(
-        config,
-        registry_client,
-        &plan.root_dependencies,
-        &plan.root_protocols,
-        &plan.optional_root_names,
-        config.min_package_age_days,
-        force,
-        Some(&plan.overrides),
-        move |package| {
-            let config = config_clone.clone();
-            let client = client_clone.clone();
-            let paths = paths.clone();
-            let tasks = tasks.clone();
-            let count = progress_count.clone();
-            let total = progress_total.clone();
-            let name = package.id.name.clone();
+    let graph = if let Some(seed_graph) = existing_graph {
+        resolve::resolve_with_optional_roots_with_seed(
+            config,
+            registry_client,
+            root_dependencies,
+            &plan.root_protocols,
+            &plan.optional_root_names,
+            config.min_package_age_days,
+            force,
+            Some(&plan.overrides),
+            Some(seed_graph),
+            move |package| {
+                let config = config_clone.clone();
+                let client = client_clone.clone();
+                let paths = paths.clone();
+                let tasks = tasks.clone();
+                let count = progress_count.clone();
+                let total = progress_total.clone();
+                let name = package.id.name.clone();
 
-            async move {
-                let current = count.fetch_add(1, Ordering::Relaxed) + 1;
-                let mut total_value = total.load(Ordering::Relaxed);
-                if current > total_value {
-                    total_value = current;
-                    total.store(total_value, Ordering::Relaxed);
+                async move {
+                    let current = count.fetch_add(1, Ordering::Relaxed) + 1;
+                    let mut total_value = total.load(Ordering::Relaxed);
+                    if current > total_value {
+                        total_value = current;
+                        total.store(total_value, Ordering::Relaxed);
+                    }
+                    console::progress("🚚", &name, current, total_value);
+
+                    let package_id = package.id.clone();
+                    let handle = tokio::spawn(async move {
+                        let path = store::ensure_package(&config, &package, &client).await?;
+                        let mut map = paths.lock().await;
+                        map.insert(package_id, path);
+                        Ok::<(), SnpmError>(())
+                    });
+
+                    tasks.lock().await.push(handle);
+                    Ok(())
                 }
-                console::progress("🚚", &name, current, total_value);
+            },
+        )
+        .await?
+    } else {
+        resolve::resolve_with_optional_roots(
+            config,
+            registry_client,
+            root_dependencies,
+            &plan.root_protocols,
+            &plan.optional_root_names,
+            config.min_package_age_days,
+            force,
+            Some(&plan.overrides),
+            move |package| {
+                let config = config_clone.clone();
+                let client = client_clone.clone();
+                let paths = paths.clone();
+                let tasks = tasks.clone();
+                let count = progress_count.clone();
+                let total = progress_total.clone();
+                let name = package.id.name.clone();
 
-                let package_id = package.id.clone();
-                let handle = tokio::spawn(async move {
-                    let path = store::ensure_package(&config, &package, &client).await?;
-                    let mut map = paths.lock().await;
-                    map.insert(package_id, path);
-                    Ok::<(), SnpmError>(())
-                });
+                async move {
+                    let current = count.fetch_add(1, Ordering::Relaxed) + 1;
+                    let mut total_value = total.load(Ordering::Relaxed);
+                    if current > total_value {
+                        total_value = current;
+                        total.store(total_value, Ordering::Relaxed);
+                    }
+                    console::progress("🚚", &name, current, total_value);
 
-                tasks.lock().await.push(handle);
-                Ok(())
-            }
-        },
-    )
-    .await?;
+                    let package_id = package.id.clone();
+                    let handle = tokio::spawn(async move {
+                        let path = store::ensure_package(&config, &package, &client).await?;
+                        let mut map = paths.lock().await;
+                        map.insert(package_id, path);
+                        Ok::<(), SnpmError>(())
+                    });
+
+                    tasks.lock().await.push(handle);
+                    Ok(())
+                }
+            },
+        )
+        .await?
+    };
 
     console::verbose(&format!(
         "resolve completed in {:.3}s (packages={})",

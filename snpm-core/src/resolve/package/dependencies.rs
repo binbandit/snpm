@@ -12,12 +12,13 @@ use super::metadata::bundled_dependency_names;
 impl<'a> ResolverContext<'a> {
     pub(super) async fn resolve_dependencies(
         &self,
+        package_id: &PackageId,
         version_meta: &RegistryVersion,
     ) -> crate::Result<BTreeMap<String, PackageId>> {
         let bundled = bundled_dependency_names(version_meta);
         let (required, optional) = join(
-            self.resolve_required_dependencies(version_meta, &bundled),
-            self.resolve_optional_dependencies(version_meta, &bundled),
+            self.resolve_required_dependencies(package_id, version_meta, &bundled),
+            self.resolve_optional_dependencies(package_id, version_meta, &bundled),
         )
         .await;
 
@@ -31,13 +32,15 @@ impl<'a> ResolverContext<'a> {
 
     async fn resolve_required_dependencies(
         &self,
+        package_id: &PackageId,
         version_meta: &RegistryVersion,
         bundled: &BTreeSet<String>,
     ) -> crate::Result<BTreeMap<String, PackageId>> {
         let mut futures = Vec::new();
+        let parent_id = package_id.to_owned();
 
         for (name, range) in &version_meta.dependencies {
-            if bundled.contains(name) {
+            if bundled.contains(name) || version_meta.optional_dependencies.contains_key(name) {
                 continue;
             }
 
@@ -47,7 +50,9 @@ impl<'a> ResolverContext<'a> {
             let protocol = protocol_from_range(&range);
 
             futures.push(async move {
-                let id = context.resolve_package(&name, &range, &protocol).await?;
+                let id = context
+                    .resolve_package(&name, &range, &protocol, Some(&parent_id))
+                    .await?;
                 Ok::<(String, PackageId), SnpmError>((name, id))
             });
         }
@@ -63,10 +68,12 @@ impl<'a> ResolverContext<'a> {
 
     async fn resolve_optional_dependencies(
         &self,
+        package_id: &PackageId,
         version_meta: &RegistryVersion,
         bundled: &BTreeSet<String>,
     ) -> Vec<(String, PackageId)> {
         let mut futures = Vec::new();
+        let parent_id = package_id.to_owned();
 
         for (name, range) in &version_meta.optional_dependencies {
             if bundled.contains(name) {
@@ -79,7 +86,10 @@ impl<'a> ResolverContext<'a> {
             let protocol = protocol_from_range(&range);
 
             futures.push(async move {
-                match context.resolve_package(&name, &range, &protocol).await {
+                match context
+                    .resolve_package(&name, &range, &protocol, Some(&parent_id))
+                    .await
+                {
                     Ok(id) => Some((name, id)),
                     Err(_) => None,
                 }

@@ -114,6 +114,12 @@ async fn load_cold_graph(
 ) -> Result<WorkspaceGraphLoad> {
     console::step("Resolving workspace dependencies");
 
+    let existing_graph = if plan.is_fix_mode && matches!(plan.scenario, InstallScenario::Cold) {
+        plan.existing_lockfile.as_ref().map(lockfile::to_graph)
+    } else {
+        None
+    };
+
     let mut store_paths_map = BTreeMap::new();
     let graph = resolve_workspace_deps(
         config,
@@ -122,6 +128,7 @@ async fn load_cold_graph(
         &plan.setup.root_protocols,
         &plan.setup.optional_root_names,
         force,
+        existing_graph.as_ref(),
         &mut store_paths_map,
     )
     .await?;

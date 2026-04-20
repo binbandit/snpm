@@ -31,6 +31,7 @@ pub(super) async fn resolve_dlx_graph(
         dlx_config.min_package_age_days,
         true,
         None,
+        None,
         offline_mode,
         {
             let store_config = store_config.clone();

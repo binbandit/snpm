@@ -1,17 +1,15 @@
-use super::fs::copy_dir;
-use super::fs::link_dir;
+use super::fs::{copy_dir, ensure_parent_dir, symlink_dir_entry, symlink_is_correct};
 use crate::resolve::{PackageId, ResolutionGraph};
-use crate::{HoistingMode, Project, Result, SnpmConfig, SnpmError, Workspace, lifecycle};
+use crate::{HoistingMode, Project, Result, SnpmConfig, SnpmError, Workspace};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub fn hoist_packages(
-    config: &SnpmConfig,
-    workspace: Option<&Workspace>,
     project: &Project,
     graph: &ResolutionGraph,
-    store_paths: &BTreeMap<PackageId, PathBuf>,
+    virtual_store_paths: &Arc<BTreeMap<PackageId, PathBuf>>,
     mode: HoistingMode,
 ) -> Result<()> {
     if matches!(mode, HoistingMode::None) {
@@ -45,40 +43,37 @@ pub fn hoist_packages(
 
     to_hoist.par_iter().try_for_each(|(name, id)| {
         let dest = root_node_modules.join(name);
-
-        if dest.exists() {
-            return Ok(());
-        }
-
-        link_shallow_package(config, workspace, id, &dest, store_paths)
+        link_hoisted_package(name, id, &dest, virtual_store_paths)
     })?;
 
     Ok(())
 }
 
-fn link_shallow_package(
-    config: &SnpmConfig,
-    workspace: Option<&Workspace>,
+fn link_hoisted_package(
+    name: &str,
     id: &PackageId,
     dest: &Path,
-    store_paths: &BTreeMap<PackageId, PathBuf>,
+    virtual_store_paths: &Arc<BTreeMap<PackageId, PathBuf>>,
 ) -> Result<()> {
-    if dest.exists() {
+    let target = virtual_store_paths
+        .get(id)
+        .ok_or_else(|| SnpmError::StoreMissing {
+            name: id.name.clone(),
+            version: id.version.clone(),
+        })?;
+
+    if symlink_is_correct(dest, target) {
         return Ok(());
     }
 
-    let store_root = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
-        name: id.name.clone(),
-        version: id.version.clone(),
-    })?;
+    std::fs::remove_file(dest).ok();
+    std::fs::remove_dir_all(dest).ok();
 
-    let scripts_allowed = lifecycle::is_dep_script_allowed(config, workspace, &id.name);
-
-    if scripts_allowed {
-        copy_dir(store_root, dest)?;
-    } else {
-        link_dir(config, store_root, dest)?;
+    if name.contains('/') {
+        ensure_parent_dir(dest)?;
     }
+
+    symlink_dir_entry(target, dest).or_else(|_| copy_dir(target, dest))?;
 
     Ok(())
 }
@@ -92,4 +87,84 @@ pub fn effective_hoisting(config: &SnpmConfig, workspace: Option<&Workspace>) ->
     }
 
     config.hoisting
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hoist_packages;
+    use crate::project::Manifest;
+    use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage};
+    use crate::{HoistingMode, Project};
+
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn make_project(root: PathBuf) -> Project {
+        Project {
+            manifest_path: root.join("package.json"),
+            root,
+            manifest: Manifest {
+                name: Some("app".to_string()),
+                version: Some("1.0.0".to_string()),
+                private: false,
+                dependencies: BTreeMap::new(),
+                dev_dependencies: BTreeMap::new(),
+                optional_dependencies: BTreeMap::new(),
+                scripts: BTreeMap::new(),
+                files: None,
+                bin: None,
+                main: None,
+                pnpm: None,
+                snpm: None,
+                workspaces: None,
+            },
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hoist_packages_symlinks_to_virtual_store_entries() {
+        let dir = tempdir().unwrap();
+        let project = make_project(dir.path().join("project"));
+        fs::create_dir_all(project.root.join("node_modules")).unwrap();
+
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let virtual_target = dir.path().join(".snpm/dep@1.0.0/node_modules/dep");
+        fs::create_dir_all(&virtual_target).unwrap();
+        fs::write(
+            virtual_target.join("package.json"),
+            r#"{"name":"dep","version":"1.0.0"}"#,
+        )
+        .unwrap();
+
+        let pkg = ResolvedPackage {
+            id: id.clone(),
+            tarball: String::new(),
+            integrity: None,
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+        };
+        let graph = ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::new(),
+            },
+            packages: BTreeMap::from([(id.clone(), pkg)]),
+        };
+        let virtual_store_paths = Arc::new(BTreeMap::from([(id.clone(), virtual_target.clone())]));
+
+        hoist_packages(&project, &graph, &virtual_store_paths, HoistingMode::All).unwrap();
+
+        let hoisted = project.root.join("node_modules/dep");
+        assert!(hoisted.exists());
+        assert!(hoisted.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_link(&hoisted).unwrap(), virtual_target);
+    }
 }

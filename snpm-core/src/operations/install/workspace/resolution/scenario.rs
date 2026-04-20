@@ -3,7 +3,7 @@ use crate::operations::install::utils::FrozenLockfileMode;
 use crate::{Result, SnpmConfig, Workspace};
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::super::super::utils::{
     InstallScenario, IntegrityState, build_workspace_integrity_state, check_integrity_path,
@@ -41,7 +41,10 @@ pub(crate) fn detect_workspace_scenario_early(
         Err(_) => return (InstallScenario::Cold, Some(existing)),
     };
 
-    if !force && check_workspace_integrity(&workspace.root, &integrity_state) {
+    if !force
+        && check_workspace_integrity(&workspace.root, &integrity_state)
+        && workspace_layout_matches_graph(workspace, &graph)
+    {
         return (InstallScenario::Hot, Some(existing));
     }
 
@@ -58,6 +61,29 @@ pub(crate) fn detect_workspace_scenario_early(
     }
 
     (InstallScenario::WarmPartialCache, Some(existing))
+}
+
+fn workspace_layout_matches_graph(
+    workspace: &Workspace,
+    graph: &crate::resolve::ResolutionGraph,
+) -> bool {
+    let virtual_store_dir = workspace.root.join(".snpm");
+
+    for id in graph.packages.keys() {
+        if !virtual_package_location(&virtual_store_dir, id).exists() {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn virtual_package_location(virtual_store_dir: &Path, id: &crate::resolve::PackageId) -> PathBuf {
+    let safe_name = id.name.replace('/', "+");
+    virtual_store_dir
+        .join(format!("{}@{}", safe_name, id.version))
+        .join("node_modules")
+        .join(&id.name)
 }
 
 pub(crate) fn validate_lockfile_matches_manifest(

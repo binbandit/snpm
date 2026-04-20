@@ -1,6 +1,7 @@
-use crate::linker::fs::{ensure_parent_dir, link_dir};
+use crate::linker::fs::{ensure_parent_dir, link_dir, symlink_dir_entry, symlink_is_correct};
+use crate::linker::populate_shared_virtual_store;
 use crate::resolve::{PackageId, ResolutionGraph};
-use crate::{Result, SnpmConfig, SnpmError};
+use crate::{Result, SnpmConfig, SnpmError, Workspace, lifecycle};
 
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -15,7 +16,9 @@ pub(in crate::operations::install::workspace) fn populate_virtual_store(
     graph: &ResolutionGraph,
     store_paths: &BTreeMap<PackageId, PathBuf>,
     config: &SnpmConfig,
+    workspace: &Workspace,
 ) -> Result<BTreeMap<PackageId, PathBuf>> {
+    let shared_paths = populate_shared_virtual_store(config, graph, store_paths)?;
     let virtual_store_paths = Arc::new(Mutex::new(BTreeMap::new()));
     let packages: Vec<_> = graph.packages.iter().collect();
 
@@ -23,11 +26,18 @@ pub(in crate::operations::install::workspace) fn populate_virtual_store(
         let virtual_id_dir = virtual_id_dir(virtual_store_dir, id);
         let package_location = virtual_package_location(virtual_store_dir, id);
         let marker_file = virtual_id_dir.join(".snpm_linked");
+        let shared_target = shared_paths
+            .get(*id)
+            .ok_or_else(|| SnpmError::StoreMissing {
+                name: id.name.clone(),
+                version: id.version.clone(),
+            })?;
+        let scripts_allowed = lifecycle::is_dep_script_allowed(config, Some(workspace), &id.name);
 
-        let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
-            name: id.name.clone(),
-            version: id.version.clone(),
-        })?;
+        if !scripts_allowed && symlink_is_correct(&package_location, shared_target) {
+            record_virtual_store_path(&virtual_store_paths, id, package_location);
+            return Ok(());
+        }
 
         if marker_file.is_file() && virtual_package_ready(&package_location) {
             record_virtual_store_path(&virtual_store_paths, id, package_location);
@@ -38,16 +48,24 @@ pub(in crate::operations::install::workspace) fn populate_virtual_store(
             fs::remove_file(&marker_file).ok();
         }
 
+        let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
+            name: id.name.clone(),
+            version: id.version.clone(),
+        })?;
+
         fs::remove_file(&package_location).ok();
         fs::remove_dir_all(&package_location).ok();
 
         ensure_parent_dir(&package_location)?;
-        link_dir(config, store_path, &package_location)?;
 
-        fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
-            path: marker_file,
-            source,
-        })?;
+        if scripts_allowed || symlink_dir_entry(shared_target, &package_location).is_err() {
+            link_dir(config, store_path, &package_location)?;
+
+            fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
+                path: marker_file,
+                source,
+            })?;
+        }
 
         record_virtual_store_path(&virtual_store_paths, id, package_location);
         Ok(())

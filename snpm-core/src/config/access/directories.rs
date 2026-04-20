@@ -7,6 +7,10 @@ impl SnpmConfig {
         self.data_dir.join("packages")
     }
 
+    pub fn virtual_store_dir(&self) -> PathBuf {
+        self.data_dir.join("virtual-store")
+    }
+
     pub fn metadata_dir(&self) -> PathBuf {
         self.data_dir.join("metadata")
     }

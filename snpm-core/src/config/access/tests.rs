@@ -147,6 +147,10 @@ fn authorization_header_returns_none_without_token() {
 fn derived_directories() {
     let config = make_config();
     assert_eq!(config.packages_dir(), PathBuf::from("/tmp/data/packages"));
+    assert_eq!(
+        config.virtual_store_dir(),
+        PathBuf::from("/tmp/data/virtual-store")
+    );
     assert_eq!(config.metadata_dir(), PathBuf::from("/tmp/data/metadata"));
     assert_eq!(config.global_dir(), PathBuf::from("/tmp/data/global"));
     assert_eq!(config.global_bin_dir(), PathBuf::from("/tmp/data/bin"));

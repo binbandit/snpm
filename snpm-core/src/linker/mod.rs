@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use hoist::{effective_hoisting, hoist_packages};
 use root::{link_root_bins, link_root_dependencies};
 use selection::filter_root_dependencies;
+pub(crate) use virtual_store::populate_shared_virtual_store;
 use virtual_store::{link_virtual_dependencies, populate_virtual_store};
 
 pub fn link(
@@ -39,7 +40,7 @@ pub fn link(
     })?;
 
     let virtual_store_paths =
-        populate_virtual_store(&virtual_store_dir, graph, store_paths, config)?;
+        populate_virtual_store(&virtual_store_dir, graph, store_paths, config, workspace)?;
 
     link_virtual_dependencies(&virtual_store_paths, graph)?;
 
@@ -53,11 +54,9 @@ pub fn link(
     }
 
     hoist_packages(
-        config,
-        workspace,
         project,
         graph,
-        store_paths,
+        &virtual_store_paths,
         effective_hoisting(config, workspace),
     )
 }

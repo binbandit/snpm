@@ -38,7 +38,13 @@ pub(super) fn finalize_workspace_install(
         rebuild_virtual_store_paths(&shared_virtual_store, graph)?
     } else {
         console::step("Linking workspace");
-        populate_virtual_store(&shared_virtual_store, graph, store_paths_map, config)?
+        populate_virtual_store(
+            &shared_virtual_store,
+            graph,
+            store_paths_map,
+            config,
+            workspace,
+        )?
     };
 
     link_store_dependencies(&virtual_store_paths, graph)?;

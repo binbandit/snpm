@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 pub fn symlink_is_correct(link: &Path, expected_target: &Path) -> bool {
     match fs::read_link(link) {
-        Ok(current_target) => current_target == expected_target,
+        Ok(current_target) => current_target == expected_target && expected_target.exists(),
         Err(_) => false,
     }
 }
@@ -107,6 +107,20 @@ mod tests {
         std::os::windows::fs::symlink_dir(&target1, &link).unwrap();
 
         assert!(!symlink_is_correct(&link, &target2));
+    }
+
+    #[test]
+    fn symlink_is_correct_false_for_broken_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("missing-target");
+        let link = dir.path().join("link");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+
+        assert!(!symlink_is_correct(&link, &target));
     }
 
     #[test]

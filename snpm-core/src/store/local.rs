@@ -21,7 +21,15 @@ pub(super) async fn materialize_local_package(
         source_path.display()
     ));
 
-    let _extract_permit = extraction_semaphore().acquire().await.unwrap();
+    let _extract_permit =
+        extraction_semaphore()
+            .acquire()
+            .await
+            .map_err(|error| SnpmError::Internal {
+                reason: format!(
+                    "extraction semaphore closed while installing local package: {error}"
+                ),
+            })?;
     let prep_dir = package_dir.to_path_buf();
 
     tokio::task::spawn_blocking(move || -> Result<()> { reset_package_dir(&prep_dir) })

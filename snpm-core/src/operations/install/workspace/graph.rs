@@ -41,7 +41,7 @@ fn load_hot_graph(plan: &WorkspaceInstallPlan) -> Result<WorkspaceGraphLoad> {
     console::step("Using cached install");
 
     Ok(WorkspaceGraphLoad {
-        graph: lockfile::to_graph(existing_lockfile(plan, "Hot")),
+        graph: lockfile::to_graph(existing_lockfile(plan, "Hot")?),
         store_paths_map: BTreeMap::new(),
     })
 }
@@ -50,7 +50,7 @@ fn load_warm_link_graph(
     config: &SnpmConfig,
     plan: &WorkspaceInstallPlan,
 ) -> Result<WorkspaceGraphLoad> {
-    let graph = lockfile::to_graph(existing_lockfile(plan, "WarmLinkOnly"));
+    let graph = lockfile::to_graph(existing_lockfile(plan, "WarmLinkOnly")?);
     let cache_check = check_store_cache(config, &graph);
 
     console::step_with_count("Using cached packages", cache_check.cached.len());
@@ -66,7 +66,7 @@ async fn load_warm_partial_graph(
     registry_client: &Client,
     plan: &WorkspaceInstallPlan,
 ) -> Result<WorkspaceGraphLoad> {
-    let graph = lockfile::to_graph(existing_lockfile(plan, "WarmPartialCache"));
+    let graph = lockfile::to_graph(existing_lockfile(plan, "WarmPartialCache")?);
     let cache_check = check_store_cache(config, &graph);
     let mut store_paths_map = cache_check.cached;
 
@@ -126,8 +126,14 @@ async fn load_cold_graph(
     })
 }
 
-fn existing_lockfile<'a>(plan: &'a WorkspaceInstallPlan, scenario: &str) -> &'a lockfile::Lockfile {
+fn existing_lockfile<'a>(
+    plan: &'a WorkspaceInstallPlan,
+    scenario: &str,
+) -> crate::Result<&'a lockfile::Lockfile> {
     plan.existing_lockfile
         .as_ref()
-        .unwrap_or_else(|| panic!("{scenario} scenario requires lockfile"))
+        .ok_or_else(|| crate::SnpmError::Lockfile {
+            path: plan.setup.lockfile_path.clone(),
+            reason: format!("{scenario} scenario requires existing lockfile"),
+        })
 }

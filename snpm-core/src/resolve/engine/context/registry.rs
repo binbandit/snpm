@@ -22,7 +22,18 @@ impl<'a> ResolverContext<'a> {
             return Ok(package);
         }
 
-        let _permit = self.state.registry_semaphore.acquire().await.unwrap();
+        let _permit = self
+            .state
+            .registry_semaphore
+            .acquire()
+            .await
+            .map_err(|error| {
+                crate::SnpmError::Internal {
+                    reason: format!(
+                        "registry semaphore closed while fetching {protocol:?} package {source}@{cache_key}: {error}"
+                    ),
+                }
+            })?;
 
         if let Some(package) = self
             .state

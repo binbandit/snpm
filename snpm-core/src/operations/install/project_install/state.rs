@@ -1,5 +1,6 @@
 use super::cold::resolve_cold_install;
 use super::plan::ProjectInstallPlan;
+use crate::SnpmError;
 use crate::console;
 use crate::lockfile;
 use crate::resolve::{PackageId, ResolutionGraph};
@@ -41,20 +42,21 @@ pub(super) async fn resolve_install_state(
         ScenarioResult::cold()
     };
 
-    let scenario = scenario_result.scenario;
+    let ScenarioResult {
+        cache_check,
+        graph,
+        integrity_state,
+        scenario,
+        ..
+    } = scenario_result;
     let mut store_paths = BTreeMap::new();
 
     let graph = match scenario {
-        InstallScenario::Hot => scenario_result
-            .graph
-            .expect("Hot scenario requires a precomputed graph"),
+        InstallScenario::Hot => require_graph(graph, "Hot")?,
         InstallScenario::WarmLinkOnly => {
-            let graph = scenario_result
-                .graph
-                .expect("WarmLinkOnly scenario requires a precomputed graph");
-            let cache_check = scenario_result
-                .cache_check
-                .expect("WarmLinkOnly scenario requires cache state");
+            let graph = require_graph(graph, "WarmLinkOnly")?;
+            let cache_check =
+                require_cache(cache_check, "WarmLinkOnly scenario requires cache state")?;
 
             store_paths = cache_check.cached;
             console::verbose(&format!(
@@ -66,12 +68,11 @@ pub(super) async fn resolve_install_state(
             graph
         }
         InstallScenario::WarmPartialCache => {
-            let graph = scenario_result
-                .graph
-                .expect("WarmPartialCache scenario requires a precomputed graph");
-            let cache_check = scenario_result
-                .cache_check
-                .expect("WarmPartialCache scenario requires cache state");
+            let graph = require_graph(graph, "WarmPartialCache")?;
+            let cache_check = require_cache(
+                cache_check,
+                "WarmPartialCache scenario requires cache state",
+            )?;
             let cached_count = cache_check.cached.len();
             let missing_count = cache_check.missing.len();
 
@@ -124,6 +125,18 @@ pub(super) async fn resolve_install_state(
         scenario,
         graph,
         store_paths,
-        integrity_state: scenario_result.integrity_state,
+        integrity_state,
+    })
+}
+
+fn require_graph(graph: Option<ResolutionGraph>, scenario: &str) -> Result<ResolutionGraph> {
+    graph.ok_or_else(|| SnpmError::Internal {
+        reason: format!("{scenario} scenario requires a precomputed graph"),
+    })
+}
+
+fn require_cache<T>(cache_check: Option<T>, message: &str) -> Result<T> {
+    cache_check.ok_or_else(|| SnpmError::Internal {
+        reason: message.to_string(),
     })
 }

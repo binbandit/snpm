@@ -72,7 +72,9 @@ async fn run() -> Result<()> {
         Command::Completions(args) => commands::completions::run(args).await?,
         Command::Script(args) => {
             let mut iter = args.into_iter();
-            let script = iter.next().expect("external subcommand must have a name");
+            let script = iter
+                .next()
+                .context("external subcommand must have a name")?;
             let extra_args: Vec<String> = iter.collect();
             let run_args = commands::run::RunArgs {
                 script,

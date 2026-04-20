@@ -18,7 +18,16 @@ pub(super) async fn materialize_remote_package(
 ) -> Result<()> {
     let download_started = Instant::now();
     let bytes = {
-        let _download_permit = download_semaphore().acquire().await.unwrap();
+        let _download_permit =
+            download_semaphore()
+                .acquire()
+                .await
+                .map_err(|error| SnpmError::Internal {
+                    reason: format!(
+                        "download semaphore closed while fetching {}@{}: {error}",
+                        package.id.name, package.id.version
+                    ),
+                })?;
         let bytes = download_and_verify_tarball(
             config,
             &package.tarball,
@@ -38,7 +47,16 @@ pub(super) async fn materialize_remote_package(
         download_started.elapsed().as_secs_f64()
     ));
 
-    let _extract_permit = extraction_semaphore().acquire().await.unwrap();
+    let _extract_permit =
+        extraction_semaphore()
+            .acquire()
+            .await
+            .map_err(|error| SnpmError::Internal {
+                reason: format!(
+                    "extraction semaphore closed while unpacking {}@{}: {error}",
+                    package.id.name, package.id.version
+                ),
+            })?;
     let unpack_started = Instant::now();
     let target_dir = package_dir.to_path_buf();
 

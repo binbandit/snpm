@@ -27,7 +27,13 @@ pub(super) async fn authenticate(
                 username: Some(read_line("Username: ").map_err(auth_error)?),
                 password: Some(read_password("Password: ").map_err(auth_error)?),
             };
-            *captured_for_closure.lock().unwrap() = Some(credentials.clone());
+            let mut captured_for_closure =
+                captured_for_closure
+                    .lock()
+                    .map_err(|error| SnpmError::Internal {
+                        reason: format!("authentication state unavailable: {error}"),
+                    })?;
+            *captured_for_closure = Some(credentials.clone());
             Ok(credentials)
         };
 
@@ -64,7 +70,11 @@ fn create_opener() -> operations::OpenerFn {
 fn recover_credentials(
     captured_credentials: &Arc<Mutex<Option<operations::Credentials>>>,
 ) -> Result<Option<operations::Credentials>> {
-    if let Some(credentials) = captured_credentials.lock().unwrap().take() {
+    let mut captured_credentials = captured_credentials
+        .lock()
+        .map_err(|error| anyhow::anyhow!(format!("authentication state unavailable: {error}")))?;
+
+    if let Some(credentials) = captured_credentials.take() {
         return Ok(Some(credentials));
     }
 

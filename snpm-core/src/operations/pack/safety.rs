@@ -51,30 +51,30 @@ pub(super) fn audit_pack(project: &Project, files: &[CollectedFile]) -> Result<V
         }
     }
 
-    if let Some(max_files) = policy.and_then(|config| config.max_files) {
-        if files.len() > max_files {
-            findings.push(error(
-                "MAX_FILES_EXCEEDED",
-                None,
-                format!(
-                    "package has {} files, exceeding the configured maxFiles of {max_files}",
-                    files.len()
-                ),
-            ));
-        }
+    if let Some(max_files) = policy.and_then(|config| config.max_files)
+        && files.len() > max_files
+    {
+        findings.push(error(
+            "MAX_FILES_EXCEEDED",
+            None,
+            format!(
+                "package has {} files, exceeding the configured maxFiles of {max_files}",
+                files.len()
+            ),
+        ));
     }
 
     let total_bytes: u64 = files.iter().map(|file| file.size).sum();
-    if let Some(max_bytes) = policy.and_then(|config| config.max_bytes) {
-        if total_bytes > max_bytes {
-            findings.push(error(
-                "MAX_BYTES_EXCEEDED",
-                None,
-                format!(
-                    "package is {total_bytes} bytes unpacked, exceeding the configured maxBytes of {max_bytes}"
-                ),
-            ));
-        }
+    if let Some(max_bytes) = policy.and_then(|config| config.max_bytes)
+        && total_bytes > max_bytes
+    {
+        findings.push(error(
+            "MAX_BYTES_EXCEEDED",
+            None,
+            format!(
+                "package is {total_bytes} bytes unpacked, exceeding the configured maxBytes of {max_bytes}"
+            ),
+        ));
     }
 
     Ok(findings)

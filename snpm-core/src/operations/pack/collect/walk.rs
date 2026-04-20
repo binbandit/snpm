@@ -175,7 +175,7 @@ fn parse_ignore_rules(content: &str, dir_relative: &str) -> Vec<IgnoreRule> {
 
     content
         .lines()
-        .filter_map(|line| parse_ignore_rule(line, &base))
+        .filter_map(|line| parse_ignore_rule(line, base))
         .collect()
 }
 

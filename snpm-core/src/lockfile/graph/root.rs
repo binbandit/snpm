@@ -10,13 +10,14 @@ pub(super) fn build_root_dependencies(lockfile: &Lockfile) -> BTreeMap<String, R
         let Some(version) = dep.version.as_ref() else {
             continue;
         };
+        let resolved_name = dep.package.as_deref().unwrap_or(name);
 
         root_dependencies.insert(
             name.clone(),
             RootDependency {
                 requested: dep.requested.clone(),
                 resolved: PackageId {
-                    name: name.clone(),
+                    name: resolved_name.to_string(),
                     version: version.clone(),
                 },
             },

@@ -7,6 +7,7 @@ use super::manifest::{
     resolve_manifest_specs,
 };
 use super::types::ProjectInstallPlan;
+use crate::lockfile;
 
 pub(in crate::operations::install::project_install) fn prepare_install_plan(
     project: &Project,
@@ -36,7 +37,12 @@ pub(in crate::operations::install::project_install) fn prepare_install_plan(
         .as_ref()
         .map(|workspace| workspace.root.join("snpm-lock.yaml"))
         .unwrap_or_else(|| project.root.join("snpm-lock.yaml"));
-    let is_fresh_install = !lockfile_path.exists();
+    let compatible_lockfile = if workspace.is_none() && !lockfile_path.is_file() {
+        lockfile::detect_compatible_lockfile(&project.root)
+    } else {
+        None
+    };
+    let is_fresh_install = !lockfile_path.exists() && compatible_lockfile.is_none();
 
     Ok(ProjectInstallPlan {
         workspace,
@@ -52,6 +58,7 @@ pub(in crate::operations::install::project_install) fn prepare_install_plan(
         root_protocols,
         optional_root_names,
         lockfile_path,
+        compatible_lockfile,
         is_fresh_install,
     })
 }

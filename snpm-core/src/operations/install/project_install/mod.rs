@@ -16,6 +16,7 @@ use finalize::{finalize_install, run_install_scripts};
 use plan::{prepare_install_plan, validate_frozen_lockfile};
 use report::print_install_changes;
 use state::resolve_install_state;
+use super::utils::FrozenLockfileMode;
 
 pub async fn install(
     config: &SnpmConfig,
@@ -30,7 +31,14 @@ pub async fn install(
         options.requested.join(", "),
         options.dev,
         options.include_dev,
-        options.frozen_lockfile,
+        format!(
+            "{}",
+            match options.frozen_lockfile {
+                FrozenLockfileMode::Frozen => "frozen",
+                FrozenLockfileMode::Prefer => "prefer",
+                FrozenLockfileMode::No => "off",
+            }
+        ),
         options.force,
     ));
 
@@ -52,8 +60,9 @@ pub async fn install(
         plan.additions.len()
     ));
     console::verbose(&format!(
-        "lockfile_path={} exists={} fresh_install={}",
+        "lockfile_path={} source={} exists={} fresh_install={}",
         plan.lockfile_path.display(),
+        plan.lockfile_source_label(),
         plan.lockfile_path.is_file(),
         plan.is_fresh_install
     ));
@@ -98,7 +107,10 @@ pub async fn install(
         blocked_scripts.len()
     ));
 
-    console::clear_steps(if options.include_dev { 3 } else { 2 });
+    console::clear_steps(step_count_for_install(
+        resolved.scenario,
+        resolved.wrote_lockfile,
+    ));
     print_install_changes(&resolved.graph, &plan, &options);
 
     let elapsed_seconds = started.elapsed().as_secs_f32();
@@ -127,4 +139,14 @@ pub async fn install(
         package_count,
         elapsed_seconds,
     })
+}
+
+fn step_count_for_install(scenario: InstallScenario, wrote_lockfile: bool) -> usize {
+    let scenario_steps = match scenario {
+        InstallScenario::Hot => 0,
+        InstallScenario::WarmLinkOnly => 1,
+        InstallScenario::WarmPartialCache | InstallScenario::Cold => 2,
+    };
+
+    scenario_steps + usize::from(wrote_lockfile)
 }

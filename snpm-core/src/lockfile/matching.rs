@@ -48,6 +48,7 @@ mod tests {
                         "required".to_string(),
                         LockRootDependency {
                             requested: "^1.0.0".to_string(),
+                            package: None,
                             version: Some("1.2.3".to_string()),
                             optional: false,
                         },
@@ -56,6 +57,7 @@ mod tests {
                         "optional".to_string(),
                         LockRootDependency {
                             requested: "^2.0.0".to_string(),
+                            package: None,
                             version: None,
                             optional: true,
                         },
@@ -80,6 +82,7 @@ mod tests {
                     "a".to_string(),
                     LockRootDependency {
                         requested: "^1.0.0".to_string(),
+                        package: None,
                         version: Some("1.0.0".to_string()),
                         optional: false,
                     },
@@ -104,6 +107,7 @@ mod tests {
                     "a".to_string(),
                     LockRootDependency {
                         requested: "^1.0.0".to_string(),
+                        package: None,
                         version: Some("1.0.0".to_string()),
                         optional: false,
                     },
@@ -125,6 +129,7 @@ mod tests {
                     "a".to_string(),
                     LockRootDependency {
                         requested: "^1.0.0".to_string(),
+                        package: None,
                         version: None,
                         optional: false,
                     },

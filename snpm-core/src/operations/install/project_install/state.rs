@@ -5,6 +5,7 @@ use crate::console;
 use crate::lockfile;
 use crate::resolve::{PackageId, ResolutionGraph};
 use crate::{Project, Result, SnpmConfig};
+use crate::operations::install::utils::FrozenLockfileMode;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -20,6 +21,7 @@ pub(super) struct ResolvedInstall {
     pub graph: ResolutionGraph,
     pub store_paths: BTreeMap<PackageId, PathBuf>,
     pub integrity_state: Option<IntegrityState>,
+    pub wrote_lockfile: bool,
 }
 
 pub(super) async fn resolve_install_state(
@@ -29,14 +31,19 @@ pub(super) async fn resolve_install_state(
     options: &InstallOptions,
     registry_client: &reqwest::Client,
 ) -> Result<ResolvedInstall> {
-    let scenario_result = if options.include_dev && plan.additions.is_empty() {
+    let scenario_result = if options.include_dev
+        && plan.additions.is_empty()
+        && !matches!(options.frozen_lockfile, FrozenLockfileMode::No)
+    {
         detect_install_scenario(
             project,
             &plan.lockfile_path,
             &plan.manifest_root,
             &plan.root_specs.optional,
             config,
+            options.frozen_lockfile,
             options.force,
+            plan.compatible_lockfile.as_ref(),
         )
     } else {
         ScenarioResult::cold()
@@ -50,6 +57,7 @@ pub(super) async fn resolve_install_state(
         ..
     } = scenario_result;
     let mut store_paths = BTreeMap::new();
+    let mut wrote_lockfile = false;
 
     let graph = match scenario {
         InstallScenario::Hot => require_graph(graph, "Hot")?,
@@ -110,6 +118,7 @@ pub(super) async fn resolve_install_state(
 
             if options.include_dev {
                 lockfile::write(&plan.lockfile_path, &graph, &plan.root_specs.optional)?;
+                wrote_lockfile = true;
             }
 
             console::step_with_count("Resolved, downloaded and extracted", store_paths.len());
@@ -117,7 +126,16 @@ pub(super) async fn resolve_install_state(
         }
     };
 
-    if options.include_dev {
+    if options.include_dev
+        && !wrote_lockfile
+        && plan.compatible_lockfile.is_some()
+        && !plan.lockfile_path.is_file()
+    {
+        lockfile::write(&plan.lockfile_path, &graph, &plan.root_specs.optional)?;
+        wrote_lockfile = true;
+    }
+
+    if wrote_lockfile {
         console::step("Saved lockfile");
     }
 
@@ -126,6 +144,7 @@ pub(super) async fn resolve_install_state(
         graph,
         store_paths,
         integrity_state,
+        wrote_lockfile,
     })
 }
 

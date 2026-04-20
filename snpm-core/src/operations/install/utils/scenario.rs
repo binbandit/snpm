@@ -3,6 +3,7 @@ use super::store::check_store_cache;
 use super::types::{InstallScenario, ScenarioResult};
 use crate::console;
 use crate::{Project, SnpmConfig, lockfile};
+use crate::operations::install::utils::FrozenLockfileMode;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -12,16 +13,27 @@ pub fn detect_install_scenario(
     required_root: &BTreeMap<String, String>,
     optional_root: &BTreeMap<String, String>,
     config: &SnpmConfig,
+    frozen_lockfile: FrozenLockfileMode,
     force: bool,
+    compatible_lockfile: Option<&crate::lockfile::CompatibleLockfile>,
 ) -> ScenarioResult {
-    if !lockfile_path.is_file() {
+    if matches!(frozen_lockfile, FrozenLockfileMode::No) {
+        console::verbose("scenario: Cold (lockfile disabled)");
+        return ScenarioResult::cold();
+    }
+
+    if !lockfile_path.is_file() && compatible_lockfile.is_none() {
         console::verbose("scenario: Cold (no lockfile)");
         return ScenarioResult::cold();
     }
 
-    let existing = match lockfile::read(lockfile_path) {
+    let existing = match read_existing_lockfile(lockfile_path, compatible_lockfile, config) {
         Ok(lockfile) => lockfile,
-        Err(_) => {
+        Err(error) => {
+            console::warn(&format!(
+                "scenario: Cold (compatible lockfile import failed: {})",
+                error
+            ));
             console::verbose("scenario: Cold (lockfile unreadable)");
             return ScenarioResult::cold();
         }
@@ -58,6 +70,18 @@ pub fn detect_install_scenario(
     let missing_count = cache_check.missing.len();
     let total_count = graph.packages.len();
 
+    if missing_count > 0
+        && cache_check
+            .missing
+            .iter()
+            .any(|package| package.tarball.is_empty())
+    {
+        console::verbose(
+            "scenario: Cold (imported lockfile is missing tarball data for uncached packages)",
+        );
+        return ScenarioResult::cold();
+    }
+
     if missing_count == 0 {
         console::verbose(&format!(
             "scenario: WarmLinkOnly ({} packages all cached)",
@@ -84,4 +108,21 @@ pub fn detect_install_scenario(
         graph: Some(graph),
         integrity_state: Some(integrity_state),
     }
+}
+
+fn read_existing_lockfile(
+    lockfile_path: &Path,
+    compatible_lockfile: Option<&crate::lockfile::CompatibleLockfile>,
+    config: &SnpmConfig,
+) -> crate::Result<crate::lockfile::Lockfile> {
+    if lockfile_path.is_file() {
+        return lockfile::read(lockfile_path);
+    }
+
+    let source = compatible_lockfile.ok_or_else(|| crate::SnpmError::Lockfile {
+        path: lockfile_path.to_path_buf(),
+        reason: "no lockfile was found".into(),
+    })?;
+
+    lockfile::read_compatible_lockfile(source, config)
 }

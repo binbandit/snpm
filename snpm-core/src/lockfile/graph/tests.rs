@@ -14,6 +14,7 @@ fn to_graph_skips_unresolved_optional_roots() {
                     "required".to_string(),
                     LockRootDependency {
                         requested: "^1.0.0".to_string(),
+                        package: None,
                         version: Some("1.2.3".to_string()),
                         optional: false,
                     },
@@ -22,6 +23,7 @@ fn to_graph_skips_unresolved_optional_roots() {
                     "optional".to_string(),
                     LockRootDependency {
                         requested: "^2.0.0".to_string(),
+                        package: None,
                         version: None,
                         optional: true,
                     },
@@ -46,6 +48,7 @@ fn to_graph_reconstructs_dependencies() {
                 "express".to_string(),
                 LockRootDependency {
                     requested: "^4.0.0".to_string(),
+                    package: None,
                     version: Some("4.18.2".to_string()),
                     optional: false,
                 },

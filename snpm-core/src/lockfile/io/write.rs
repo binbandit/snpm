@@ -44,6 +44,7 @@ fn build_root_dependencies(
             name.clone(),
             LockRootDependency {
                 requested: dep.requested.clone(),
+                package: (dep.resolved.name != *name).then(|| dep.resolved.name.clone()),
                 version: Some(dep.resolved.version.clone()),
                 optional: optional_root_specs.contains_key(name),
             },
@@ -55,6 +56,7 @@ fn build_root_dependencies(
             .entry(name.clone())
             .or_insert_with(|| LockRootDependency {
                 requested: requested.clone(),
+                package: None,
                 version: None,
                 optional: true,
             });

@@ -1,3 +1,4 @@
+mod bun;
 mod npm;
 mod pnpm;
 
@@ -10,6 +11,7 @@ use std::process::Command;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompatibleLockfileKind {
     Pnpm,
+    Bun,
     NpmShrinkwrap,
     Npm,
 }
@@ -18,6 +20,7 @@ impl CompatibleLockfileKind {
     pub fn filename(self) -> &'static str {
         match self {
             CompatibleLockfileKind::Pnpm => "pnpm-lock.yaml",
+            CompatibleLockfileKind::Bun => "bun.lock",
             CompatibleLockfileKind::NpmShrinkwrap => "npm-shrinkwrap.json",
             CompatibleLockfileKind::Npm => "package-lock.json",
         }
@@ -48,6 +51,7 @@ pub fn read_compatible_lockfile(
 ) -> Result<Lockfile> {
     match source.kind {
         CompatibleLockfileKind::Pnpm => pnpm::read(&source.path, config),
+        CompatibleLockfileKind::Bun => bun::read(&source.path, config),
         CompatibleLockfileKind::NpmShrinkwrap | CompatibleLockfileKind::Npm => {
             npm::read(&source.path, config)
         }
@@ -67,6 +71,10 @@ fn compatible_lockfile_candidates(project_root: &Path) -> Vec<CompatibleLockfile
     candidates.push(CompatibleLockfile {
         kind: CompatibleLockfileKind::Pnpm,
         path: project_root.join(CompatibleLockfileKind::Pnpm.filename()),
+    });
+    candidates.push(CompatibleLockfile {
+        kind: CompatibleLockfileKind::Bun,
+        path: project_root.join(CompatibleLockfileKind::Bun.filename()),
     });
     candidates.push(CompatibleLockfile {
         kind: CompatibleLockfileKind::NpmShrinkwrap,
@@ -147,5 +155,27 @@ mod tests {
         let detected = detect_compatible_lockfile(dir.path()).unwrap();
         assert_eq!(detected.kind, CompatibleLockfileKind::NpmShrinkwrap);
         assert_eq!(detected.path, shrinkwrap);
+    }
+
+    #[test]
+    fn detect_compatible_lockfile_prefers_bun_before_npm() {
+        let dir = tempfile::tempdir().unwrap();
+        let bun = dir.path().join(CompatibleLockfileKind::Bun.filename());
+        let package_lock = dir.path().join(CompatibleLockfileKind::Npm.filename());
+
+        std::fs::write(
+            &bun,
+            "{\n  \"lockfileVersion\": 1,\n  \"workspaces\": { \"\": {} },\n  \"packages\": {}\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &package_lock,
+            "{ \"lockfileVersion\": 3, \"packages\": { \"\": {} } }",
+        )
+        .unwrap();
+
+        let detected = detect_compatible_lockfile(dir.path()).unwrap();
+        assert_eq!(detected.kind, CompatibleLockfileKind::Bun);
+        assert_eq!(detected.path, bun);
     }
 }

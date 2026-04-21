@@ -12,8 +12,13 @@ snpm install [packages...] [flags]
 |------|-------------|
 | `--production` | Skip devDependencies (no lockfile mutation) |
 | `--frozen-lockfile`, `--immutable` | Fail if lockfile is missing or out of date |
+| `--no-frozen-lockfile` | Ignore lockfile data and re-resolve dependencies |
+| `--prefer-frozen-lockfile` | Reuse lockfile when valid, otherwise re-resolve |
+| `--fix-lockfile` | Re-resolve drifted entries while preserving unchanged lockfile entries |
 | `-f`, `--force` | Ignore cached state, force full install |
 | `-w`, `--workspace <NAME>` | Target specific workspace package |
+
+You can also pass `--frozen-lockfile`, `--no-frozen-lockfile`, and `--prefer-frozen-lockfile` directly to `snpm` and they apply to install-like commands (`add`, `remove`, `upgrade`, `run`, and `exec`) that trigger install work.
 
 ## add
 

@@ -90,11 +90,19 @@ fn split_patch_locator(target: &str) -> Option<(&str, &str)> {
 
 fn split_patch_locator_spec(name: &str, inner: &str) -> Option<(RegistryProtocol, String, String)> {
     if let Some(rest) = inner.strip_prefix("npm:") {
-        return Some(split_patch_registry_target(name, rest, RegistryProtocol::npm()));
+        return Some(split_patch_registry_target(
+            name,
+            rest,
+            RegistryProtocol::npm(),
+        ));
     }
 
     if let Some(rest) = inner.strip_prefix("jsr:") {
-        return Some(split_patch_registry_target(name, rest, RegistryProtocol::jsr()));
+        return Some(split_patch_registry_target(
+            name,
+            rest,
+            RegistryProtocol::jsr(),
+        ));
     }
 
     if let Some(result) = split_protocol_spec(inner) {

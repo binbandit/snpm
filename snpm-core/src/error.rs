@@ -55,6 +55,9 @@ pub enum SnpmError {
     #[error("Workspace config error at {path:?}: {reason}")]
     WorkspaceConfig { path: PathBuf, reason: String },
 
+    #[error("No workspace package matched {filters}")]
+    NoWorkspaceSelection { filters: String },
+
     #[error("Archive error at {path:?}: {source}")]
     Archive {
         path: PathBuf,

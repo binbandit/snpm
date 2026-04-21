@@ -60,13 +60,7 @@ fn build_dep_request_matches_selector_override() {
 #[test]
 fn build_dep_request_package_less_npm_protocol_uses_dependency_name() {
     let protocol = RegistryProtocol::npm();
-    let request = build_dep_request(
-        "brace-expansion",
-        "npm:^1.1.7",
-        &protocol,
-        None,
-        None,
-    );
+    let request = build_dep_request("brace-expansion", "npm:^1.1.7", &protocol, None, None);
     assert_eq!(request.protocol, RegistryProtocol::npm());
     assert_eq!(request.source, "brace-expansion");
     assert_eq!(request.range, "^1.1.7");

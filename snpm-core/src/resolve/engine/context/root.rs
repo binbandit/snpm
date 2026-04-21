@@ -29,7 +29,8 @@ impl<'a> ResolverContext<'a> {
             tasks.push(async move {
                 match context
                     .resolve_package(&name, &range, &protocol, None)
-                    .await {
+                    .await
+                {
                     Ok(id) => Ok::<Option<(String, RootDependency)>, SnpmError>(Some((
                         name,
                         RootDependency {

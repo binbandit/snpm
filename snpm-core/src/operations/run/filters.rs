@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(test)]
 pub(crate) fn matches_filters(name: &str, filters: &[String]) -> bool {
     if filters.is_empty() {
         return true;
@@ -557,6 +558,7 @@ mod tests {
                 dev_dependencies: BTreeMap::new(),
                 optional_dependencies: BTreeMap::new(),
                 scripts: BTreeMap::new(),
+                resolutions: BTreeMap::new(),
                 files: None,
                 bin: None,
                 main: None,
@@ -583,6 +585,7 @@ mod tests {
                 dev_dependencies: BTreeMap::new(),
                 optional_dependencies: BTreeMap::new(),
                 scripts: BTreeMap::new(),
+                resolutions: BTreeMap::new(),
                 files: None,
                 bin: None,
                 main: None,
@@ -622,6 +625,7 @@ mod tests {
                         dev_dependencies: BTreeMap::new(),
                         optional_dependencies: BTreeMap::new(),
                         scripts: BTreeMap::new(),
+                        resolutions: BTreeMap::new(),
                         files: None,
                         bin: None,
                         main: None,
@@ -641,6 +645,7 @@ mod tests {
                         dev_dependencies: BTreeMap::new(),
                         optional_dependencies: BTreeMap::new(),
                         scripts: BTreeMap::new(),
+                        resolutions: BTreeMap::new(),
                         files: None,
                         bin: None,
                         main: None,

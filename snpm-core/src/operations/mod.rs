@@ -48,7 +48,8 @@ pub use patch::{
 pub use publish::{PublishOptions, publish};
 pub use rebuild::rebuild;
 pub use run::{
-    ExecOptions, exec_command, exec_workspace_command, run_script, run_workspace_scripts,
+    ExecOptions, exec_command, exec_workspace_command, format_filters, project_label, run_script,
+    run_workspace_scripts, select_workspace_projects,
 };
 pub use store::{StoreStatus, path as store_path, prune as store_prune, status as store_status};
 pub use why::{WhyHop, WhyOptions, WhyPackageMatch, WhyPath, WhyResult, why};

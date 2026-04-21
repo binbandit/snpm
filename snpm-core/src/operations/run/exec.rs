@@ -1,4 +1,4 @@
-use super::filters::{matches_filters, project_label};
+use super::filters::{format_filters, project_label, select_workspace_projects};
 use super::process::{build_path, join_args, make_command, make_direct_command};
 use crate::{Project, Result, SnpmError, Workspace, console};
 
@@ -50,13 +50,26 @@ pub fn exec_workspace_command(
     workspace: &Workspace,
     options: &ExecOptions,
     filters: &[String],
+    filter_prods: &[String],
 ) -> Result<()> {
-    for project in &workspace.projects {
-        let name = project_label(project);
+    let filter_label = format_filters(filters, filter_prods);
+    let matched_projects = select_workspace_projects(workspace, filters, filter_prods)?;
+    if matched_projects.is_empty() {
+        return Err(SnpmError::NoWorkspaceSelection {
+            filters: filter_label,
+        });
+    }
+    if matched_projects.len() > 1 {
+        console::info(&format!(
+            "exec '{}' in {} workspace(s) matching {}",
+            options.command,
+            matched_projects.len(),
+            filter_label
+        ));
+    }
 
-        if !matches_filters(&name, filters) {
-            continue;
-        }
+    for project in matched_projects {
+        let name = project_label(project);
 
         println!("\n{}", name);
         exec_command(project, options)?;

@@ -1,6 +1,7 @@
+use super::workspace::{self as workspace_selector, WorkspaceSelection};
 use anyhow::{Context, Result};
 use clap::Args;
-use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
+use snpm_core::{Project, SnpmConfig, console, operations};
 use std::env;
 
 #[derive(Args, Debug)]
@@ -8,6 +9,15 @@ pub struct OutdatedArgs {
     /// Skip devDependencies
     #[arg(long)]
     pub production: bool,
+    /// Run in all workspace projects
+    #[arg(short = 'r', long)]
+    pub recursive: bool,
+    /// Filter workspace projects (name, glob, path, or dependency graph selector)
+    #[arg(long)]
+    pub filter: Vec<String>,
+    /// Production-only filter (same selector syntax as --filter)
+    #[arg(long)]
+    pub filter_prod: Vec<String>,
 }
 
 pub async fn run(args: OutdatedArgs, config: &SnpmConfig) -> Result<()> {
@@ -15,14 +25,20 @@ pub async fn run(args: OutdatedArgs, config: &SnpmConfig) -> Result<()> {
 
     let cwd = env::current_dir().context("failed to determine current directory")?;
 
-    if let Some(workspace) = Workspace::discover(&cwd)?
-        && workspace.root == cwd
-    {
+    if let Some(WorkspaceSelection {
+        projects,
+        filter_label,
+    }) = workspace_selector::select_workspace_projects(
+        &cwd,
+        "outdated",
+        args.recursive,
+        &args.filter,
+        &args.filter_prod,
+    )? {
         let mut any = false;
 
-        for project in workspace.projects.iter() {
-            let entries = operations::outdated(config, project, !args.production, false).await?;
-
+        for project in projects.into_iter() {
+            let entries = operations::outdated(config, &project, !args.production, false).await?;
             if entries.is_empty() {
                 continue;
             }
@@ -32,8 +48,9 @@ pub async fn run(args: OutdatedArgs, config: &SnpmConfig) -> Result<()> {
             }
             any = true;
 
-            let name = project_label(project);
-            println!("\n{}", name);
+            let name = workspace_selector::project_label(&project);
+            println!("{}", name);
+            println!("({})", filter_label);
             print_outdated(&entries);
         }
 
@@ -44,13 +61,43 @@ pub async fn run(args: OutdatedArgs, config: &SnpmConfig) -> Result<()> {
         return Ok(());
     }
 
+    if let Some(workspace) = snpm_core::Workspace::discover(&cwd)? {
+        if workspace.root == cwd {
+            let mut any = false;
+
+            for project in workspace.projects.iter() {
+                let entries =
+                    operations::outdated(config, project, !args.production, false).await?;
+
+                if entries.is_empty() {
+                    continue;
+                }
+
+                if any {
+                    println!();
+                }
+                any = true;
+
+                let name = workspace_selector::project_label(project);
+                println!("\n{}", name);
+                print_outdated(&entries);
+            }
+
+            if !any {
+                console::info("All dependencies are up to date.");
+            }
+
+            return Ok(());
+        }
+    }
+
     let project = Project::discover(&cwd)?;
     let entries = operations::outdated(config, &project, !args.production, false).await?;
 
     if entries.is_empty() {
         console::info("All dependencies are up to date.");
     } else {
-        let name = project_label(&project);
+        let name = workspace_selector::project_label(&project);
         println!("\n{}", name);
         print_outdated(&entries);
     }
@@ -92,18 +139,5 @@ fn print_outdated(entries: &[operations::OutdatedEntry]) {
             entry.wanted,
             name_width = name_width
         );
-    }
-}
-
-fn project_label(project: &Project) -> String {
-    if let Some(name) = project.manifest.name.as_deref() {
-        name.to_string()
-    } else {
-        project
-            .root
-            .file_name()
-            .and_then(|os| os.to_str())
-            .unwrap_or(".")
-            .to_string()
     }
 }

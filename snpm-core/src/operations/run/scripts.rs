@@ -1,4 +1,4 @@
-use super::filters::{matches_filters, project_label};
+use super::filters::{format_filters, project_label, select_workspace_projects};
 use super::process::{build_path, join_args, make_command};
 use crate::{Project, Result, SnpmError, Workspace, console};
 
@@ -30,16 +30,29 @@ pub fn run_workspace_scripts(
     workspace: &Workspace,
     script: &str,
     filters: &[String],
+    filter_prods: &[String],
     args: &[String],
 ) -> Result<()> {
+    let filter_label = format_filters(filters, filter_prods);
     let mut any_ran = false;
 
-    for project in &workspace.projects {
-        let name = project_label(project);
+    let matched_projects = select_workspace_projects(workspace, filters, filter_prods)?;
+    if matched_projects.is_empty() {
+        return Err(SnpmError::NoWorkspaceSelection {
+            filters: filter_label,
+        });
+    }
+    if matched_projects.len() > 1 {
+        console::info(&format!(
+            "run '{}' in {} workspace(s) matching {}",
+            script,
+            matched_projects.len(),
+            filter_label
+        ));
+    }
 
-        if !matches_filters(&name, filters) {
-            continue;
-        }
+    for project in matched_projects {
+        let name = project_label(project);
 
         if !project.manifest.scripts.contains_key(script) {
             continue;

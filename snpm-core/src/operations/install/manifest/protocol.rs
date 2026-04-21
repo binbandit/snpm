@@ -3,9 +3,7 @@ use crate::{registry::RegistryProtocol, resolve::query::split_protocol_spec};
 pub fn detect_manifest_protocol(spec: &str) -> Option<RegistryProtocol> {
     if spec.starts_with("npm:") {
         Some(RegistryProtocol::npm())
-    } else if spec.starts_with("file:")
-        || spec.starts_with("link:")
-        || spec.starts_with("portal:")
+    } else if spec.starts_with("file:") || spec.starts_with("link:") || spec.starts_with("portal:")
     {
         Some(RegistryProtocol::file())
     } else if spec.starts_with("patch:") {
@@ -178,7 +176,9 @@ mod tests {
         assert!(is_special_protocol_spec("workspace:*"));
         assert!(is_special_protocol_spec("npm:other@^1.0.0"));
         assert!(is_special_protocol_spec("link:../local-pkg"));
-        assert!(is_special_protocol_spec("portal:packages/make-fetch-smaller"));
+        assert!(is_special_protocol_spec(
+            "portal:packages/make-fetch-smaller"
+        ));
         assert!(is_special_protocol_spec(
             "patch:docusaurus-plugin-typedoc-api@npm%3A4.4.0#~/.yarn/patches/typedoc.patch"
         ));

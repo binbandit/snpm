@@ -1,8 +1,8 @@
+use super::workspace::{self as workspace_selector, WorkspaceSelection};
 use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, Workspace, console, operations};
 use std::env;
-use super::workspace::{self as workspace_selector, WorkspaceSelection};
 
 #[derive(Args, Debug)]
 pub struct AddArgs {
@@ -43,11 +43,19 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
         filter_prod,
         packages,
     } = args;
+    let frozen_lockfile = super::frozen::resolve_frozen_lockfile_mode(config, None);
 
     if !global && workspace.is_none() {
-        if let Some(WorkspaceSelection { projects, filter_label }) =
-            workspace_selector::select_workspace_projects(&cwd, "add", recursive, &filter, &filter_prod)?
-        {
+        if let Some(WorkspaceSelection {
+            projects,
+            filter_label,
+        }) = workspace_selector::select_workspace_projects(
+            &cwd,
+            "add",
+            recursive,
+            &filter,
+            &filter_prod,
+        )? {
             console::header("add", env!("CARGO_PKG_VERSION"));
             let requested = packages.clone();
             for (idx, mut project) in projects.into_iter().enumerate() {
@@ -58,7 +66,8 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
                     requested: requested.clone(),
                     dev,
                     include_dev: true,
-                    frozen_lockfile: false,
+                    frozen_lockfile: frozen_lockfile.mode,
+                    strict_no_lockfile: frozen_lockfile.strict_no_lockfile,
                     force,
                     silent_summary: false,
                 };
@@ -96,7 +105,8 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
             requested: packages,
             dev,
             include_dev: true,
-            frozen_lockfile: false,
+            frozen_lockfile: frozen_lockfile.mode,
+            strict_no_lockfile: frozen_lockfile.strict_no_lockfile,
             force,
             silent_summary: false,
         };
@@ -107,7 +117,8 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
             requested: packages,
             dev,
             include_dev: true,
-            frozen_lockfile: false,
+            frozen_lockfile: frozen_lockfile.mode,
+            strict_no_lockfile: frozen_lockfile.strict_no_lockfile,
             force,
             silent_summary: false,
         };

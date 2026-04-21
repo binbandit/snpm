@@ -9,6 +9,23 @@ use clap::{Parser, Subcommand};
     color = clap::ColorChoice::Auto
 )]
 pub struct Cli {
+    #[arg(long = "frozen-lockfile", global = true, conflicts_with_all = ["no_frozen_lockfile", "prefer_frozen_lockfile"])]
+    pub frozen_lockfile: bool,
+
+    #[arg(
+        long = "no-frozen-lockfile",
+        global = true,
+        conflicts_with_all = ["frozen_lockfile", "prefer_frozen_lockfile"]
+    )]
+    pub no_frozen_lockfile: bool,
+
+    #[arg(
+        long = "prefer-frozen-lockfile",
+        global = true,
+        conflicts_with_all = ["frozen_lockfile", "no_frozen_lockfile"]
+    )]
+    pub prefer_frozen_lockfile: bool,
+
     #[arg(short = 'v', long = "verbose", global = true)]
     pub verbose: bool,
 
@@ -74,4 +91,46 @@ pub enum Command {
     /// Run a package.json script by name (fallback for unknown subcommands)
     #[command(external_subcommand)]
     Script(Vec<String>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn parses_global_frozen_lockfile_before_subcommand() {
+        let cli = Cli::try_parse_from(["snpm", "--frozen-lockfile", "install"]).unwrap();
+
+        assert!(cli.frozen_lockfile);
+        assert!(!cli.no_frozen_lockfile);
+        assert!(!cli.prefer_frozen_lockfile);
+        match cli.command {
+            Command::Install(args) => {
+                assert!(args.frozen_lockfile);
+                assert!(!args.no_frozen_lockfile);
+                assert!(!args.prefer_frozen_lockfile);
+                assert!(!args.fix_lockfile);
+            }
+            other => panic!("expected install command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_install_specific_fix_lockfile_after_subcommand() {
+        let cli = Cli::try_parse_from(["snpm", "install", "--fix-lockfile"]).unwrap();
+
+        assert!(!cli.frozen_lockfile);
+        assert!(!cli.no_frozen_lockfile);
+        assert!(!cli.prefer_frozen_lockfile);
+        match cli.command {
+            Command::Install(args) => {
+                assert!(!args.frozen_lockfile);
+                assert!(!args.no_frozen_lockfile);
+                assert!(!args.prefer_frozen_lockfile);
+                assert!(args.fix_lockfile);
+            }
+            other => panic!("expected install command, got {other:?}"),
+        }
+    }
 }

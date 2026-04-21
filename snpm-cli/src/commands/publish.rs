@@ -1,3 +1,4 @@
+use super::workspace::{self as workspace_selector, WorkspaceSelection};
 use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, console, operations};
@@ -8,6 +9,15 @@ pub struct PublishArgs {
     /// Distribution tag for this release
     #[arg(long, default_value = "latest")]
     pub tag: String,
+    /// Run in all workspace projects
+    #[arg(short = 'r', long)]
+    pub recursive: bool,
+    /// Filter workspace projects (name, glob, path, or dependency graph selector)
+    #[arg(long)]
+    pub filter: Vec<String>,
+    /// Production-only filter (same selector syntax as --filter)
+    #[arg(long)]
+    pub filter_prod: Vec<String>,
 
     /// Package access level (public or restricted)
     #[arg(long)]
@@ -28,6 +38,61 @@ pub struct PublishArgs {
 
 pub async fn run(args: PublishArgs, config: &SnpmConfig) -> Result<()> {
     let cwd = env::current_dir().context("failed to determine current directory")?;
+
+    if let Some(WorkspaceSelection {
+        projects,
+        filter_label,
+    }) = workspace_selector::select_workspace_projects(
+        &cwd,
+        "publish",
+        args.recursive,
+        &args.filter,
+        &args.filter_prod,
+    )? {
+        for (idx, project) in projects.into_iter().enumerate() {
+            if idx > 0 {
+                println!();
+            }
+            console::info(&format!(
+                "publish {} ({})",
+                workspace_selector::project_label(&project),
+                filter_label
+            ));
+
+            let pack_result = operations::pack(&project, &project.root)?;
+            print_findings(&pack_result.inspection.findings);
+
+            console::info(&format!(
+                "Packed {} files ({} packed, {} unpacked)",
+                pack_result.file_count(),
+                operations::format_bytes(pack_result.packed_size),
+                operations::format_bytes(pack_result.inspection.unpacked_size)
+            ));
+
+            let options = operations::PublishOptions {
+                tag: args.tag.clone(),
+                access: args.access.clone(),
+                otp: args.otp.clone(),
+                dry_run: args.dry_run,
+                allow_risks: args.allow_risks.clone(),
+            };
+
+            operations::publish(
+                config,
+                &project,
+                &pack_result.inspection,
+                &pack_result.tarball_path,
+                &options,
+            )
+            .await?;
+
+            if !args.dry_run {
+                std::fs::remove_file(&pack_result.tarball_path).ok();
+            }
+        }
+        return Ok(());
+    }
+
     let project = Project::discover(&cwd)?;
 
     console::step("Packing");

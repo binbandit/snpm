@@ -5,6 +5,8 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 use anyhow::{Context, Result};
 use clap::Parser;
 use snpm_core::{SnpmConfig, console};
+use std::ffi::OsString;
+use std::path::Path;
 use std::{env, process};
 use tracing_subscriber::EnvFilter;
 
@@ -22,7 +24,19 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
-    let Cli { verbose, command } = Cli::parse();
+    let args = rewrite_multicall_argv(env::args_os().collect());
+    let Cli {
+        verbose,
+        command,
+        frozen_lockfile,
+        no_frozen_lockfile,
+        prefer_frozen_lockfile,
+    } = Cli::parse_from(args);
+    commands::frozen::set_global_frozen_override(commands::frozen::frozen_override_from_cli(
+        frozen_lockfile,
+        no_frozen_lockfile,
+        prefer_frozen_lockfile,
+    ));
 
     init_tracing()?;
 
@@ -80,6 +94,7 @@ async fn run() -> Result<()> {
                 script,
                 recursive: false,
                 filter: vec![],
+                filter_prod: vec![],
                 skip_install: false,
                 args: extra_args,
             };
@@ -90,8 +105,85 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
+fn rewrite_multicall_argv(mut args: Vec<OsString>) -> Vec<OsString> {
+    let Some(argv0) = args.first() else {
+        return args;
+    };
+
+    let stem = Path::new(argv0)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("snpm")
+        .to_ascii_lowercase();
+
+    let subcommand = match stem.as_str() {
+        "snpr" => Some("run"),
+        "snpx" => Some("dlx"),
+        "pnpx" => Some("dlx"),
+        _ => None,
+    };
+    if let Some(subcommand) = subcommand {
+        args[0] = OsString::from("snpm");
+        if matches!(
+            args.get(1).and_then(|arg| arg.to_str()),
+            Some("--version") | Some("-V")
+        ) {
+            return args;
+        }
+        args.insert(1, OsString::from(subcommand));
+    }
+
+    args
+}
+
 fn init_tracing() -> Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_multicall_argv;
+    use std::ffi::OsString;
+
+    fn strings(args: &[OsString]) -> Vec<String> {
+        args.iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn rewrites_snpr_to_run() {
+        let rewritten = rewrite_multicall_argv(vec![
+            OsString::from("/tmp/snpr"),
+            OsString::from("check"),
+            OsString::from("--skip-install"),
+        ]);
+
+        assert_eq!(
+            strings(&rewritten),
+            vec!["snpm", "run", "check", "--skip-install"]
+        );
+    }
+
+    #[test]
+    fn rewrites_snpx_to_dlx() {
+        let rewritten = rewrite_multicall_argv(vec![
+            OsString::from("/tmp/snpx"),
+            OsString::from("cowsay"),
+        ]);
+
+        assert_eq!(strings(&rewritten), vec!["snpm", "dlx", "cowsay"]);
+    }
+
+    #[test]
+    fn preserves_version_requests_for_multicall_aliases() {
+        let rewritten = rewrite_multicall_argv(vec![
+            OsString::from("/tmp/pnpx"),
+            OsString::from("--version"),
+        ]);
+
+        assert_eq!(strings(&rewritten), vec!["snpm", "--version"]);
+    }
 }

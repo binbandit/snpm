@@ -1,3 +1,4 @@
+use super::workspace::{self as workspace_selector, WorkspaceSelection};
 use anyhow::{Context, Result};
 use clap::Args;
 use snpm_core::{Project, SnpmConfig, console};
@@ -9,6 +10,15 @@ pub struct ListArgs {
     /// List globally installed packages
     #[arg(short = 'g', long = "global")]
     pub global: bool,
+    /// Run in all workspace projects
+    #[arg(short = 'r', long)]
+    pub recursive: bool,
+    /// Filter workspace projects (name, glob, path, or dependency graph selector)
+    #[arg(long)]
+    pub filter: Vec<String>,
+    /// Production-only filter (same selector syntax as --filter)
+    #[arg(long)]
+    pub filter_prod: Vec<String>,
 }
 
 pub async fn run(args: ListArgs, config: &SnpmConfig) -> Result<()> {
@@ -17,7 +27,33 @@ pub async fn run(args: ListArgs, config: &SnpmConfig) -> Result<()> {
         list_global(config)?;
     } else {
         console::header("list", env!("CARGO_PKG_VERSION"));
-        list_local()?;
+        let cwd = env::current_dir().context("failed to determine current directory")?;
+
+        if let Some(WorkspaceSelection {
+            projects,
+            filter_label,
+        }) = workspace_selector::select_workspace_projects(
+            &cwd,
+            "list",
+            args.recursive,
+            &args.filter,
+            &args.filter_prod,
+        )? {
+            console::info(&format!(
+                "listing workspace packages matching {filter_label}"
+            ));
+            for (idx, project) in projects.into_iter().enumerate() {
+                if idx > 0 {
+                    println!();
+                }
+                let name = workspace_selector::project_label(&project);
+                println!("{}:", name);
+                list_local(&project)?;
+            }
+        } else {
+            let project = Project::discover(&cwd)?;
+            list_local(&project)?;
+        }
     }
 
     Ok(())
@@ -68,10 +104,7 @@ fn list_global(config: &SnpmConfig) -> Result<()> {
     Ok(())
 }
 
-fn list_local() -> Result<()> {
-    let cwd = env::current_dir().context("failed to determine current directory")?;
-    let project = Project::discover(&cwd)?;
-
+fn list_local(project: &Project) -> Result<()> {
     let deps = &project.manifest.dependencies;
     let dev_deps = &project.manifest.dev_dependencies;
 

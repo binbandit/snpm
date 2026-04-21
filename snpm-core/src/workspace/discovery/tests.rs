@@ -68,8 +68,15 @@ fn test_package_json_workspaces_array() {
     let workspace = Workspace::discover(&dir).unwrap().unwrap();
 
     assert_eq!(workspace.config.packages, vec!["packages/*"]);
-    assert_eq!(workspace.projects.len(), 1);
-    assert_eq!(workspace.projects[0].manifest.name.as_deref(), Some("foo"));
+    assert_eq!(workspace.projects.len(), 2);
+
+    let names: Vec<_> = workspace
+        .projects
+        .iter()
+        .filter_map(|project| project.manifest.name.as_deref())
+        .collect();
+    assert!(names.contains(&"my-monorepo"));
+    assert!(names.contains(&"foo"));
 
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -94,8 +101,15 @@ fn test_package_json_workspaces_object() {
     let workspace = Workspace::discover(&dir).unwrap().unwrap();
 
     assert_eq!(workspace.config.packages, vec!["apps/*"]);
-    assert_eq!(workspace.projects.len(), 1);
-    assert_eq!(workspace.projects[0].manifest.name.as_deref(), Some("bar"));
+    assert_eq!(workspace.projects.len(), 2);
+
+    let names: Vec<_> = workspace
+        .projects
+        .iter()
+        .filter_map(|project| project.manifest.name.as_deref())
+        .collect();
+    assert!(names.contains(&"my-monorepo"));
+    assert!(names.contains(&"bar"));
 
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -133,7 +147,7 @@ fn test_combined_yaml_and_package_json_workspaces() {
             .contains(&"packages/*".to_string())
     );
     assert!(workspace.config.packages.contains(&"apps/*".to_string()));
-    assert_eq!(workspace.projects.len(), 2);
+    assert_eq!(workspace.projects.len(), 3);
 
     let names: Vec<_> = workspace
         .projects
@@ -142,6 +156,7 @@ fn test_combined_yaml_and_package_json_workspaces() {
         .collect();
     assert!(names.contains(&"pkg-a"));
     assert!(names.contains(&"app-b"));
+    assert!(names.contains(&"my-monorepo"));
 
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -211,7 +226,15 @@ fn test_package_json_workspaces_object_with_catalog() {
         workspace.config.catalog.get("react").map(|s| s.as_str()),
         Some("^18.2.0")
     );
-    assert_eq!(workspace.projects.len(), 1);
+    assert_eq!(workspace.projects.len(), 2);
+
+    let names: Vec<_> = workspace
+        .projects
+        .iter()
+        .filter_map(|project| project.manifest.name.as_deref())
+        .collect();
+    assert!(names.contains(&"my-monorepo"));
+    assert!(names.contains(&"foo"));
 
     fs::remove_dir_all(&dir).unwrap();
 }

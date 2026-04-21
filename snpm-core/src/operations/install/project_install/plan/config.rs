@@ -25,6 +25,10 @@ pub(super) fn load_overrides(
         .map(|config| config.overrides)
         .unwrap_or_default();
 
+    for (name, range) in &project.manifest.resolutions {
+        overrides.insert(name.clone(), range.clone());
+    }
+
     if let Some(pnpm) = &project.manifest.pnpm {
         for (name, range) in &pnpm.overrides {
             overrides.insert(name.clone(), range.clone());

@@ -20,6 +20,7 @@ pub(in crate::resolve) struct ResolverContext<'a> {
     pub(in crate::resolve) min_age_days: Option<u32>,
     pub(in crate::resolve) force: bool,
     pub(in crate::resolve) overrides: Option<&'a BTreeMap<String, String>>,
+    pub(in crate::resolve) workspace_sources: Option<&'a BTreeMap<String, String>>,
     pub(in crate::resolve) existing_graph: Option<&'a ResolutionGraph>,
     pub(in crate::resolve) offline_mode: OfflineMode,
     pub(super) state: ResolverState,
@@ -35,6 +36,7 @@ impl<'a> ResolverContext<'a> {
         min_age_days: Option<u32>,
         force: bool,
         overrides: Option<&'a BTreeMap<String, String>>,
+        workspace_sources: Option<&'a BTreeMap<String, String>>,
         offline_mode: OfflineMode,
     ) -> Self {
         let state = ResolverState::new(64);
@@ -46,6 +48,7 @@ impl<'a> ResolverContext<'a> {
             min_age_days,
             force,
             overrides,
+            workspace_sources,
             existing_graph,
             offline_mode,
             state,

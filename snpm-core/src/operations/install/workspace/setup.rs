@@ -103,6 +103,10 @@ fn load_workspace_overrides(workspace: &Workspace) -> Result<BTreeMap<String, St
         .iter()
         .find(|project| project.root == workspace.root)
     {
+        for (name, range) in &root_project.manifest.resolutions {
+            overrides.insert(name.clone(), range.clone());
+        }
+
         if let Some(pnpm) = &root_project.manifest.pnpm {
             for (name, range) in &pnpm.overrides {
                 overrides.insert(name.clone(), range.clone());

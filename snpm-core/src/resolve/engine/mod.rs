@@ -10,6 +10,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use tokio::sync::mpsc;
 
 pub(super) use context::ResolverContext;
+#[cfg(test)]
+pub(crate) use context::ResolverState;
+
+#[cfg(not(test))]
 use context::ResolverState;
 
 #[allow(clippy::too_many_arguments)]
@@ -22,6 +26,7 @@ pub async fn resolve_with_offline<F, Fut>(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    workspace_sources: Option<&BTreeMap<String, String>>,
     existing_graph: Option<&super::types::ResolutionGraph>,
     offline_mode: OfflineMode,
     on_package: F,
@@ -39,6 +44,7 @@ where
         min_age_days,
         force,
         overrides,
+        workspace_sources,
         existing_graph,
         offline_mode,
         state: state.clone(),

@@ -73,7 +73,7 @@ pub(crate) fn is_local_workspace_dependency(
     Ok(ranges.matches(&version_parsed))
 }
 
-fn normalize_workspace_spec(name: &str, spec: &str, version: &str) -> Result<String> {
+pub(crate) fn normalize_workspace_spec(name: &str, spec: &str, version: &str) -> Result<String> {
     let Some(suffix) = spec.strip_prefix("workspace:") else {
         return Err(SnpmError::WorkspaceConfig {
             path: std::path::PathBuf::new(),

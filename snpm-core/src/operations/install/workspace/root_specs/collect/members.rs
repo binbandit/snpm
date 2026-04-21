@@ -3,6 +3,7 @@ use crate::{Project, Result, Workspace};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::super::super::manifest::{RootSpecSet, apply_specs, build_project_root_specs};
+use super::super::validate::normalize_workspace_spec;
 use super::ranges::insert_workspace_root_dep;
 
 pub fn collect_workspace_root_deps(
@@ -92,10 +93,33 @@ fn apply_member_specs(
     let mut applied = apply_specs(manifest_deps, Some(workspace), None, &mut local, None)?;
 
     for (name, range) in &mut applied {
-        if let Some(override_range) = overrides.get(name) {
+        if let Some(override_range) = select_override(name, range, overrides) {
             *range = override_range.clone();
+        }
+
+        if range.starts_with("workspace:")
+            && let Some(project) = workspace.project_by_name(name)
+            && let Some(version) = project.manifest.version.as_deref()
+        {
+            let normalized = normalize_workspace_spec(name, range, version)?;
+            *range = if normalized.is_empty() {
+                version.to_string()
+            } else {
+                normalized
+            };
         }
     }
 
     Ok(applied)
+}
+
+fn select_override<'a>(
+    name: &str,
+    range: &str,
+    overrides: &'a BTreeMap<String, String>,
+) -> Option<&'a String> {
+    overrides
+        .get(name)
+        .or_else(|| overrides.get(&format!("{name}@npm:{range}")))
+        .or_else(|| overrides.get(&format!("{name}@{range}")))
 }

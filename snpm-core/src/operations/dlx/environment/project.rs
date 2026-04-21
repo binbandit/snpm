@@ -13,6 +13,7 @@ pub(super) fn temporary_project(temp_path: &Path, root_deps: BTreeMap<String, St
         dev_dependencies: BTreeMap::new(),
         optional_dependencies: BTreeMap::new(),
         scripts: BTreeMap::new(),
+        resolutions: BTreeMap::new(),
         files: None,
         bin: None,
         main: None,

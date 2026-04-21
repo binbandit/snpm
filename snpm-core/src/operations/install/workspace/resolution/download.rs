@@ -18,6 +18,7 @@ pub(crate) async fn resolve_workspace_deps(
     optional_root_names: &BTreeSet<String>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    workspace_sources: Option<&BTreeMap<String, String>>,
     existing_graph: Option<&ResolutionGraph>,
     store_paths: &mut BTreeMap<PackageId, PathBuf>,
 ) -> Result<ResolutionGraph> {
@@ -46,6 +47,7 @@ pub(crate) async fn resolve_workspace_deps(
                 min_age,
                 force,
                 overrides,
+                workspace_sources,
                 Some(seed_graph),
                 move |package| {
                     let config = config_clone.clone();
@@ -90,6 +92,7 @@ pub(crate) async fn resolve_workspace_deps(
                 min_age,
                 force,
                 overrides,
+                workspace_sources,
                 move |package| {
                     let config = config_clone.clone();
                     let client = client_clone.clone();

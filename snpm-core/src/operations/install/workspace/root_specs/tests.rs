@@ -16,6 +16,7 @@ fn make_workspace_with_project(name: &str, version: Option<&str>) -> Workspace {
             dev_dependencies: BTreeMap::new(),
             optional_dependencies: BTreeMap::new(),
             scripts: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
             files: None,
             bin: None,
             main: None,

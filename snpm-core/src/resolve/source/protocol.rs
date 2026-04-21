@@ -1,18 +1,9 @@
 use crate::registry::RegistryProtocol;
 
 pub(in crate::resolve) fn protocol_from_range(range: &str) -> RegistryProtocol {
-    if range.starts_with("file:") || range.starts_with("link:") {
-        RegistryProtocol::file()
-    } else if range.starts_with("jsr:") {
-        RegistryProtocol::jsr()
-    } else if range.starts_with("git:")
-        || range.starts_with("git+")
-        || range.starts_with("github:")
-        || range.starts_with("gitlab:")
-        || range.starts_with("bitbucket:")
-        || looks_like_hosted_git_url(range)
-        || looks_like_hosted_git_shorthand(range)
-    {
+    if let Some((protocol, _, _)) = crate::resolve::query::split_protocol_spec(range) {
+        protocol
+    } else if looks_like_hosted_git_shorthand(range) {
         RegistryProtocol::git()
     } else {
         RegistryProtocol::npm()
@@ -77,6 +68,24 @@ mod tests {
         assert_eq!(
             protocol_from_range("link:./scripts/eslint-rules"),
             RegistryProtocol::file()
+        );
+    }
+
+    #[test]
+    fn portal_ranges_use_file_protocol() {
+        assert_eq!(
+            protocol_from_range("portal:packages/make-fetch-smaller"),
+            RegistryProtocol::file()
+        );
+    }
+
+    #[test]
+    fn patch_ranges_use_underlying_protocol() {
+        assert_eq!(
+            protocol_from_range(
+                "patch:docusaurus-plugin-typedoc-api@npm%3A4.4.0#~/.yarn/patches/typedoc.patch"
+            ),
+            RegistryProtocol::npm()
         );
     }
 }

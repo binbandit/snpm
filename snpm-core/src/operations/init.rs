@@ -25,6 +25,7 @@ pub fn init(root: &Path) -> Result<()> {
         dev_dependencies: BTreeMap::new(),
         optional_dependencies: BTreeMap::new(),
         scripts: BTreeMap::new(),
+        resolutions: BTreeMap::new(),
         files: None,
         bin: None,
         main: None,

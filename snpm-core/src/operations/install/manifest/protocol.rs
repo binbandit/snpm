@@ -1,10 +1,15 @@
-use crate::registry::RegistryProtocol;
+use crate::{registry::RegistryProtocol, resolve::query::split_protocol_spec};
 
 pub fn detect_manifest_protocol(spec: &str) -> Option<RegistryProtocol> {
     if spec.starts_with("npm:") {
         Some(RegistryProtocol::npm())
-    } else if spec.starts_with("file:") || spec.starts_with("link:") {
+    } else if spec.starts_with("file:")
+        || spec.starts_with("link:")
+        || spec.starts_with("portal:")
+    {
         Some(RegistryProtocol::file())
+    } else if spec.starts_with("patch:") {
+        split_protocol_spec(spec).map(|(protocol, _, _)| protocol)
     } else if spec.starts_with("jsr:") {
         Some(RegistryProtocol::jsr())
     } else if is_git_spec(spec) {
@@ -19,6 +24,8 @@ pub fn is_special_protocol_spec(spec: &str) -> bool {
         || spec.starts_with("workspace:")
         || spec.starts_with("npm:")
         || spec.starts_with("link:")
+        || spec.starts_with("portal:")
+        || spec.starts_with("patch:")
         || spec.starts_with("jsr:")
         || is_git_spec(spec)
 }
@@ -142,6 +149,24 @@ mod tests {
     }
 
     #[test]
+    fn detect_manifest_protocol_portal() {
+        assert_eq!(
+            detect_manifest_protocol("portal:packages/make-fetch-smaller"),
+            Some(RegistryProtocol::file())
+        );
+    }
+
+    #[test]
+    fn detect_manifest_protocol_patch() {
+        assert_eq!(
+            detect_manifest_protocol(
+                "patch:docusaurus-plugin-typedoc-api@npm%3A4.4.0#~/.yarn/patches/typedoc.patch"
+            ),
+            Some(RegistryProtocol::npm())
+        );
+    }
+
+    #[test]
     fn detect_manifest_protocol_none() {
         assert_eq!(detect_manifest_protocol("^1.0.0"), None);
     }
@@ -153,6 +178,10 @@ mod tests {
         assert!(is_special_protocol_spec("workspace:*"));
         assert!(is_special_protocol_spec("npm:other@^1.0.0"));
         assert!(is_special_protocol_spec("link:../local-pkg"));
+        assert!(is_special_protocol_spec("portal:packages/make-fetch-smaller"));
+        assert!(is_special_protocol_spec(
+            "patch:docusaurus-plugin-typedoc-api@npm%3A4.4.0#~/.yarn/patches/typedoc.patch"
+        ));
         assert!(is_special_protocol_spec("git+https://example.com/repo.git"));
         assert!(is_special_protocol_spec("jsr:@std/path@^1.0.0"));
         assert!(!is_special_protocol_spec("^1.0.0"));

@@ -25,6 +25,7 @@ pub async fn resolve<F, Fut>(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    workspace_sources: Option<&BTreeMap<String, String>>,
     on_package: F,
 ) -> Result<ResolutionGraph>
 where
@@ -40,6 +41,7 @@ where
         min_age_days,
         force,
         overrides,
+        workspace_sources,
         on_package,
     )
     .await
@@ -55,6 +57,7 @@ pub async fn resolve_with_optional_roots<F, Fut>(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    workspace_sources: Option<&BTreeMap<String, String>>,
     on_package: F,
 ) -> Result<ResolutionGraph>
 where
@@ -70,6 +73,7 @@ where
         min_age_days,
         force,
         overrides,
+        workspace_sources,
         None,
         OfflineMode::Online,
         on_package,
@@ -87,6 +91,7 @@ pub async fn resolve_with_optional_roots_with_seed<F, Fut>(
     min_age_days: Option<u32>,
     force: bool,
     overrides: Option<&BTreeMap<String, String>>,
+    workspace_sources: Option<&BTreeMap<String, String>>,
     existing_graph: Option<&ResolutionGraph>,
     on_package: F,
 ) -> Result<ResolutionGraph>
@@ -103,6 +108,7 @@ where
         min_age_days,
         force,
         overrides,
+        workspace_sources,
         existing_graph,
         OfflineMode::Online,
         on_package,

@@ -32,6 +32,7 @@ pub(super) async fn resolve_dlx_graph(
         true,
         None,
         None,
+        None,
         offline_mode,
         {
             let store_config = store_config.clone();

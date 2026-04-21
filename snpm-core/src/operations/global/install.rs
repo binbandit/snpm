@@ -60,6 +60,7 @@ async fn install_package(
         config.min_package_age_days,
         false,
         None,
+        None,
         |_| async { Ok(()) },
     )
     .await?;

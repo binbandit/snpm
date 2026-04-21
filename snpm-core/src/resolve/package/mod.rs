@@ -10,8 +10,8 @@ use crate::Result;
 use crate::registry::RegistryProtocol;
 use crate::version::{parse_range_set, select_version};
 use async_recursion::async_recursion;
-use std::collections::BTreeSet;
 use snpm_semver::parse_version;
+use std::collections::BTreeSet;
 
 use metadata::{build_placeholder, ensure_platform_compatible};
 
@@ -27,12 +27,20 @@ impl<'a> ResolverContext<'a> {
         if let Some(existing_graph) = self.existing_graph
             && let Some(seed_id) = self.seeded_dependency_id(name, range, parent_id, existing_graph)
             && self.seeded_subgraph_complete(seed_id.clone(), existing_graph)
-            && self.import_seed_package_chain(seed_id.clone(), existing_graph).await?
+            && self
+                .import_seed_package_chain(seed_id.clone(), existing_graph)
+                .await?
         {
             return Ok(seed_id);
         }
 
-        let request = build_dep_request(name, range, protocol, self.overrides);
+        let request = build_dep_request(
+            name,
+            range,
+            protocol,
+            self.overrides,
+            self.workspace_sources,
+        );
         let cache_key = format!("{}:{}", request.protocol.name, request.source);
         let package = self
             .fetch_registry_package(&cache_key, &request.source, &request.protocol)
@@ -87,7 +95,11 @@ impl<'a> ResolverContext<'a> {
                 .dependencies
                 .get(name)
                 .cloned(),
-            None => graph.root.dependencies.get(name).map(|dep| dep.resolved.clone()),
+            None => graph
+                .root
+                .dependencies
+                .get(name)
+                .map(|dep| dep.resolved.clone()),
         };
 
         let Some(seed_id) = candidate else {
@@ -104,11 +116,7 @@ impl<'a> ResolverContext<'a> {
         Some(seed_id)
     }
 
-    fn seeded_subgraph_complete(
-        &self,
-        package_id: PackageId,
-        graph: &'a ResolutionGraph,
-    ) -> bool {
+    fn seeded_subgraph_complete(&self, package_id: PackageId, graph: &'a ResolutionGraph) -> bool {
         let mut stack = vec![package_id];
         let mut seen = BTreeSet::new();
 

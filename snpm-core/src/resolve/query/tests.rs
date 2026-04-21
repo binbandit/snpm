@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 #[test]
 fn build_dep_request_no_overrides() {
     let protocol = RegistryProtocol::npm();
-    let request = build_dep_request("lodash", "^4.0.0", &protocol, None);
+    let request = build_dep_request("lodash", "^4.0.0", &protocol, None, None);
     assert_eq!(request.source, "lodash");
     assert_eq!(request.range, "^4.0.0");
 }
@@ -15,7 +15,7 @@ fn build_dep_request_no_overrides() {
 fn build_dep_request_with_override() {
     let protocol = RegistryProtocol::npm();
     let overrides = BTreeMap::from([("lodash".to_string(), "^5.0.0".to_string())]);
-    let request = build_dep_request("lodash", "^4.0.0", &protocol, Some(&overrides));
+    let request = build_dep_request("lodash", "^4.0.0", &protocol, Some(&overrides), None);
     assert_eq!(request.source, "lodash");
     assert_eq!(request.range, "^5.0.0");
 }
@@ -24,7 +24,7 @@ fn build_dep_request_with_override() {
 fn build_dep_request_override_not_matching() {
     let protocol = RegistryProtocol::npm();
     let overrides = BTreeMap::from([("react".to_string(), "^18.0.0".to_string())]);
-    let request = build_dep_request("lodash", "^4.0.0", &protocol, Some(&overrides));
+    let request = build_dep_request("lodash", "^4.0.0", &protocol, Some(&overrides), None);
     assert_eq!(request.source, "lodash");
     assert_eq!(request.range, "^4.0.0");
 }
@@ -33,15 +33,58 @@ fn build_dep_request_override_not_matching() {
 fn build_dep_request_override_with_protocol() {
     let protocol = RegistryProtocol::npm();
     let overrides = BTreeMap::from([("pkg".to_string(), "npm:other-pkg@^2.0.0".to_string())]);
-    let request = build_dep_request("pkg", "^1.0.0", &protocol, Some(&overrides));
+    let request = build_dep_request("pkg", "^1.0.0", &protocol, Some(&overrides), None);
     assert_eq!(request.source, "other-pkg");
     assert_eq!(request.range, "^2.0.0");
 }
 
 #[test]
+fn build_dep_request_matches_selector_override() {
+    let protocol = RegistryProtocol::npm();
+    let overrides = BTreeMap::from([(
+        "make-fetch-happen@npm:^14.0.1".to_string(),
+        "portal:packages/make-fetch-smaller".to_string(),
+    )]);
+    let request = build_dep_request(
+        "make-fetch-happen",
+        "^14.0.1",
+        &protocol,
+        Some(&overrides),
+        None,
+    );
+    assert_eq!(request.protocol, RegistryProtocol::file());
+    assert_eq!(request.source, "packages/make-fetch-smaller");
+    assert_eq!(request.range, "latest");
+}
+
+#[test]
+fn build_dep_request_package_less_npm_protocol_uses_dependency_name() {
+    let protocol = RegistryProtocol::npm();
+    let request = build_dep_request(
+        "brace-expansion",
+        "npm:^1.1.7",
+        &protocol,
+        None,
+        None,
+    );
+    assert_eq!(request.protocol, RegistryProtocol::npm());
+    assert_eq!(request.source, "brace-expansion");
+    assert_eq!(request.range, "^1.1.7");
+}
+
+#[test]
+fn build_dep_request_workspace_protocol_uses_dependency_name() {
+    let protocol = RegistryProtocol::npm();
+    let request = build_dep_request("@yarnpkg/core", "workspace:^", &protocol, None, None);
+    assert_eq!(request.protocol, RegistryProtocol::npm());
+    assert_eq!(request.source, "@yarnpkg/core");
+    assert_eq!(request.range, "*");
+}
+
+#[test]
 fn build_dep_request_git_shorthand_uses_spec_as_source() {
     let protocol = RegistryProtocol::git();
-    let request = build_dep_request("tooling", "webpack/tooling#v1.26.1", &protocol, None);
+    let request = build_dep_request("tooling", "webpack/tooling#v1.26.1", &protocol, None, None);
     assert_eq!(request.source, "webpack/tooling#v1.26.1");
     assert_eq!(request.range, "latest");
 }

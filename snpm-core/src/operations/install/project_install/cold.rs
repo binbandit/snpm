@@ -33,6 +33,18 @@ pub(super) async fn resolve_cold_install(
     let client_clone = registry_client.clone();
     let progress_count = Arc::new(AtomicUsize::new(0));
     let progress_total = Arc::new(AtomicUsize::new(root_dependencies.len()));
+    let workspace_sources = plan.workspace.as_ref().map(|workspace| {
+        workspace
+            .projects
+            .iter()
+            .filter_map(|project| {
+                Some((
+                    project.manifest.name.clone()?,
+                    project.root.to_string_lossy().into_owned(),
+                ))
+            })
+            .collect::<BTreeMap<_, _>>()
+    });
 
     let graph = if let Some(seed_graph) = existing_graph {
         resolve::resolve_with_optional_roots_with_seed(
@@ -44,6 +56,7 @@ pub(super) async fn resolve_cold_install(
             config.min_package_age_days,
             force,
             Some(&plan.overrides),
+            workspace_sources.as_ref(),
             Some(seed_graph),
             move |package| {
                 let config = config_clone.clone();
@@ -87,6 +100,7 @@ pub(super) async fn resolve_cold_install(
             config.min_package_age_days,
             force,
             Some(&plan.overrides),
+            workspace_sources.as_ref(),
             move |package| {
                 let config = config_clone.clone();
                 let client = client_clone.clone();

@@ -61,7 +61,8 @@ pub async fn install_workspace(
     }
 
     let workspace_graph =
-        load_workspace_graph(config, &registry_client, &plan, include_dev, force).await?;
+        load_workspace_graph(config, &registry_client, workspace, &plan, include_dev, force)
+            .await?;
 
     let blocked_scripts = finalize_workspace_install(
         config,

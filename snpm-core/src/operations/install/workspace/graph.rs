@@ -22,6 +22,7 @@ pub(super) struct WorkspaceGraphLoad {
 pub(super) async fn load_workspace_graph(
     config: &SnpmConfig,
     registry_client: &Client,
+    workspace: &crate::Workspace,
     plan: &WorkspaceInstallPlan,
     include_dev: bool,
     force: bool,
@@ -33,7 +34,7 @@ pub(super) async fn load_workspace_graph(
             load_warm_partial_graph(config, registry_client, plan).await
         }
         InstallScenario::Cold => {
-            load_cold_graph(config, registry_client, plan, include_dev, force).await
+            load_cold_graph(config, registry_client, workspace, plan, include_dev, force).await
         }
     }?;
 
@@ -108,6 +109,7 @@ async fn load_warm_partial_graph(
 async fn load_cold_graph(
     config: &SnpmConfig,
     registry_client: &Client,
+    workspace: &crate::Workspace,
     plan: &WorkspaceInstallPlan,
     include_dev: bool,
     force: bool,
@@ -121,6 +123,16 @@ async fn load_cold_graph(
     };
 
     let mut store_paths_map = BTreeMap::new();
+    let workspace_sources = workspace
+        .projects
+        .iter()
+        .filter_map(|project| {
+            Some((
+                project.manifest.name.clone()?,
+                project.root.to_string_lossy().into_owned(),
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
     let graph = resolve_workspace_deps(
         config,
         registry_client,
@@ -129,6 +141,7 @@ async fn load_cold_graph(
         &plan.setup.optional_root_names,
         force,
         Some(&plan.setup.overrides),
+        Some(&workspace_sources),
         existing_graph.as_ref(),
         &mut store_paths_map,
     )

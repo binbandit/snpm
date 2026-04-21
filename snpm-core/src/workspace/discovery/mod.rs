@@ -46,7 +46,7 @@ fn try_load_workspace(dir: &Path) -> Result<Option<Workspace>> {
         None => empty_workspace_config(),
     };
 
-    let include_root_project = package_json_workspaces.is_none();
+    let include_root_project = package_json_path.is_file();
 
     if let Some((patterns, catalog, catalogs)) =
         package_json_workspaces.map(|workspaces| workspaces.into_parts())

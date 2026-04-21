@@ -53,6 +53,7 @@ pub async fn outdated(
         config.min_package_age_days,
         force,
         Some(&overrides),
+        None,
         |_package| async { Ok::<(), SnpmError>(()) },
     )
     .await?;

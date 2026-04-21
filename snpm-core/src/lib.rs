@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod config;
 pub mod console;
+mod copying;
 pub mod error;
 pub mod http;
 pub mod lifecycle;

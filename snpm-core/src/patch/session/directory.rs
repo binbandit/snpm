@@ -1,3 +1,4 @@
+use crate::copying::clone_or_copy_file;
 use crate::{Result, SnpmError};
 
 use std::fs;
@@ -72,7 +73,7 @@ fn copy_directory(src: &Path, dst: &Path) -> Result<()> {
         if src_path.is_dir() {
             copy_directory(&src_path, &dst_path)?;
         } else {
-            fs::copy(&src_path, &dst_path).map_err(|source| SnpmError::Io {
+            clone_or_copy_file(&src_path, &dst_path).map_err(|source| SnpmError::Io {
                 path: dst_path,
                 source,
             })?;

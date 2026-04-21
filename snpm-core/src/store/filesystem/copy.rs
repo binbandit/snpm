@@ -1,3 +1,4 @@
+use crate::copying::clone_or_copy_file;
 use crate::{Result, SnpmError};
 
 use std::fs;
@@ -48,7 +49,7 @@ pub(crate) fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         if entry_type.is_dir() {
             copy_dir_all(&entry.path(), &destination)?;
         } else {
-            fs::copy(entry.path(), destination)?;
+            clone_or_copy_file(&entry.path(), &destination)?;
         }
     }
 

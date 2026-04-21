@@ -1,5 +1,6 @@
 use super::paths::ensure_parent_dir;
 use super::symlinks::symlink_file_entry;
+use crate::copying::clone_or_hardlink_or_copy_file;
 use crate::store::read_package_filesystem_shape_lossy;
 use crate::{LinkBackend, Result, SnpmConfig, SnpmError};
 
@@ -12,6 +13,10 @@ use std::sync::OnceLock;
 static RESOLVED_AUTO_BACKEND: OnceLock<LinkBackend> = OnceLock::new();
 
 pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
+    if try_clone_store_package_dir(config, source, dest)? {
+        return Ok(());
+    }
+
     let (directories, files) = match indexed_link_ops(source, dest) {
         Some(ops) => ops,
         None => {
@@ -32,6 +37,45 @@ pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
     files
         .par_iter()
         .try_for_each(|(from, to)| link_file(config, from, to))
+}
+
+fn should_try_clone_store_package_dir(config: &SnpmConfig, source: &Path) -> bool {
+    matches!(
+        config.link_backend,
+        LinkBackend::Auto | LinkBackend::Reflink
+    ) && source.starts_with(config.packages_dir())
+}
+
+fn try_clone_store_package_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<bool> {
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos"
+    ))]
+    {
+        if !should_try_clone_store_package_dir(config, source) {
+            return Ok(false);
+        }
+
+        ensure_parent_dir(dest)?;
+
+        return match reflink_copy::reflink(source, dest) {
+            Ok(()) => Ok(true),
+            Err(_) => Ok(false),
+        };
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos"
+    )))]
+    {
+        let _ = (config, source, dest);
+        Ok(false)
+    }
 }
 
 fn indexed_link_ops(source: &Path, dest: &Path) -> Option<(Vec<PathBuf>, Vec<(PathBuf, PathBuf)>)> {
@@ -146,7 +190,7 @@ fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
 
 fn copy_file(from: &Path, to: &Path) -> Result<()> {
     ensure_parent_dir(to)?;
-    fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
+    clone_or_hardlink_or_copy_file(from, to).map_err(|source_err| SnpmError::WriteFile {
         path: to.to_path_buf(),
         source: source_err,
     })?;
@@ -155,7 +199,7 @@ fn copy_file(from: &Path, to: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::link_dir;
+    use super::{link_dir, should_try_clone_store_package_dir};
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
     use crate::store::PACKAGE_METADATA_FILE;
 
@@ -212,5 +256,28 @@ mod tests {
 
         assert!(destination.join("bin/tool.js").is_file());
         assert!(destination.join(PACKAGE_METADATA_FILE).is_file());
+    }
+
+    #[test]
+    fn store_clone_gate_only_allows_store_paths_for_auto_and_reflink() {
+        let dir = tempdir().unwrap();
+        let mut config = make_config();
+        config.data_dir = dir.path().join("data");
+        config.link_backend = LinkBackend::Auto;
+
+        let store_path = config.packages_dir().join("dep").join("1.0.0");
+        let external_path = dir.path().join("external");
+
+        assert!(should_try_clone_store_package_dir(&config, &store_path));
+        assert!(!should_try_clone_store_package_dir(&config, &external_path));
+
+        config.link_backend = LinkBackend::Reflink;
+        assert!(should_try_clone_store_package_dir(&config, &store_path));
+
+        config.link_backend = LinkBackend::Hardlink;
+        assert!(!should_try_clone_store_package_dir(&config, &store_path));
+
+        config.link_backend = LinkBackend::Copy;
+        assert!(!should_try_clone_store_package_dir(&config, &store_path));
     }
 }

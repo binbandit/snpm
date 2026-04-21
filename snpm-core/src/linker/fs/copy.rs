@@ -1,3 +1,4 @@
+use crate::copying::clone_or_copy_file;
 use crate::store::read_package_filesystem_shape_lossy;
 use crate::{Result, SnpmError};
 
@@ -29,7 +30,8 @@ pub fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
                     source,
                 })?;
             }
-            fs::copy(&from, &to).map_err(|source| SnpmError::WriteFile { path: to, source })?;
+            clone_or_copy_file(&from, &to)
+                .map_err(|source| SnpmError::WriteFile { path: to, source })?;
         }
 
         return Ok(());
@@ -66,7 +68,7 @@ pub fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
         if file_type.is_dir() {
             copy_dir(&from, &to)?;
         } else {
-            fs::copy(&from, &to).map_err(|source_err| SnpmError::WriteFile {
+            clone_or_copy_file(&from, &to).map_err(|source_err| SnpmError::WriteFile {
                 path: to,
                 source: source_err,
             })?;

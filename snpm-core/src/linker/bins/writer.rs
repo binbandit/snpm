@@ -1,3 +1,4 @@
+use crate::copying::clone_or_copy_file;
 use crate::{Result, SnpmError};
 
 use std::fs;
@@ -51,7 +52,7 @@ fn write_bin_link(target: &Path, destination: &Path) -> Result<()> {
     use std::os::unix::fs::symlink;
 
     if let Err(_source) = symlink(target, destination) {
-        fs::copy(target, destination).map_err(|source| SnpmError::WriteFile {
+        clone_or_copy_file(target, destination).map_err(|source| SnpmError::WriteFile {
             path: destination.to_path_buf(),
             source,
         })?;
@@ -66,7 +67,7 @@ fn write_bin_link(target: &Path, destination: &Path) -> Result<()> {
     use std::os::windows::fs::symlink_file;
 
     if let Err(_source) = symlink_file(target, destination) {
-        fs::copy(target, destination).map_err(|source| SnpmError::WriteFile {
+        clone_or_copy_file(target, destination).map_err(|source| SnpmError::WriteFile {
             path: destination.to_path_buf(),
             source,
         })?;

@@ -1,3 +1,4 @@
+use crate::copying::clone_or_copy_file;
 use crate::linker::fs::{symlink_dir_entry, symlink_file_entry};
 use crate::{Result, SnpmConfig, SnpmError};
 
@@ -258,7 +259,7 @@ fn copy_dir_inner(base: &Path, current: &Path, destination_root: &Path) -> Resul
             })?;
         }
 
-        fs::copy(&path, &destination).map_err(|source| SnpmError::WriteFile {
+        clone_or_copy_file(&path, &destination).map_err(|source| SnpmError::WriteFile {
             path: destination.clone(),
             source,
         })?;

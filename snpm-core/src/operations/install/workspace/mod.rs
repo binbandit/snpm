@@ -86,12 +86,14 @@ pub async fn install_workspace(
 
     let lockfile_source_path = plan.setup.lockfile_source_path();
     if lockfile_source_path.is_file() {
-        super::utils::write_graph_snapshot(
-            &workspace.root,
+        super::utils::write_workspace_install_state(
+            config,
+            workspace,
             &lockfile_source_path,
             &plan.setup.root_specs.required,
             &plan.setup.root_specs.optional,
             &workspace_graph.graph,
+            include_dev,
         )?;
     }
 

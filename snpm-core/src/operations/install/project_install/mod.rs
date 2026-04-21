@@ -111,12 +111,15 @@ pub async fn install(
     );
     let lockfile_source_path = plan.lockfile_source_path();
     if lockfile_source_path.is_file() {
-        super::utils::write_graph_snapshot(
-            &project.root,
+        super::utils::write_project_install_state(
+            config,
+            project,
+            plan.workspace.as_ref(),
             &lockfile_source_path,
             &current_root_specs.required,
             &current_root_specs.optional,
             &resolved.graph,
+            options.include_dev,
         )?;
     }
 

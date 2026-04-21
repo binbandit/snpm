@@ -32,6 +32,7 @@ pub(crate) struct LoadedGraphSnapshot {
     pub(crate) root_specs_hash: String,
 }
 
+#[cfg(test)]
 pub(crate) fn write_graph_snapshot(
     root: &Path,
     source_path: &Path,
@@ -56,6 +57,15 @@ pub(crate) fn write_graph_snapshot(
 }
 
 pub(crate) fn load_graph_snapshot(root: &Path, source_path: &Path) -> Option<LoadedGraphSnapshot> {
+    if let Some((graph, root_specs_hash)) =
+        super::install_state::load_graph_snapshot_from_install_state(root, source_path)
+    {
+        return Some(LoadedGraphSnapshot {
+            graph,
+            root_specs_hash,
+        });
+    }
+
     let path = root.join(GRAPH_SNAPSHOT_FILE);
     let bytes = fs::read(&path).ok()?;
     let snapshot = bincode::deserialize::<GraphSnapshot>(&bytes).ok()?;

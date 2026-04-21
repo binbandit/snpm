@@ -1,6 +1,6 @@
 use super::integrity::{build_project_integrity_state, check_integrity_file};
 use super::layout_state::check_project_layout_state;
-use super::load_graph_snapshot;
+use super::{load_graph_snapshot, load_project_install_state};
 use super::store::check_store_cache;
 use super::types::{InstallScenario, ScenarioResult};
 use crate::console;
@@ -31,6 +31,41 @@ pub fn detect_install_scenario(
     }
 
     if let Some(source_path) = lockfile_source_path(lockfile_path, compatible_lockfile)
+        && let Some(state) = load_project_install_state(
+            config,
+            project,
+            workspace,
+            &source_path,
+            required_root,
+            optional_root,
+            true,
+        )
+    {
+        if !state.root_specs_matches {
+            console::verbose("scenario: Cold (graph snapshot root specs mismatch)");
+            return ScenarioResult {
+                scenario: InstallScenario::Cold,
+                cache_check: None,
+                graph: Some(state.graph),
+                integrity_state: None,
+            };
+        }
+
+        console::verbose(&format!(
+            "scenario input: using graph snapshot from {}",
+            source_path.display()
+        ));
+        return detect_from_graph(
+            config,
+            project,
+            workspace,
+            state.graph,
+            force,
+            Some(state.layout_valid),
+        );
+    }
+
+    if let Some(source_path) = lockfile_source_path(lockfile_path, compatible_lockfile)
         && let Some(snapshot) = load_graph_snapshot(&project.root, &source_path)
     {
         if !snapshot.matches_root_specs(required_root, optional_root) {
@@ -47,7 +82,7 @@ pub fn detect_install_scenario(
             "scenario input: using graph snapshot from {}",
             source_path.display()
         ));
-        return detect_from_graph(config, project, workspace, snapshot.graph, force);
+        return detect_from_graph(config, project, workspace, snapshot.graph, force, None);
     }
 
     let existing = match read_existing_lockfile(lockfile_path, compatible_lockfile, config) {
@@ -73,7 +108,7 @@ pub fn detect_install_scenario(
         };
     }
 
-    detect_from_graph(config, project, workspace, graph, force)
+    detect_from_graph(config, project, workspace, graph, force, None)
 }
 
 fn detect_from_graph(
@@ -82,6 +117,7 @@ fn detect_from_graph(
     workspace: Option<&crate::Workspace>,
     graph: crate::resolve::ResolutionGraph,
     force: bool,
+    cached_layout_valid: Option<bool>,
 ) -> ScenarioResult {
     let integrity_state = match build_project_integrity_state(project, &graph) {
         Ok(state) => state,
@@ -94,10 +130,10 @@ fn detect_from_graph(
         }
     };
 
-    if !force
-        && check_integrity_file(project, &integrity_state)
-        && check_project_layout_state(config, project, workspace, &graph, true)
-    {
+    let layout_valid =
+        cached_layout_valid.unwrap_or_else(|| check_project_layout_state(config, project, workspace, &graph, true));
+
+    if !force && check_integrity_file(project, &integrity_state) && layout_valid {
         console::verbose("scenario: Hot (lockfile + node_modules valid)");
         return ScenarioResult {
             scenario: InstallScenario::Hot,

@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const STORE_RESIDENCY_INDEX_VERSION: u32 = 1;
+static NEXT_TMP_WRITE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoreResidencyIndex {
@@ -98,7 +100,11 @@ pub(crate) fn persist_store_residency_index(
         reason: source.to_string(),
     })?;
 
-    let tmp_path = parent.join(format!(".store-residency-v1-{}.tmp", std::process::id()));
+    let tmp_path = parent.join(format!(
+        ".store-residency-v1-{}.{}.tmp",
+        std::process::id(),
+        NEXT_TMP_WRITE_ID.fetch_add(1, Ordering::Relaxed)
+    ));
     fs::write(&tmp_path, data).map_err(|source| SnpmError::WriteFile {
         path: tmp_path.clone(),
         source,

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::super::utils::{
     InstallScenario, IntegrityState, build_workspace_integrity_state, can_any_scripts_run,
-    capture_workspace_layout_state, compute_project_patch_hash, write_integrity_path,
+    compute_project_patch_hash, write_integrity_path,
 };
 use super::linking::{
     link_project_dependencies, link_store_dependencies, populate_virtual_store,
@@ -62,7 +62,6 @@ pub(super) fn finalize_workspace_install(
     let workspace_integrity = build_workspace_integrity_state(workspace, graph)?;
     write_workspace_integrity(&workspace.root, &workspace_integrity)?;
     write_project_integrity_files(workspace, &workspace_integrity)?;
-    capture_workspace_layout_state(config, workspace, graph, include_dev)?;
 
     Ok(blocked_scripts)
 }

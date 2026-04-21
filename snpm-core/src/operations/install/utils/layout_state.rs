@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const LAYOUT_STATE_FILE: &str = ".snpm-install-state";
+pub(crate) const LAYOUT_STATE_FILE: &str = ".snpm-install-state";
 const LAYOUT_STATE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -24,7 +24,7 @@ struct LayoutState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-enum LayoutCheck {
+pub(crate) enum LayoutCheck {
     Exists {
         path: PathBuf,
     },
@@ -39,6 +39,7 @@ enum LayoutCheck {
     },
 }
 
+#[cfg(test)]
 pub(crate) fn capture_project_layout_state(
     config: &SnpmConfig,
     project: &Project,
@@ -55,21 +56,6 @@ pub(crate) fn capture_project_layout_state(
     write_layout_state(&project.root.join("node_modules"), &state)
 }
 
-pub(crate) fn capture_workspace_layout_state(
-    config: &SnpmConfig,
-    workspace: &Workspace,
-    graph: &ResolutionGraph,
-    include_dev: bool,
-) -> Result<()> {
-    let state = LayoutState {
-        version: LAYOUT_STATE_VERSION,
-        layout_hash: build_workspace_layout_hash(config, workspace, graph, include_dev)?,
-        checks: capture_workspace_checks(config, workspace, graph, include_dev)?,
-    };
-
-    write_layout_state(&workspace.root.join("node_modules"), &state)
-}
-
 pub(crate) fn check_project_layout_state(
     config: &SnpmConfig,
     project: &Project,
@@ -77,6 +63,16 @@ pub(crate) fn check_project_layout_state(
     graph: &ResolutionGraph,
     include_dev: bool,
 ) -> bool {
+    if let Some(valid) = super::install_state::check_project_layout_from_install_state(
+        config,
+        project,
+        workspace,
+        graph,
+        include_dev,
+    ) {
+        return valid;
+    }
+
     let layout_hash =
         match build_project_layout_hash(config, project, workspace, graph, include_dev) {
             Ok(hash) => hash,
@@ -92,6 +88,15 @@ pub(crate) fn check_workspace_layout_state(
     graph: &ResolutionGraph,
     include_dev: bool,
 ) -> bool {
+    if let Some(valid) = super::install_state::check_workspace_layout_from_install_state(
+        config,
+        workspace,
+        graph,
+        include_dev,
+    ) {
+        return valid;
+    }
+
     let layout_hash = match build_workspace_layout_hash(config, workspace, graph, include_dev) {
         Ok(hash) => hash,
         Err(_) => return false,
@@ -100,7 +105,7 @@ pub(crate) fn check_workspace_layout_state(
     check_layout_state(&workspace.root.join("node_modules"), &layout_hash)
 }
 
-fn build_project_layout_hash(
+pub(crate) fn build_project_layout_hash(
     config: &SnpmConfig,
     project: &Project,
     workspace: Option<&Workspace>,
@@ -121,7 +126,7 @@ fn build_project_layout_hash(
     Ok(hash_entries(&entries))
 }
 
-fn build_workspace_layout_hash(
+pub(crate) fn build_workspace_layout_hash(
     config: &SnpmConfig,
     workspace: &Workspace,
     graph: &ResolutionGraph,
@@ -254,7 +259,7 @@ fn append_hoist_entries(entries: &mut Vec<String>, graph: &ResolutionGraph, mode
     }
 }
 
-fn capture_project_checks(
+pub(crate) fn capture_project_checks(
     config: &SnpmConfig,
     project: &Project,
     workspace: Option<&Workspace>,
@@ -282,7 +287,7 @@ fn capture_project_checks(
     Ok(checks)
 }
 
-fn capture_workspace_checks(
+pub(crate) fn capture_workspace_checks(
     config: &SnpmConfig,
     workspace: &Workspace,
     graph: &ResolutionGraph,
@@ -523,6 +528,7 @@ fn capture_directory_mtime_if_exists(path: &Path, checks: &mut Vec<LayoutCheck>)
     Ok(())
 }
 
+#[cfg(test)]
 fn write_layout_state(node_modules: &Path, state: &LayoutState) -> Result<()> {
     if !node_modules.is_dir() {
         return Ok(());
@@ -593,10 +599,11 @@ fn resolve_symlink_target(link: &Path, target: &Path) -> PathBuf {
 }
 
 fn state_path(node_modules: &Path) -> PathBuf {
-    node_modules
-        .parent()
-        .unwrap_or(node_modules)
-        .join(LAYOUT_STATE_FILE)
+    install_state_path(node_modules.parent().unwrap_or(node_modules))
+}
+
+pub(crate) fn install_state_path(root: &Path) -> PathBuf {
+    root.join(LAYOUT_STATE_FILE)
 }
 
 fn hash_entries(entries: &[String]) -> String {

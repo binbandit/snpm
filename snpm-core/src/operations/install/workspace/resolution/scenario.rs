@@ -8,7 +8,8 @@ use std::path::Path;
 
 use super::super::super::utils::{
     CacheCheckResult, InstallScenario, IntegrityState, build_workspace_integrity_state,
-    check_integrity_path, check_store_cache, check_workspace_layout_state, load_graph_snapshot,
+    check_integrity_path, check_store_cache, check_workspace_layout_state,
+    load_graph_snapshot, load_workspace_install_state,
     write_integrity_path,
 };
 
@@ -55,10 +56,41 @@ pub(crate) fn detect_workspace_scenario_early(
     }
 
     if let Some(source_path) = lockfile_source_path(lockfile_path, compatible_lockfile)
+        && let Some(state) = load_workspace_install_state(
+            config,
+            workspace,
+            &source_path,
+            required_root,
+            optional_root,
+            true,
+        )
+    {
+        if state.root_specs_matches {
+            return detect_from_graph(
+                workspace,
+                config,
+                state.graph,
+                force,
+                None,
+                true,
+                Some(state.layout_valid),
+            );
+        }
+
+        return WorkspaceScenarioArtifacts {
+            scenario: InstallScenario::Cold,
+            existing_lockfile: None,
+            graph: Some(state.graph),
+            cache_check: None,
+            lockfile_checked: true,
+        };
+    }
+
+    if let Some(source_path) = lockfile_source_path(lockfile_path, compatible_lockfile)
         && let Some(snapshot) = load_graph_snapshot(&workspace.root, &source_path)
         && snapshot.matches_root_specs(required_root, optional_root)
     {
-        return detect_from_graph(workspace, config, snapshot.graph, force, None, true);
+        return detect_from_graph(workspace, config, snapshot.graph, force, None, true, None);
     }
 
     let existing = match read_existing_lockfile(lockfile_path, compatible_lockfile, config) {
@@ -77,7 +109,7 @@ pub(crate) fn detect_workspace_scenario_early(
         };
     }
 
-    detect_from_graph(workspace, config, graph, force, Some(existing), true)
+    detect_from_graph(workspace, config, graph, force, Some(existing), true, None)
 }
 
 fn detect_from_graph(
@@ -87,6 +119,7 @@ fn detect_from_graph(
     force: bool,
     existing_lockfile: Option<lockfile::Lockfile>,
     lockfile_checked: bool,
+    cached_layout_valid: Option<bool>,
 ) -> WorkspaceScenarioArtifacts {
     let integrity_state = match build_workspace_integrity_state(workspace, &graph) {
         Ok(state) => state,
@@ -101,10 +134,10 @@ fn detect_from_graph(
         }
     };
 
-    if !force
-        && check_workspace_integrity(&workspace.root, &integrity_state)
-        && check_workspace_layout_state(config, workspace, &graph, true)
-    {
+    let layout_valid =
+        cached_layout_valid.unwrap_or_else(|| check_workspace_layout_state(config, workspace, &graph, true));
+
+    if !force && check_workspace_integrity(&workspace.root, &integrity_state) && layout_valid {
         return WorkspaceScenarioArtifacts {
             scenario: InstallScenario::Hot,
             existing_lockfile,

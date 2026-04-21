@@ -43,4 +43,15 @@ impl ProjectInstallPlan {
             .map(|source| source.path.display().to_string())
             .unwrap_or_else(|| self.lockfile_path.display().to_string())
     }
+
+    pub(in crate::operations::install::project_install) fn lockfile_source_path(&self) -> PathBuf {
+        if self.lockfile_path.is_file() {
+            return self.lockfile_path.clone();
+        }
+
+        self.compatible_lockfile
+            .as_ref()
+            .map(|source| source.path.clone())
+            .unwrap_or_else(|| self.lockfile_path.clone())
+    }
 }

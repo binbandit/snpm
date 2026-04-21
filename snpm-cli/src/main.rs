@@ -169,10 +169,8 @@ mod tests {
 
     #[test]
     fn rewrites_snpx_to_dlx() {
-        let rewritten = rewrite_multicall_argv(vec![
-            OsString::from("/tmp/snpx"),
-            OsString::from("cowsay"),
-        ]);
+        let rewritten =
+            rewrite_multicall_argv(vec![OsString::from("/tmp/snpx"), OsString::from("cowsay")]);
 
         assert_eq!(strings(&rewritten), vec!["snpm", "dlx", "cowsay"]);
     }

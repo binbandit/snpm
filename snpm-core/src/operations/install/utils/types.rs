@@ -117,6 +117,41 @@ impl FrozenLockfileOverride {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::ffi::OsString;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = env::var_os(key);
+
+            match value {
+                Some(value) => unsafe { env::set_var(key, value) },
+                None => unsafe { env::remove_var(key) },
+            }
+
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe { env::set_var(self.key, value) },
+                None => unsafe { env::remove_var(self.key) },
+            }
+        }
+    }
 
     #[test]
     fn from_override_prefers_explicit_lockfile_mode() {
@@ -132,8 +167,20 @@ mod tests {
 
     #[test]
     fn from_override_defaults_to_prefer() {
+        let _lock = env_lock();
+        let _guard = EnvVarGuard::set("CI", None);
+
         let prefer = FrozenLockfileMode::from_override(None, false);
         assert!(matches!(prefer, FrozenLockfileMode::Prefer));
+    }
+
+    #[test]
+    fn from_override_defaults_to_frozen_in_ci() {
+        let _lock = env_lock();
+        let _guard = EnvVarGuard::set("CI", Some("true"));
+
+        let frozen = FrozenLockfileMode::from_override(None, false);
+        assert!(matches!(frozen, FrozenLockfileMode::Frozen));
     }
 
     #[test]

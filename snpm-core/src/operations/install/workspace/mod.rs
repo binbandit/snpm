@@ -60,9 +60,20 @@ pub async fn install_workspace(
         });
     }
 
-    let workspace_graph =
-        load_workspace_graph(config, &registry_client, workspace, &plan, include_dev, force)
-            .await?;
+    let workspace_graph = load_workspace_graph(
+        config,
+        &registry_client,
+        workspace,
+        &plan,
+        include_dev,
+        force,
+    )
+    .await?;
+    if let Err(error) =
+        crate::store::persist_store_residency_index(config, &workspace_graph.store_paths_map)
+    {
+        console::verbose(&format!("failed to persist store residency index: {error}"));
+    }
 
     let blocked_scripts = finalize_workspace_install(
         config,
@@ -72,6 +83,17 @@ pub async fn install_workspace(
         include_dev,
         plan.scenario,
     )?;
+
+    let lockfile_source_path = plan.setup.lockfile_source_path();
+    if lockfile_source_path.is_file() {
+        super::utils::write_graph_snapshot(
+            &workspace.root,
+            &lockfile_source_path,
+            &plan.setup.root_specs.required,
+            &plan.setup.root_specs.optional,
+            &workspace_graph.graph,
+        )?;
+    }
 
     console::clear_steps(step_count_for_workspace(
         plan.scenario,

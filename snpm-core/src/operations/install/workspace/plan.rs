@@ -1,17 +1,20 @@
 use crate::lockfile;
-use crate::operations::install::utils::FrozenLockfileMode;
+use crate::operations::install::utils::{CacheCheckResult, FrozenLockfileMode};
+use crate::resolve::ResolutionGraph;
 use crate::{Result, SnpmConfig, Workspace};
 use std::collections::BTreeMap;
 
 use super::super::utils::InstallScenario;
-use super::resolution::{detect_workspace_scenario_early, validate_lockfile_matches_manifest};
+use super::resolution::{
+    WorkspaceScenarioArtifacts, detect_workspace_scenario_early, validate_lockfile_matches_manifest,
+};
 use super::setup::{WorkspaceInstallSetup, build_root_protocols, prepare_workspace_install};
 
 pub(super) struct WorkspaceInstallPlan {
     pub(super) setup: WorkspaceInstallSetup,
     pub(super) scenario: InstallScenario,
-    pub(super) existing_lockfile: Option<lockfile::Lockfile>,
-    pub(super) is_fix_mode: bool,
+    pub(super) scenario_graph: Option<ResolutionGraph>,
+    pub(super) scenario_cache_check: Option<CacheCheckResult>,
 }
 
 fn pinned_workspace_root_dependencies_for_fix(
@@ -65,8 +68,15 @@ pub(super) fn plan_workspace_install(
     let mut setup =
         prepare_workspace_install(workspace, include_dev, frozen_lockfile, strict_no_lockfile)?;
     let lockfile_source_path = setup.lockfile_source_path();
-    let (scenario, existing_lockfile) = if matches!(frozen_lockfile, FrozenLockfileMode::Fix) {
-        (InstallScenario::Cold, read_lockfile_for_fix(&setup, config).ok())
+    let mut scenario_artifacts = if matches!(frozen_lockfile, FrozenLockfileMode::Fix) {
+        let existing_lockfile = read_lockfile_for_fix(&setup, config).ok();
+        WorkspaceScenarioArtifacts {
+            scenario: InstallScenario::Cold,
+            existing_lockfile: existing_lockfile.clone(),
+            graph: existing_lockfile.as_ref().map(lockfile::to_graph),
+            cache_check: None,
+            lockfile_checked: existing_lockfile.is_some(),
+        }
     } else {
         detect_workspace_scenario_early(
             workspace,
@@ -76,6 +86,8 @@ pub(super) fn plan_workspace_install(
             frozen_lockfile,
             strict_no_lockfile,
             force,
+            &setup.root_specs.required,
+            &setup.root_specs.optional,
         )
     };
 
@@ -83,23 +95,28 @@ pub(super) fn plan_workspace_install(
         frozen_lockfile,
         &lockfile_source_path,
         strict_no_lockfile,
-        scenario,
-        existing_lockfile,
+        scenario_artifacts.scenario,
+        scenario_artifacts.existing_lockfile.take(),
         &setup.root_specs.required,
         &setup.root_specs.optional,
+        scenario_artifacts.lockfile_checked,
     )?;
+    scenario_artifacts.scenario = scenario;
+    scenario_artifacts.existing_lockfile = existing_lockfile;
 
     if matches!(frozen_lockfile, FrozenLockfileMode::Fix) {
-        setup.root_dependencies =
-            pinned_workspace_root_dependencies_for_fix(&setup, existing_lockfile.as_ref());
+        setup.root_dependencies = pinned_workspace_root_dependencies_for_fix(
+            &setup,
+            scenario_artifacts.existing_lockfile.as_ref(),
+        );
         setup.root_protocols = build_root_protocols(&setup.root_dependencies);
     }
 
     Ok(WorkspaceInstallPlan {
         setup,
-        scenario,
-        existing_lockfile,
-        is_fix_mode: matches!(frozen_lockfile, FrozenLockfileMode::Fix),
+        scenario: scenario_artifacts.scenario,
+        scenario_graph: scenario_artifacts.graph,
+        scenario_cache_check: scenario_artifacts.cache_check,
     })
 }
 
@@ -124,11 +141,11 @@ fn read_lockfile_for_fix(
 
 #[cfg(test)]
 mod tests {
-    use super::super::utils::FrozenLockfileMode;
+    use crate::lockfile::{LockRoot, LockRootDependency, Lockfile};
     use crate::operations::install::manifest::RootSpecSet;
+    use crate::operations::install::utils::FrozenLockfileMode;
     use crate::operations::install::utils::InstallScenario;
-    use crate::lockfile::{Lockfile, LockRoot, LockRootDependency};
-    use crate::{config::*, lockfile, Workspace};
+    use crate::{Workspace, config::*};
     use std::collections::{BTreeMap, BTreeSet};
     use std::io::Write;
     use std::path::Path;
@@ -179,10 +196,7 @@ mod tests {
   }
 }"#,
         );
-        write_manifest(
-            &dir.path().join("snpm-workspace.yaml"),
-            "packages: []\n",
-        );
+        write_manifest(&dir.path().join("snpm-workspace.yaml"), "packages: []\n");
 
         let lockfile = Lockfile {
             version: 1,
@@ -210,8 +224,7 @@ mod tests {
             },
             packages: std::collections::BTreeMap::new(),
         };
-        let lockfile_path = dir.path().join("snpm-lock.yaml");
-        lockfile::write(&lockfile_path, &lockfile, &BTreeMap::new()).unwrap();
+        write_lockfile(dir.path(), lockfile);
 
         let workspace = Workspace::discover(dir.path()).unwrap().unwrap();
         let plan = super::plan_workspace_install(
@@ -225,8 +238,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.scenario, InstallScenario::Cold);
-        assert!(plan.is_fix_mode);
-        assert!(plan.existing_lockfile.is_some());
+        assert!(plan.scenario_graph.is_some());
         assert_eq!(
             plan.setup.root_dependencies.get("foo"),
             Some(&"1.2.3".to_string())
@@ -239,9 +251,10 @@ mod tests {
 
     #[test]
     fn pinned_workspace_root_dependencies_for_fix_only_rewrites_matching_locked_deps() {
-        let setup = WorkspaceInstallSetup {
+        let setup = super::super::setup::WorkspaceInstallSetup {
             lockfile_path: Path::new("/tmp/snpm-lock.yaml").to_path_buf(),
             compatible_lockfile: None,
+            overrides: BTreeMap::new(),
             root_specs: RootSpecSet {
                 required: BTreeMap::from([("left".to_string(), "^1.0.0".to_string())]),
                 optional: BTreeMap::from([("right".to_string(), "^2.0.0".to_string())]),
@@ -281,7 +294,7 @@ mod tests {
             packages: std::collections::BTreeMap::new(),
         };
 
-        let rewritten = pinned_workspace_root_dependencies_for_fix(&setup, Some(&lockfile));
+        let rewritten = super::pinned_workspace_root_dependencies_for_fix(&setup, Some(&lockfile));
 
         let expected = BTreeMap::from([
             ("left".to_string(), "1.2.3".to_string()),
@@ -317,7 +330,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.scenario, InstallScenario::Cold);
-        assert!(plan.existing_lockfile.is_none());
+        assert!(plan.scenario_graph.is_none());
         assert_eq!(
             plan.setup.root_dependencies.get("left"),
             Some(&"^1.0.0".to_string())
@@ -327,7 +340,7 @@ mod tests {
     #[test]
     fn read_lockfile_for_fix_requires_lockfile_or_compatible_source() {
         let dir = tempdir().unwrap();
-        let setup = WorkspaceInstallSetup {
+        let setup = super::super::setup::WorkspaceInstallSetup {
             lockfile_path: dir.path().join("missing.yaml"),
             compatible_lockfile: None,
             overrides: BTreeMap::new(),
@@ -339,8 +352,14 @@ mod tests {
             root_protocols: BTreeMap::new(),
             optional_root_names: BTreeSet::new(),
         };
-        let result = read_lockfile_for_fix(&setup, &make_workspace_config());
+        let result = super::read_lockfile_for_fix(&setup, &make_workspace_config());
 
         assert!(result.is_err());
+    }
+
+    fn write_lockfile(path: &Path, lockfile: Lockfile) {
+        let lockfile_path = path.join("snpm-lock.yaml");
+        let data = serde_yaml::to_string(&lockfile).unwrap();
+        std::fs::write(&lockfile_path, data).unwrap();
     }
 }

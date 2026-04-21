@@ -1,3 +1,4 @@
+use crate::store::read_package_filesystem_shape_lossy;
 use crate::{Result, SnpmError};
 
 use std::fs;
@@ -9,6 +10,30 @@ pub fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
         path: dest.to_path_buf(),
         source: source_err,
     })?;
+
+    if let Some(shape) = read_package_filesystem_shape_lossy(source) {
+        for directory in &shape.directories {
+            let destination = dest.join(directory);
+            fs::create_dir_all(&destination).map_err(|source| SnpmError::WriteFile {
+                path: destination,
+                source,
+            })?;
+        }
+
+        for file in &shape.files {
+            let from = source.join(file);
+            let to = dest.join(file);
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
+            fs::copy(&from, &to).map_err(|source| SnpmError::WriteFile { path: to, source })?;
+        }
+
+        return Ok(());
+    }
 
     for entry in fs::read_dir(source).map_err(|source_err| SnpmError::ReadFile {
         path: source.to_path_buf(),
@@ -54,6 +79,7 @@ pub fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::copy_dir;
+    use crate::store::PACKAGE_METADATA_FILE;
 
     #[test]
     fn copy_dir_copies_files() {
@@ -107,5 +133,35 @@ mod tests {
 
         let result = copy_dir(&src, &dst);
         assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_uses_indexed_shape_without_scanning_source_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        std::fs::write(src.join("sub/nested.txt"), "nested").unwrap();
+        std::fs::write(
+            src.join(PACKAGE_METADATA_FILE),
+            r#"{
+                "filesystem": {
+                    "directories": ["sub"],
+                    "files": ["sub/nested.txt", ".snpm-package-metadata.json"]
+                }
+            }"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(dir.path().join("outside"), src.join("bad-link")).unwrap();
+
+        copy_dir(&src, &dst).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dst.join("sub/nested.txt")).unwrap(),
+            "nested"
+        );
+        assert!(dst.join(PACKAGE_METADATA_FILE).is_file());
     }
 }

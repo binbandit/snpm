@@ -1,5 +1,6 @@
 use super::integrity::{build_project_integrity_state, check_integrity_file};
 use super::layout_state::check_project_layout_state;
+use super::load_graph_snapshot;
 use super::store::check_store_cache;
 use super::types::{InstallScenario, ScenarioResult};
 use crate::console;
@@ -29,6 +30,26 @@ pub fn detect_install_scenario(
         return ScenarioResult::cold();
     }
 
+    if let Some(source_path) = lockfile_source_path(lockfile_path, compatible_lockfile)
+        && let Some(snapshot) = load_graph_snapshot(&project.root, &source_path)
+    {
+        if !snapshot.matches_root_specs(required_root, optional_root) {
+            console::verbose("scenario: Cold (graph snapshot root specs mismatch)");
+            return ScenarioResult {
+                scenario: InstallScenario::Cold,
+                cache_check: None,
+                graph: Some(snapshot.graph),
+                integrity_state: None,
+            };
+        }
+
+        console::verbose(&format!(
+            "scenario input: using graph snapshot from {}",
+            source_path.display()
+        ));
+        return detect_from_graph(config, project, workspace, snapshot.graph, force);
+    }
+
     let existing = match read_existing_lockfile(lockfile_path, compatible_lockfile, config) {
         Ok(lockfile) => lockfile,
         Err(error) => {
@@ -40,13 +61,28 @@ pub fn detect_install_scenario(
             return ScenarioResult::cold();
         }
     };
+    let graph = lockfile::to_graph(&existing);
 
     if !lockfile::root_specs_match(&existing, required_root, optional_root) {
         console::verbose("scenario: Cold (lockfile doesn't match manifest)");
-        return ScenarioResult::cold();
+        return ScenarioResult {
+            scenario: InstallScenario::Cold,
+            cache_check: None,
+            graph: Some(graph),
+            integrity_state: None,
+        };
     }
 
-    let graph = lockfile::to_graph(&existing);
+    detect_from_graph(config, project, workspace, graph, force)
+}
+
+fn detect_from_graph(
+    config: &SnpmConfig,
+    project: &Project,
+    workspace: Option<&crate::Workspace>,
+    graph: crate::resolve::ResolutionGraph,
+    force: bool,
+) -> ScenarioResult {
     let integrity_state = match build_project_integrity_state(project, &graph) {
         Ok(state) => state,
         Err(error) => {
@@ -118,6 +154,162 @@ pub fn detect_install_scenario(
         cache_check: Some(cache_check),
         graph: Some(graph),
         integrity_state: Some(integrity_state),
+    }
+}
+
+fn lockfile_source_path(
+    lockfile_path: &Path,
+    compatible_lockfile: Option<&crate::lockfile::CompatibleLockfile>,
+) -> Option<std::path::PathBuf> {
+    if lockfile_path.is_file() {
+        Some(lockfile_path.to_path_buf())
+    } else {
+        compatible_lockfile.map(|source| source.path.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::detect_install_scenario;
+    use crate::Project;
+    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::operations::install::utils::{
+        FrozenLockfileMode, InstallScenario, write_graph_snapshot,
+    };
+    use crate::project::Manifest;
+    use crate::resolve::{
+        PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
+    };
+
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use tempfile::tempdir;
+
+    fn make_config() -> SnpmConfig {
+        SnpmConfig {
+            cache_dir: PathBuf::from("/tmp/cache"),
+            data_dir: PathBuf::from("/tmp/data"),
+            allow_scripts: BTreeSet::new(),
+            min_package_age_days: None,
+            min_package_cache_age_days: None,
+            default_registry: "https://registry.npmjs.org".to_string(),
+            scoped_registries: BTreeMap::new(),
+            registry_auth: BTreeMap::new(),
+            default_registry_auth_token: None,
+            default_registry_auth_scheme: AuthScheme::Bearer,
+            registry_auth_schemes: BTreeMap::new(),
+            hoisting: HoistingMode::SingleVersion,
+            link_backend: LinkBackend::Auto,
+            strict_peers: false,
+            frozen_lockfile_default: false,
+            always_auth: false,
+            registry_concurrency: 64,
+            verbose: false,
+            log_file: None,
+        }
+    }
+
+    fn make_project(root: &Path) -> Project {
+        Project {
+            root: root.to_path_buf(),
+            manifest_path: root.join("package.json"),
+            manifest: Manifest {
+                name: Some("app".to_string()),
+                version: Some("1.0.0".to_string()),
+                private: false,
+                dependencies: BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+                dev_dependencies: BTreeMap::new(),
+                optional_dependencies: BTreeMap::new(),
+                scripts: BTreeMap::new(),
+                resolutions: BTreeMap::new(),
+                files: None,
+                bin: None,
+                main: None,
+                pnpm: None,
+                snpm: None,
+                workspaces: None,
+            },
+        }
+    }
+
+    fn make_graph() -> ResolutionGraph {
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+
+        ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::from([(
+                    "dep".to_string(),
+                    RootDependency {
+                        requested: "^1.0.0".to_string(),
+                        resolved: id.clone(),
+                    },
+                )]),
+            },
+            packages: BTreeMap::from([(
+                id.clone(),
+                ResolvedPackage {
+                    id,
+                    tarball: "https://example.com/dep.tgz".to_string(),
+                    integrity: None,
+                    dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
+                    bundled_dependencies: None,
+                    has_bin: false,
+                    bin: None,
+                },
+            )]),
+        }
+    }
+
+    #[test]
+    fn detect_install_scenario_returns_cold_with_snapshot_graph_when_root_specs_change() {
+        let dir = tempdir().unwrap();
+        let project = make_project(dir.path());
+        fs::write(project.manifest_path.clone(), "{}").unwrap();
+
+        let lockfile_path = dir.path().join("snpm-lock.yaml");
+        fs::write(
+            &lockfile_path,
+            "version: 1\nroot:\n  dependencies: {}\npackages: {}\n",
+        )
+        .unwrap();
+
+        write_graph_snapshot(
+            dir.path(),
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+            &BTreeMap::new(),
+            &make_graph(),
+        )
+        .unwrap();
+
+        let result = detect_install_scenario(
+            &project,
+            None,
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^2.0.0".to_string())]),
+            &BTreeMap::new(),
+            &make_config(),
+            FrozenLockfileMode::Prefer,
+            false,
+            None,
+        );
+
+        assert_eq!(result.scenario, InstallScenario::Cold);
+        assert!(result.cache_check.is_none());
+        assert!(result.integrity_state.is_none());
+        assert_eq!(
+            result
+                .graph
+                .as_ref()
+                .and_then(|graph| graph.root.dependencies.get("dep"))
+                .map(|dep| dep.resolved.version.as_str()),
+            Some("1.0.0")
+        );
     }
 }
 

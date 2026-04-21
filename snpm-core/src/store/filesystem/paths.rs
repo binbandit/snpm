@@ -1,3 +1,5 @@
+use super::super::read_store_package_metadata_lossy;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -6,6 +8,16 @@ pub(crate) fn sanitize_name(name: &str) -> String {
 }
 
 pub fn package_root_dir(pkg_dir: &Path) -> PathBuf {
+    if let Some(metadata) = read_store_package_metadata_lossy(pkg_dir) {
+        if let Some(root) = metadata.resolve_root(pkg_dir) {
+            if root.is_dir() {
+                return root;
+            }
+        } else if metadata.root_relative_path.is_none() {
+            return pkg_dir.to_path_buf();
+        }
+    }
+
     let candidate = pkg_dir.join("package");
     if candidate.is_dir() {
         return candidate;

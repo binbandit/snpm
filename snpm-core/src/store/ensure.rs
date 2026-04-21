@@ -10,6 +10,7 @@ use std::time::Instant;
 use super::filesystem::{package_root_dir, sanitize_name};
 use super::local::materialize_local_package;
 use super::remote::materialize_remote_package;
+use super::{PACKAGE_METADATA_FILE, persist_package_metadata};
 
 /// Ensure a package is in the store (Online mode).
 pub async fn ensure_package(
@@ -33,6 +34,12 @@ pub async fn ensure_package_with_offline(
 
     if marker.is_file() {
         let root = package_root_dir(&package_dir);
+        if let Err(error) = backfill_package_metadata(&package_dir, &root) {
+            console::verbose(&format!(
+                "failed to backfill package metadata for {}@{}: {}",
+                package.id.name, package.id.version, error
+            ));
+        }
         console::verbose(&format!(
             "store hit: {}@{} ({})",
             package.id.name,
@@ -65,6 +72,12 @@ pub async fn ensure_package_with_offline(
     })?;
 
     let root = package_root_dir(&package_dir);
+    if let Err(error) = persist_package_metadata(&package_dir, &root) {
+        console::verbose(&format!(
+            "failed to write package metadata for {}@{}: {}",
+            package.id.name, package.id.version, error
+        ));
+    }
     console::verbose(&format!(
         "ensure_package complete for {}@{} in {:.3}s (root={})",
         package.id.name,
@@ -81,4 +94,19 @@ fn package_dir(config: &SnpmConfig, package: &ResolvedPackage) -> PathBuf {
         .packages_dir()
         .join(sanitize_name(&package.id.name))
         .join(&package.id.version)
+}
+
+fn backfill_package_metadata(
+    package_dir: &std::path::Path,
+    package_root: &std::path::Path,
+) -> Result<()> {
+    let root_metadata = package_root.join(PACKAGE_METADATA_FILE);
+    let store_metadata = package_dir.join(PACKAGE_METADATA_FILE);
+    let store_metadata_present = package_dir == package_root || store_metadata.is_file();
+
+    if root_metadata.is_file() && store_metadata_present {
+        return Ok(());
+    }
+
+    persist_package_metadata(package_dir, package_root)
 }

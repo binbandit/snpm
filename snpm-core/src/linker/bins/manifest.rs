@@ -1,6 +1,7 @@
 use super::names::{resolve_bin_target, sanitize_bin_name, sanitize_explicit_bin_name};
 use super::writer::create_bin_file;
 use crate::project::BinField;
+use crate::store::read_package_metadata_lossy;
 use crate::{Result, SnpmError};
 
 use serde::Deserialize;
@@ -8,8 +9,7 @@ use std::fs;
 use std::path::Path;
 
 pub fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
-    let manifest_path = dest.join("package.json");
-    let Some(bin) = read_bin_definition(&manifest_path)? else {
+    let Some(bin) = read_bin_definition(dest)? else {
         return Ok(());
     };
 
@@ -21,8 +21,7 @@ pub(in crate::linker::bins) fn link_bins_from_bundled_pkg(
     bin_dir: &Path,
     pkg_name: &str,
 ) -> Result<()> {
-    let manifest_path = pkg_path.join("package.json");
-    let Some(bin) = read_bin_definition_lossy(&manifest_path) else {
+    let Some(bin) = read_bin_definition_lossy(pkg_path) else {
         return Ok(());
     };
 
@@ -82,12 +81,17 @@ struct BinManifest {
     bin: Option<BinField>,
 }
 
-fn read_bin_definition(manifest_path: &Path) -> Result<Option<BinField>> {
+fn read_bin_definition(package_root: &Path) -> Result<Option<BinField>> {
+    if let Some(metadata) = read_package_metadata_lossy(package_root) {
+        return Ok(metadata.bin);
+    }
+
+    let manifest_path = package_root.join("package.json");
     if !manifest_path.is_file() {
         return Ok(None);
     }
 
-    let data = fs::read_to_string(manifest_path).map_err(|source| SnpmError::ReadFile {
+    let data = fs::read_to_string(&manifest_path).map_err(|source| SnpmError::ReadFile {
         path: manifest_path.to_path_buf(),
         source,
     })?;
@@ -100,14 +104,15 @@ fn read_bin_definition(manifest_path: &Path) -> Result<Option<BinField>> {
     Ok(manifest.bin)
 }
 
-fn read_bin_definition_lossy(manifest_path: &Path) -> Option<BinField> {
-    read_bin_definition(manifest_path).ok().flatten()
+fn read_bin_definition_lossy(package_root: &Path) -> Option<BinField> {
+    read_bin_definition(package_root).ok().flatten()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{link_bins, link_known_bins};
     use crate::project::BinField;
+    use crate::store::PACKAGE_METADATA_FILE;
 
     use std::fs;
     use tempfile::tempdir;
@@ -158,5 +163,23 @@ mod tests {
         .unwrap();
 
         assert!(root.join("node_modules/.bin/pkg").exists());
+    }
+
+    #[test]
+    fn link_bins_uses_store_metadata_without_manifest() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let pkg_dir = root.join("node_modules").join("tool");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("cli.js"), "#!/usr/bin/env node\n").unwrap();
+        fs::write(
+            pkg_dir.join(PACKAGE_METADATA_FILE),
+            r#"{ "hasBin": true, "bin": "cli.js" }"#,
+        )
+        .unwrap();
+
+        link_bins(&pkg_dir, &root.join("node_modules"), "tool").unwrap();
+
+        assert!(root.join("node_modules/.bin/tool").exists());
     }
 }

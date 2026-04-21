@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::resolve::{PackageId, ResolutionGraph};
+use crate::store::PACKAGE_METADATA_FILE;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -35,8 +36,9 @@ pub(super) fn virtual_package_ready(package_location: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
 
     is_real_dir
-        && fs::read_dir(package_location)
-            .ok()
-            .and_then(|mut entries| entries.next())
-            .is_some()
+        && (package_location.join(PACKAGE_METADATA_FILE).is_file()
+            || fs::read_dir(package_location)
+                .ok()
+                .and_then(|mut entries| entries.next())
+                .is_some())
 }

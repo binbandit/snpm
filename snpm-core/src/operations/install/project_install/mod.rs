@@ -10,6 +10,7 @@ use crate::{Project, Result, SnpmConfig, http};
 
 use std::time::Instant;
 
+use super::manifest::build_project_root_specs;
 use super::manifest::write_manifest;
 use super::utils::{InstallOptions, InstallResult, InstallScenario};
 use finalize::{finalize_install, run_install_scripts};
@@ -64,6 +65,9 @@ pub async fn install(
     let registry_client = http::create_client()?;
     let resolved =
         resolve_install_state(config, project, &plan, &options, &registry_client).await?;
+    if let Err(error) = crate::store::persist_store_residency_index(config, &resolved.store_paths) {
+        console::verbose(&format!("failed to persist store residency index: {error}"));
+    }
 
     write_manifest(
         project,
@@ -98,6 +102,23 @@ pub async fn install(
         scripts_start.elapsed().as_secs_f64(),
         blocked_scripts.len()
     ));
+
+    let current_root_specs = build_project_root_specs(
+        &project.manifest.dependencies,
+        &project.manifest.dev_dependencies,
+        &project.manifest.optional_dependencies,
+        options.include_dev,
+    );
+    let lockfile_source_path = plan.lockfile_source_path();
+    if lockfile_source_path.is_file() {
+        super::utils::write_graph_snapshot(
+            &project.root,
+            &lockfile_source_path,
+            &current_root_specs.required,
+            &current_root_specs.optional,
+            &resolved.graph,
+        )?;
+    }
 
     console::clear_steps(step_count_for_install(
         resolved.scenario,

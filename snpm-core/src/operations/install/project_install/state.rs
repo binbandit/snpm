@@ -37,7 +37,7 @@ pub(super) async fn resolve_install_state(
         plan.root_dependencies.clone()
     };
 
-    let existing_graph = if matches!(options.frozen_lockfile, FrozenLockfileMode::Fix) {
+    let explicit_lockfile_seed = if matches!(options.frozen_lockfile, FrozenLockfileMode::Fix) {
         read_lockfile_for_fix(plan, config)
             .map(|lockfile| lockfile::to_graph(&lockfile))
             .ok()
@@ -128,13 +128,14 @@ pub(super) async fn resolve_install_state(
             graph
         }
         InstallScenario::Cold => {
+            let seed_graph = explicit_lockfile_seed.as_ref().or(graph.as_ref());
             let (graph, resolved_store_paths) = resolve_cold_install(
                 config,
                 registry_client,
                 plan,
                 &planned_root_dependencies,
                 options.force,
-                existing_graph.as_ref(),
+                seed_graph,
             )
             .await?;
 
@@ -248,7 +249,7 @@ fn require_cache<T>(cache_check: Option<T>, message: &str) -> Result<T> {
 mod tests {
     use super::{ProjectInstallPlan, pinned_root_dependencies_for_fix, read_lockfile_for_fix};
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
-    use crate::lockfile::{self, LockRoot, LockRootDependency, Lockfile};
+    use crate::lockfile::{LockRoot, LockRootDependency, Lockfile};
     use crate::operations::install::manifest::RootSpecSet;
     use serde_yaml;
     use std::collections::{BTreeMap, BTreeSet};

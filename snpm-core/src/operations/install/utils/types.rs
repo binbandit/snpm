@@ -12,6 +12,7 @@ pub enum InstallScenario {
     Cold,
 }
 
+#[derive(Debug, Clone)]
 pub struct CacheCheckResult {
     pub cached: BTreeMap<PackageId, PathBuf>,
     pub missing: Vec<ResolvedPackage>,

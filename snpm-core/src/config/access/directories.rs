@@ -19,6 +19,10 @@ impl SnpmConfig {
         self.data_dir.join("metadata")
     }
 
+    pub fn store_residency_index_path(&self) -> PathBuf {
+        self.metadata_dir().join("store-residency-v1.bin")
+    }
+
     pub fn global_dir(&self) -> PathBuf {
         self.data_dir.join("global")
     }

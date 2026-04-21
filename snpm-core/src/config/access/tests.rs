@@ -156,6 +156,10 @@ fn derived_directories() {
         PathBuf::from("/tmp/data/side-effects-v1")
     );
     assert_eq!(config.metadata_dir(), PathBuf::from("/tmp/data/metadata"));
+    assert_eq!(
+        config.store_residency_index_path(),
+        PathBuf::from("/tmp/data/metadata/store-residency-v1.bin")
+    );
     assert_eq!(config.global_dir(), PathBuf::from("/tmp/data/global"));
     assert_eq!(config.global_bin_dir(), PathBuf::from("/tmp/data/bin"));
 }

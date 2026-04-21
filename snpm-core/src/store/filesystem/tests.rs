@@ -1,4 +1,5 @@
 use super::{package_root_dir, sanitize_name};
+use crate::store::PACKAGE_METADATA_FILE;
 use std::fs;
 use tempfile::tempdir;
 
@@ -34,6 +35,22 @@ fn package_root_dir_returns_pkg_dir_when_flat() {
 
     let root = package_root_dir(pkg_dir);
     assert_eq!(root, pkg_dir.to_path_buf());
+}
+
+#[test]
+fn package_root_dir_uses_store_metadata_hint() {
+    let temp = tempdir().unwrap();
+    let pkg_dir = temp.path();
+    fs::create_dir_all(pkg_dir.join("docs")).unwrap();
+    fs::create_dir_all(pkg_dir.join("body-parser")).unwrap();
+    fs::write(
+        pkg_dir.join(PACKAGE_METADATA_FILE),
+        r#"{ "rootRelativePath": "body-parser" }"#,
+    )
+    .unwrap();
+
+    let root = package_root_dir(pkg_dir);
+    assert_eq!(root, pkg_dir.join("body-parser"));
 }
 
 #[test]

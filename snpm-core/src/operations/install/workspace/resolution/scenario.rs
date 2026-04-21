@@ -8,9 +8,8 @@ use std::path::Path;
 
 use super::super::super::utils::{
     CacheCheckResult, InstallScenario, IntegrityState, build_workspace_integrity_state,
-    check_integrity_path, check_store_cache, check_workspace_layout_state,
-    load_graph_snapshot, load_workspace_install_state,
-    write_integrity_path,
+    check_integrity_path, check_store_cache, check_workspace_layout_state, load_graph_snapshot,
+    load_workspace_install_state, write_integrity_path,
 };
 
 pub(crate) struct WorkspaceScenarioArtifacts {
@@ -134,8 +133,8 @@ fn detect_from_graph(
         }
     };
 
-    let layout_valid =
-        cached_layout_valid.unwrap_or_else(|| check_workspace_layout_state(config, workspace, &graph, true));
+    let layout_valid = cached_layout_valid
+        .unwrap_or_else(|| check_workspace_layout_state(config, workspace, &graph, true));
 
     if !force && check_workspace_integrity(&workspace.root, &integrity_state) && layout_valid {
         return WorkspaceScenarioArtifacts {

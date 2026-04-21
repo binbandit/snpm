@@ -3,6 +3,7 @@ use crate::linker::fs::package_node_modules;
 use crate::linker::hoist::effective_hoisting;
 use crate::operations::install::workspace::is_local_workspace_dependency;
 use crate::resolve::{PackageId, ResolutionGraph};
+use crate::store::PACKAGE_METADATA_FILE;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 
 use serde::{Deserialize, Serialize};
@@ -563,7 +564,7 @@ fn read_layout_state(node_modules: &Path) -> Option<LayoutState> {
 
 fn check_layout(check: &LayoutCheck) -> bool {
     match check {
-        LayoutCheck::Exists { path } => path.exists(),
+        LayoutCheck::Exists { path } => package_path_ready(path),
         LayoutCheck::Mtime {
             path,
             seconds,
@@ -582,7 +583,9 @@ fn check_layout(check: &LayoutCheck) -> bool {
             duration.as_secs() == *seconds && duration.subsec_nanos() == *nanoseconds
         }
         LayoutCheck::SymlinkTarget { link, target } => match fs::read_link(link) {
-            Ok(current) => current == *target && resolve_symlink_target(link, target).exists(),
+            Ok(current) => {
+                current == *target && package_path_ready(&resolve_symlink_target(link, target))
+            }
             Err(_) => false,
         },
     }
@@ -600,6 +603,15 @@ fn resolve_symlink_target(link: &Path, target: &Path) -> PathBuf {
 
 fn state_path(node_modules: &Path) -> PathBuf {
     install_state_path(node_modules.parent().unwrap_or(node_modules))
+}
+
+pub(super) fn package_path_ready(path: &Path) -> bool {
+    path.is_dir()
+        && (path.join(PACKAGE_METADATA_FILE).is_file()
+            || fs::read_dir(path)
+                .ok()
+                .and_then(|mut entries| entries.next())
+                .is_some())
 }
 
 pub(crate) fn install_state_path(root: &Path) -> PathBuf {
@@ -785,6 +797,7 @@ mod tests {
         fs::create_dir_all(project.root.join("node_modules")).unwrap();
         let package_root = virtual_package_location(&project.root.join(".snpm"), &id);
         fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
         std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
 
         capture_project_layout_state(&config, &project, None, &graph, true).unwrap();
@@ -813,6 +826,7 @@ mod tests {
             .virtual_store_dir()
             .join("dep@1.0.0/node_modules/dep");
         fs::create_dir_all(&shared_target).unwrap();
+        fs::write(shared_target.join("package.json"), "{}").unwrap();
         std::os::unix::fs::symlink(
             &shared_target,
             virtual_package_location(&project.root.join(".snpm"), &id),
@@ -849,12 +863,69 @@ mod tests {
         fs::create_dir_all(project.root.join("node_modules")).unwrap();
         let package_root = virtual_package_location(&project.root.join(".snpm"), &id);
         fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
         std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
 
         capture_project_layout_state(&config, &project, None, &graph, true).unwrap();
         assert!(state_path(&project.root.join("node_modules")).is_file());
 
         fs::remove_file(project.root.join("node_modules/dep")).unwrap();
+
+        assert!(!check_project_layout_state(
+            &config, &project, None, &graph, true
+        ));
+    }
+
+    #[test]
+    fn project_layout_state_rejects_empty_copied_package_dir() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let project = make_project(dir.path().join("project"));
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph(&id);
+
+        let copied_package = project.root.join("node_modules/dep");
+        let package_root = virtual_package_location(&project.root.join(".snpm"), &id);
+
+        fs::create_dir_all(&copied_package).unwrap();
+        fs::create_dir_all(&package_root).unwrap();
+        fs::write(copied_package.join("package.json"), "{}").unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
+
+        capture_project_layout_state(&config, &project, None, &graph, true).unwrap();
+
+        fs::remove_file(copied_package.join("package.json")).unwrap();
+
+        assert!(!check_project_layout_state(
+            &config, &project, None, &graph, true
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_layout_state_rejects_package_dir_replaced_with_file() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let project = make_project(dir.path().join("project"));
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph(&id);
+
+        fs::create_dir_all(project.root.join("node_modules")).unwrap();
+        let package_root = virtual_package_location(&project.root.join(".snpm"), &id);
+        fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
+
+        capture_project_layout_state(&config, &project, None, &graph, true).unwrap();
+
+        fs::remove_dir_all(&package_root).unwrap();
+        fs::write(&package_root, "not a package").unwrap();
 
         assert!(!check_project_layout_state(
             &config, &project, None, &graph, true

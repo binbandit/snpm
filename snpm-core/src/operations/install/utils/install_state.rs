@@ -1,7 +1,7 @@
 use super::graph_snapshot::root_specs_hash;
 use super::layout_state::{
     LayoutCheck, build_project_layout_hash, build_workspace_layout_hash, capture_project_checks,
-    capture_workspace_checks, install_state_path,
+    capture_workspace_checks, install_state_path, package_path_ready,
 };
 use crate::resolve::ResolutionGraph;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
@@ -226,8 +226,12 @@ pub(crate) fn check_project_layout_from_install_state(
     if state.version != INSTALL_STATE_VERSION {
         return None;
     }
-    let expected = build_project_layout_hash(config, project, workspace, graph, include_dev).ok()?;
-    Some(expected == state.layout.layout_hash && state.layout.checks.iter().all(StoredLayoutCheck::validate))
+    let expected =
+        build_project_layout_hash(config, project, workspace, graph, include_dev).ok()?;
+    Some(
+        expected == state.layout.layout_hash
+            && state.layout.checks.iter().all(StoredLayoutCheck::validate),
+    )
 }
 
 pub(crate) fn check_workspace_layout_from_install_state(
@@ -241,7 +245,10 @@ pub(crate) fn check_workspace_layout_from_install_state(
         return None;
     }
     let expected = build_workspace_layout_hash(config, workspace, graph, include_dev).ok()?;
-    Some(expected == state.layout.layout_hash && state.layout.checks.iter().all(StoredLayoutCheck::validate))
+    Some(
+        expected == state.layout.layout_hash
+            && state.layout.checks.iter().all(StoredLayoutCheck::validate),
+    )
 }
 
 fn read_install_state(path: &Path) -> Option<InstallStateFile> {
@@ -342,7 +349,7 @@ impl From<LayoutCheck> for StoredLayoutCheck {
 impl StoredLayoutCheck {
     fn validate(&self) -> bool {
         match self {
-            Self::Exists { path } => path.exists(),
+            Self::Exists { path } => package_path_ready(path),
             Self::Mtime {
                 path,
                 seconds,
@@ -361,7 +368,9 @@ impl StoredLayoutCheck {
                 duration.as_secs() == *seconds && duration.subsec_nanos() == *nanoseconds
             }
             Self::SymlinkTarget { link, target } => match fs::read_link(link) {
-                Ok(current) => current == *target && resolve_symlink_target(link, target).exists(),
+                Ok(current) => {
+                    current == *target && package_path_ready(&resolve_symlink_target(link, target))
+                }
                 Err(_) => false,
             },
         }
@@ -386,13 +395,13 @@ mod tests {
         load_workspace_install_state, write_project_install_state, write_workspace_install_state,
     };
     use crate::Project;
+    use crate::Workspace;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
     use crate::project::Manifest;
     use crate::resolve::{
         PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
     };
     use crate::workspace::types::WorkspaceConfig;
-    use crate::Workspace;
 
     use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
@@ -517,6 +526,7 @@ mod tests {
 
         let package_root = virtual_package_location(&project.root, &id);
         fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
         std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
 
         write_project_install_state(
@@ -590,6 +600,7 @@ mod tests {
 
         let package_root = virtual_package_location(&project.root, &id);
         fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
         std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
 
         write_project_install_state(
@@ -605,6 +616,65 @@ mod tests {
         .unwrap();
 
         fs::remove_file(project.root.join("node_modules/dep")).unwrap();
+
+        let state = load_project_install_state(
+            &config,
+            &project,
+            None,
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+            &BTreeMap::new(),
+            true,
+        )
+        .unwrap();
+
+        assert!(state.root_specs_matches);
+        assert!(!state.layout_valid);
+        assert_eq!(
+            check_project_layout_from_install_state(&config, &project, None, &graph, true),
+            Some(false)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_install_state_marks_package_dir_replaced_with_file_as_stale() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let project = make_project(dir.path().join("project"));
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph(&id);
+        let lockfile_path = project.root.join("snpm-lock.yaml");
+
+        fs::create_dir_all(project.root.join("node_modules")).unwrap();
+        fs::write(
+            &lockfile_path,
+            "version: 1\nroot:\n  dependencies: {}\npackages: {}\n",
+        )
+        .unwrap();
+
+        let package_root = virtual_package_location(&project.root, &id);
+        fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
+
+        write_project_install_state(
+            &config,
+            &project,
+            None,
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+            &BTreeMap::new(),
+            &graph,
+            true,
+        )
+        .unwrap();
+
+        fs::remove_dir_all(&package_root).unwrap();
+        fs::write(&package_root, "not a package").unwrap();
 
         let state = load_project_install_state(
             &config,
@@ -648,6 +718,7 @@ mod tests {
 
         let package_root = virtual_package_location(&workspace.root, &id);
         fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
         std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
 
         write_workspace_install_state(
@@ -708,6 +779,7 @@ mod tests {
 
         let package_root = virtual_package_location(&workspace.root, &id);
         fs::create_dir_all(&package_root).unwrap();
+        fs::write(package_root.join("package.json"), "{}").unwrap();
         std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
 
         write_workspace_install_state(

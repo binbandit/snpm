@@ -1,6 +1,6 @@
 mod graph_snapshot;
-mod integrity;
 mod install_state;
+mod integrity;
 mod layout_state;
 mod scenario;
 mod script_policy;
@@ -15,9 +15,7 @@ pub(crate) use install_state::{
     write_workspace_install_state,
 };
 pub use integrity::*;
-pub(crate) use layout_state::{
-    check_project_layout_state, check_workspace_layout_state,
-};
+pub(crate) use layout_state::{check_project_layout_state, check_workspace_layout_state};
 pub use scenario::detect_install_scenario;
 pub use script_policy::can_any_scripts_run;
 pub use store::{check_store_cache, materialize_missing_packages, materialize_store};

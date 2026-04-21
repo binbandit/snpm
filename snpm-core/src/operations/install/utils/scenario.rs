@@ -1,8 +1,8 @@
 use super::integrity::{build_project_integrity_state, check_integrity_file};
 use super::layout_state::check_project_layout_state;
-use super::{load_graph_snapshot, load_project_install_state};
 use super::store::check_store_cache;
 use super::types::{InstallScenario, ScenarioResult};
+use super::{load_graph_snapshot, load_project_install_state};
 use crate::console;
 use crate::operations::install::utils::FrozenLockfileMode;
 use crate::{Project, SnpmConfig, lockfile};
@@ -130,8 +130,8 @@ fn detect_from_graph(
         }
     };
 
-    let layout_valid =
-        cached_layout_valid.unwrap_or_else(|| check_project_layout_state(config, project, workspace, &graph, true));
+    let layout_valid = cached_layout_valid
+        .unwrap_or_else(|| check_project_layout_state(config, project, workspace, &graph, true));
 
     if !force && check_integrity_file(project, &integrity_state) && layout_valid {
         console::verbose("scenario: Hot (lockfile + node_modules valid)");

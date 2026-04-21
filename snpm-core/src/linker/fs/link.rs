@@ -1,6 +1,5 @@
 use super::paths::ensure_parent_dir;
 use super::symlinks::symlink_file_entry;
-use crate::copying::clone_or_hardlink_or_copy_file;
 use crate::store::read_package_filesystem_shape_lossy;
 use crate::{LinkBackend, Result, SnpmConfig, SnpmError};
 
@@ -160,7 +159,8 @@ fn resolve_auto_backend(from: &Path, to: &Path) -> LinkBackend {
 }
 
 fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
-    let backend = match config.link_backend {
+    let requested_backend = config.link_backend;
+    let backend = match requested_backend {
         LinkBackend::Auto => resolve_auto_backend(from, to),
         other => other,
     };
@@ -169,6 +169,10 @@ fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
         LinkBackend::Auto => unreachable!(),
         LinkBackend::Reflink => {
             if reflink_copy::reflink(from, to).is_err() {
+                if matches!(requested_backend, LinkBackend::Auto) && fs::hard_link(from, to).is_ok()
+                {
+                    return Ok(());
+                }
                 copy_file(from, to)?;
             }
         }
@@ -190,7 +194,7 @@ fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
 
 fn copy_file(from: &Path, to: &Path) -> Result<()> {
     ensure_parent_dir(to)?;
-    clone_or_hardlink_or_copy_file(from, to).map_err(|source_err| SnpmError::WriteFile {
+    fs::copy(from, to).map_err(|source_err| SnpmError::WriteFile {
         path: to.to_path_buf(),
         source: source_err,
     })?;
@@ -279,5 +283,25 @@ mod tests {
 
         config.link_backend = LinkBackend::Copy;
         assert!(!should_try_clone_store_package_dir(&config, &store_path));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_backend_does_not_alias_source_inode() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source");
+        let destination = dir.path().join("destination");
+        let file = source.join("file.txt");
+
+        fs::create_dir_all(&source).unwrap();
+        fs::write(&file, "hello").unwrap();
+
+        link_dir(&make_config(), &source, &destination).unwrap();
+
+        let source_inode = fs::metadata(&file).unwrap().ino();
+        let destination_inode = fs::metadata(destination.join("file.txt")).unwrap().ino();
+        assert_ne!(source_inode, destination_inode);
     }
 }

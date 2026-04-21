@@ -151,6 +151,10 @@ fn derived_directories() {
         config.virtual_store_dir(),
         PathBuf::from("/tmp/data/virtual-store")
     );
+    assert_eq!(
+        config.side_effects_cache_dir(),
+        PathBuf::from("/tmp/data/side-effects-v1")
+    );
     assert_eq!(config.metadata_dir(), PathBuf::from("/tmp/data/metadata"));
     assert_eq!(config.global_dir(), PathBuf::from("/tmp/data/global"));
     assert_eq!(config.global_bin_dir(), PathBuf::from("/tmp/data/bin"));

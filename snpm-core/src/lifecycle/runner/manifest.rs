@@ -20,6 +20,10 @@ pub(super) fn package_name(value: &Value) -> Option<&str> {
     value.get("name").and_then(|name| name.as_str())
 }
 
+pub(super) fn package_version(value: &Value) -> Option<&str> {
+    value.get("version").and_then(|version| version.as_str())
+}
+
 pub(super) fn package_scripts(value: &Value) -> Option<&serde_json::Map<String, Value>> {
     match value.get("scripts") {
         Some(Value::Object(map)) => Some(map),

@@ -1,3 +1,4 @@
+mod cache;
 mod execute;
 mod manifest;
 mod walk;

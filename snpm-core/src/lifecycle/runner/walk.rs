@@ -1,6 +1,8 @@
 use super::super::policy::is_dep_script_allowed;
+use super::cache::{SideEffectsCacheEntry, SideEffectsCacheRestore};
 use super::execute::run_present_scripts;
-use super::manifest::{package_name, package_scripts, read_manifest};
+use super::manifest::{package_name, package_scripts, package_version, read_manifest};
+use crate::console;
 use crate::{Result, SnpmConfig, SnpmError, Workspace};
 
 use std::collections::BTreeSet;
@@ -146,11 +148,133 @@ fn run_package_scripts(
         return Ok(());
     }
 
-    run_present_scripts(name, pkg_root, scripts)
+    let cache_entry = package_version(&value)
+        .filter(|version| !version.is_empty())
+        .map(|version| SideEffectsCacheEntry::new(config, name, version, pkg_root))
+        .transpose()?;
+
+    if let Some(cache_entry) = cache_entry.as_ref() {
+        match cache_entry.restore_if_available(pkg_root) {
+            Ok(SideEffectsCacheRestore::Restored | SideEffectsCacheRestore::AlreadyApplied) => {
+                return Ok(());
+            }
+            Ok(SideEffectsCacheRestore::Miss) => {}
+            Err(error) => {
+                console::warn(&format!(
+                    "failed to restore side-effects cache for {}: {}",
+                    name, error
+                ));
+            }
+        }
+    }
+
+    let ran = run_present_scripts(name, pkg_root, scripts)?;
+
+    if ran > 0
+        && let Some(cache_entry) = cache_entry
+        && let Err(error) = cache_entry.save(pkg_root)
+    {
+        console::warn(&format!(
+            "failed to save side-effects cache for {}: {}",
+            name, error
+        ));
+    }
+
+    Ok(())
 }
 
 fn has_lifecycle_scripts(scripts: &serde_json::Map<String, serde_json::Value>) -> bool {
     LIFECYCLE_SCRIPT_NAMES
         .iter()
         .any(|script_name| scripts.contains_key(*script_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_install_scripts;
+    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    fn make_config(data_dir: PathBuf) -> SnpmConfig {
+        SnpmConfig {
+            cache_dir: data_dir.join("cache"),
+            data_dir,
+            allow_scripts: BTreeSet::from(["dep".to_string()]),
+            min_package_age_days: None,
+            min_package_cache_age_days: None,
+            default_registry: "https://registry.npmjs.org".to_string(),
+            scoped_registries: BTreeMap::new(),
+            registry_auth: BTreeMap::new(),
+            default_registry_auth_token: None,
+            default_registry_auth_scheme: AuthScheme::Bearer,
+            registry_auth_schemes: BTreeMap::new(),
+            hoisting: HoistingMode::SingleVersion,
+            link_backend: LinkBackend::Auto,
+            strict_peers: false,
+            frozen_lockfile_default: false,
+            always_auth: false,
+            registry_concurrency: 64,
+            verbose: false,
+            log_file: None,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_install_scripts_restores_cached_side_effects() {
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let dep_root = project_root.join("node_modules").join("dep");
+        let counter = project_root.join("side-effects-counter.txt");
+        let built = dep_root.join("built.txt");
+        let config = make_config(project_root.join(".snpm-data"));
+
+        fs::create_dir_all(&dep_root).unwrap();
+        fs::write(
+            dep_root.join("package.json"),
+            format!(
+                r#"{{
+  "name": "dep",
+  "version": "1.0.0",
+  "scripts": {{
+    "postinstall": "echo run >> '{}' && echo built > built.txt"
+  }}
+}}
+"#,
+                counter.display()
+            ),
+        )
+        .unwrap();
+
+        run_install_scripts(&config, None, project_root).unwrap();
+        assert_eq!(fs::read_to_string(&counter).unwrap().lines().count(), 1);
+        assert_eq!(fs::read_to_string(&built).unwrap(), "built\n");
+
+        fs::remove_dir_all(&dep_root).unwrap();
+        fs::create_dir_all(&dep_root).unwrap();
+        fs::write(
+            dep_root.join("package.json"),
+            format!(
+                r#"{{
+  "name": "dep",
+  "version": "1.0.0",
+  "scripts": {{
+    "postinstall": "echo run >> '{}' && echo built > built.txt"
+  }}
+}}
+"#,
+                counter.display()
+            ),
+        )
+        .unwrap();
+
+        run_install_scripts(&config, None, project_root).unwrap();
+
+        assert_eq!(fs::read_to_string(&counter).unwrap().lines().count(), 1);
+        assert_eq!(fs::read_to_string(&built).unwrap(), "built\n");
+    }
 }

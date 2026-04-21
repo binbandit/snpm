@@ -27,19 +27,27 @@ pub fn run_project_scripts(
     let display_name = package_name(&value)
         .filter(|name| !name.is_empty())
         .unwrap_or("root");
-    run_present_scripts(display_name, project_root, scripts)
+    run_present_scripts(display_name, project_root, scripts)?;
+    Ok(())
 }
 
 pub(super) fn run_present_scripts(
     package_name: &str,
     root: &Path,
     scripts: &serde_json::Map<String, Value>,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut ran = 0;
+
     for script_name in LIFECYCLE_SCRIPT_NAMES {
-        run_script_if_present(package_name, root, scripts, script_name)?;
+        ran += usize::from(run_script_if_present(
+            package_name,
+            root,
+            scripts,
+            script_name,
+        )?);
     }
 
-    Ok(())
+    Ok(ran)
 }
 
 fn run_script_if_present(
@@ -47,10 +55,10 @@ fn run_script_if_present(
     root: &Path,
     scripts: &serde_json::Map<String, Value>,
     key: &str,
-) -> Result<()> {
+) -> Result<bool> {
     let cmd = match scripts.get(key) {
         Some(Value::String(cmd)) if !cmd.is_empty() => cmd.clone(),
-        _ => return Ok(()),
+        _ => return Ok(false),
     };
 
     let mut command = make_shell_command(&cmd);
@@ -71,7 +79,7 @@ fn run_script_if_present(
         });
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn build_path(root: &Path, script_name: &str) -> Result<OsString> {
@@ -156,8 +164,9 @@ mod tests {
             Value::String("effect-language-service".to_string()),
         );
 
-        run_present_scripts("pkg", dir.path(), &scripts).unwrap();
+        let ran = run_present_scripts("pkg", dir.path(), &scripts).unwrap();
 
         assert!(marker.is_file());
+        assert_eq!(ran, 1);
     }
 }

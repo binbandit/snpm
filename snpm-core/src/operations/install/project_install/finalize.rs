@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::operations::install::utils::{
-    IntegrityState, build_project_integrity_state, can_any_scripts_run, write_integrity_file,
+    IntegrityState, build_project_integrity_state, can_any_scripts_run,
+    capture_project_layout_state, write_integrity_file,
 };
 use crate::operations::install::workspace::link_local_workspace_deps;
 
@@ -54,6 +55,7 @@ pub(super) fn finalize_install(
         None => build_project_integrity_state(project, graph)?,
     };
     write_integrity_file(project, &integrity_state)?;
+    capture_project_layout_state(config, project, plan.workspace.as_ref(), graph, include_dev)?;
 
     console::verbose(&format!(
         "linking completed in {:.3}s",

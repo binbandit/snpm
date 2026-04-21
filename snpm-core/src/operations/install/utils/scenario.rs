@@ -1,14 +1,16 @@
 use super::integrity::{build_project_integrity_state, check_integrity_file};
+use super::layout_state::check_project_layout_state;
 use super::store::check_store_cache;
 use super::types::{InstallScenario, ScenarioResult};
 use crate::console;
 use crate::operations::install::utils::FrozenLockfileMode;
 use crate::{Project, SnpmConfig, lockfile};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub fn detect_install_scenario(
     project: &Project,
+    workspace: Option<&crate::Workspace>,
     lockfile_path: &Path,
     required_root: &BTreeMap<String, String>,
     optional_root: &BTreeMap<String, String>,
@@ -58,7 +60,7 @@ pub fn detect_install_scenario(
 
     if !force
         && check_integrity_file(project, &integrity_state)
-        && project_layout_matches_graph(project, &graph, required_root, optional_root)
+        && check_project_layout_state(config, project, workspace, &graph, true)
     {
         console::verbose("scenario: Hot (lockfile + node_modules valid)");
         return ScenarioResult {
@@ -117,42 +119,6 @@ pub fn detect_install_scenario(
         graph: Some(graph),
         integrity_state: Some(integrity_state),
     }
-}
-
-fn project_layout_matches_graph(
-    project: &Project,
-    graph: &crate::resolve::ResolutionGraph,
-    required_root: &BTreeMap<String, String>,
-    optional_root: &BTreeMap<String, String>,
-) -> bool {
-    let root_node_modules = project.root.join("node_modules");
-    let virtual_store_dir = project.root.join(".snpm");
-
-    for id in graph.packages.keys() {
-        if !virtual_package_location(&virtual_store_dir, id).exists() {
-            return false;
-        }
-    }
-
-    for name in graph.root.dependencies.keys() {
-        if !required_root.contains_key(name) && !optional_root.contains_key(name) {
-            continue;
-        }
-
-        if !root_node_modules.join(name).exists() {
-            return false;
-        }
-    }
-
-    true
-}
-
-fn virtual_package_location(virtual_store_dir: &Path, id: &crate::resolve::PackageId) -> PathBuf {
-    let safe_name = id.name.replace('/', "+");
-    virtual_store_dir
-        .join(format!("{}@{}", safe_name, id.version))
-        .join("node_modules")
-        .join(&id.name)
 }
 
 fn read_existing_lockfile(

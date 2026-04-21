@@ -1,9 +1,12 @@
 use crate::lockfile;
-use crate::{Project, Workspace};
+use crate::{Project, SnpmConfig, Workspace};
 
 use std::fs;
 
-use super::super::install::{build_project_integrity_state, check_integrity_file};
+use super::super::install::{
+    build_project_integrity_state, check_integrity_file, check_project_layout_state,
+    check_workspace_layout_state,
+};
 use super::manifest::build_manifest_root;
 
 pub(super) enum StalenessReason {
@@ -11,6 +14,7 @@ pub(super) enum StalenessReason {
     NoNodeModules,
     NoIntegrityFile,
     IntegrityMismatch,
+    LayoutMismatch,
     ManifestChanged,
 }
 
@@ -19,7 +23,11 @@ pub(super) struct StalenessCheck {
     pub(super) reason: Option<StalenessReason>,
 }
 
-pub(super) fn check_staleness(project: &Project, workspace: Option<&Workspace>) -> StalenessCheck {
+pub(super) fn check_staleness(
+    config: &SnpmConfig,
+    project: &Project,
+    workspace: Option<&Workspace>,
+) -> StalenessCheck {
     let lockfile_path = workspace
         .map(|workspace| workspace.root.join("snpm-lock.yaml"))
         .unwrap_or_else(|| project.root.join("snpm-lock.yaml"));
@@ -64,6 +72,16 @@ pub(super) fn check_staleness(project: &Project, workspace: Option<&Workspace>) 
 
     if !check_integrity_file(project, &integrity_state) {
         return stale(StalenessReason::IntegrityMismatch);
+    }
+
+    let layout_matches = if let Some(workspace) = workspace {
+        check_workspace_layout_state(config, workspace, &graph, true)
+    } else {
+        check_project_layout_state(config, project, None, &graph, true)
+    };
+
+    if !layout_matches {
+        return stale(StalenessReason::LayoutMismatch);
     }
 
     StalenessCheck {

@@ -53,6 +53,7 @@ pub(super) async fn resolve_install_state(
         ) {
         detect_install_scenario(
             project,
+            plan.workspace.as_ref(),
             &plan.lockfile_path,
             &plan.manifest_root,
             &plan.root_specs.optional,
@@ -245,10 +246,11 @@ fn require_cache<T>(cache_check: Option<T>, message: &str) -> Result<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{pinned_root_dependencies_for_fix, read_lockfile_for_fix, ProjectInstallPlan};
+    use super::{ProjectInstallPlan, pinned_root_dependencies_for_fix, read_lockfile_for_fix};
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
     use crate::lockfile::{self, LockRoot, LockRootDependency, Lockfile};
     use crate::operations::install::manifest::RootSpecSet;
+    use serde_yaml;
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::Path;
     use tempfile::tempdir;
@@ -294,10 +296,7 @@ mod tests {
             local_dev_deps: BTreeSet::new(),
             local_optional_deps: BTreeSet::new(),
             manifest_root: BTreeMap::new(),
-            root_specs: RootSpecSet {
-                required,
-                optional,
-            },
+            root_specs: RootSpecSet { required, optional },
             root_dependencies,
             root_protocols: BTreeMap::new(),
             optional_root_names: BTreeSet::new(),
@@ -320,7 +319,7 @@ mod tests {
                                 requested: requested.to_string(),
                                 package: None,
                                 version: version.map(ToString::to_string),
-                                optional: *optional,
+                                optional,
                             },
                         )
                     })
@@ -330,7 +329,8 @@ mod tests {
         };
 
         let lockfile_path = path.join("snpm-lock.yaml");
-        lockfile::write(&lockfile_path, &lockfile, &BTreeMap::new()).unwrap();
+        let data = serde_yaml::to_string(&lockfile).unwrap();
+        std::fs::write(&lockfile_path, data).unwrap();
     }
 
     #[test]
@@ -366,10 +366,7 @@ mod tests {
     #[test]
     fn pinned_root_dependencies_for_fix_keeps_ranges_when_request_changed() {
         let dir = tempdir().unwrap();
-        write_lockfile(
-            dir.path(),
-            vec![("left", ("^1.0.0", Some("1.2.3"), false))],
-        );
+        write_lockfile(dir.path(), vec![("left", ("^1.0.0", Some("1.2.3"), false))]);
         let config = make_config();
         let plan = make_plan(
             dir.path().join("snpm-lock.yaml"),
@@ -400,10 +397,7 @@ mod tests {
     #[test]
     fn read_lockfile_for_fix_reads_workspace_lockfile_when_available() {
         let dir = tempdir().unwrap();
-        write_lockfile(
-            dir.path(),
-            vec![("left", ("^1.0.0", Some("1.2.3"), false))],
-        );
+        write_lockfile(dir.path(), vec![("left", ("^1.0.0", Some("1.2.3"), false))]);
         let config = make_config();
         let plan = make_plan(
             dir.path().join("snpm-lock.yaml"),
@@ -412,7 +406,10 @@ mod tests {
         );
 
         let loaded = read_lockfile_for_fix(&plan, &config).unwrap();
-        assert_eq!(loaded.root.dependencies["left"].version.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            loaded.root.dependencies["left"].version.as_deref(),
+            Some("1.2.3")
+        );
         assert_eq!(
             loaded.root.dependencies["left"].requested,
             "^1.0.0".to_string()
@@ -422,10 +419,7 @@ mod tests {
     #[test]
     fn pinned_root_dependencies_for_fix_does_not_use_incomplete_optional_match() {
         let dir = tempdir().unwrap();
-        write_lockfile(
-            dir.path(),
-            vec![("opt", ("^2.0.0", None, true))],
-        );
+        write_lockfile(dir.path(), vec![("opt", ("^2.0.0", None, true))]);
         let config = make_config();
         let plan = make_plan(
             dir.path().join("snpm-lock.yaml"),
@@ -442,11 +436,7 @@ mod tests {
     fn read_lockfile_for_fix_errors_without_lockfile_or_compatible_source() {
         let config = make_config();
         let missing_path = tempdir().unwrap().path().join("missing.yaml");
-        let plan = make_plan(
-            missing_path,
-            BTreeMap::new(),
-            BTreeMap::new(),
-        );
+        let plan = make_plan(missing_path, BTreeMap::new(), BTreeMap::new());
 
         assert!(read_lockfile_for_fix(&plan, &config).is_err());
     }

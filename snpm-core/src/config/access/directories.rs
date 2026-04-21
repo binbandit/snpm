@@ -11,6 +11,10 @@ impl SnpmConfig {
         self.data_dir.join("virtual-store")
     }
 
+    pub fn side_effects_cache_dir(&self) -> PathBuf {
+        self.data_dir.join("side-effects-v1")
+    }
+
     pub fn metadata_dir(&self) -> PathBuf {
         self.data_dir.join("metadata")
     }

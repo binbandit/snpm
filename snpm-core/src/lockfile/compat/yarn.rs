@@ -145,6 +145,7 @@ fn parse_classic_str(
                 dependencies: resolve_dependencies(&seed.declared_dependencies, &spec_to_dep_path),
                 bundled_dependencies: None,
                 has_bin: false,
+                bin: None,
             },
         );
     }
@@ -290,6 +291,7 @@ fn parse_berry_str(
                 ),
                 bundled_dependencies: None,
                 has_bin: seed.has_bin,
+                bin: None,
             },
         );
     }

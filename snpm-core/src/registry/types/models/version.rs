@@ -1,3 +1,4 @@
+use crate::project::BinField;
 use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
@@ -46,6 +47,12 @@ impl RegistryVersion {
             .as_ref()
             .map(|value| !value.is_null())
             .unwrap_or(false)
+    }
+
+    pub fn bin_definition(&self) -> Option<BinField> {
+        self.bin
+            .as_ref()
+            .and_then(|value| serde_json::from_value::<BinField>(value.clone()).ok())
     }
 }
 

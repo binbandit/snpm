@@ -29,6 +29,7 @@ pub(super) fn build_placeholder(id: &PackageId, version_meta: &RegistryVersion) 
         peer_dependencies: required_peer_dependencies(version_meta),
         bundled_dependencies: version_meta.get_bundled_dependencies().cloned(),
         has_bin: version_meta.has_bin(),
+        bin: version_meta.bin_definition(),
     }
 }
 

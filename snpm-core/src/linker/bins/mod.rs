@@ -5,3 +5,4 @@ mod writer;
 
 pub use bundled::link_bundled_bins_recursive;
 pub use manifest::link_bins;
+pub(crate) use manifest::link_known_bins;

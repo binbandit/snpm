@@ -21,6 +21,7 @@ fn rebuild_virtual_store_paths_scoped_package() {
         peer_dependencies: BTreeMap::new(),
         bundled_dependencies: None,
         has_bin: false,
+        bin: None,
     };
     let graph = ResolutionGraph {
         root: ResolutionRoot {

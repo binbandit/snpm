@@ -1,5 +1,5 @@
 use crate::linker::{
-    bins::link_bins,
+    bins::{link_bins, link_known_bins},
     fs::{symlink_dir_entry, symlink_is_correct},
 };
 use crate::resolve::{PackageId, ResolutionGraph};
@@ -31,7 +31,17 @@ pub(super) fn link_external_deps(
 
             let destination = node_modules.join(name);
             create_symlink(target, &destination)?;
-            link_bins(&destination, node_modules, name).ok();
+
+            let package = graph.packages.get(&root_dep.resolved);
+            let result = match package {
+                Some(pkg) if !pkg.has_bin => Ok(()),
+                Some(pkg) => pkg.bin.as_ref().map_or_else(
+                    || link_bins(&destination, node_modules, name),
+                    |bin| link_known_bins(&destination, node_modules, name, bin),
+                ),
+                None => link_bins(&destination, node_modules, name),
+            };
+            result.ok();
         }
     }
 

@@ -23,6 +23,7 @@ pub(super) fn build_package_nodes(lockfile: &Lockfile) -> BTreeMap<PackageId, Re
                 peer_dependencies: BTreeMap::new(),
                 bundled_dependencies: lock_pkg.bundled_dependencies.clone(),
                 has_bin: lock_pkg.has_bin,
+                bin: lock_pkg.bin.clone(),
             },
         );
     }

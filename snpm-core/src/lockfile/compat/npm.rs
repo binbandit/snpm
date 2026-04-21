@@ -407,6 +407,7 @@ fn build_packages(
                 .or_else(|| raw.bundle_dependencies.clone())
                 .filter(|value| !value.is_empty()),
             has_bin: raw.bin.as_ref().is_some_and(has_bin),
+            bin: None,
         };
 
         if let Some(existing) = packages.get(&entry.lock_key) {

@@ -114,6 +114,7 @@ mod tests {
                 dev_dependencies: BTreeMap::new(),
                 optional_dependencies: BTreeMap::new(),
                 scripts: BTreeMap::new(),
+                resolutions: BTreeMap::new(),
                 files: None,
                 bin: None,
                 main: None,
@@ -151,6 +152,7 @@ mod tests {
             peer_dependencies: BTreeMap::new(),
             bundled_dependencies: None,
             has_bin: false,
+            bin: None,
         };
         let graph = ResolutionGraph {
             root: ResolutionRoot {

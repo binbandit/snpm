@@ -302,6 +302,7 @@ fn build_packages(
             dependencies,
             bundled_dependencies: package_info.and_then(|info| info.bundled_dependencies.clone()),
             has_bin: package_info.map(|info| info.has_bin).unwrap_or(false),
+            bin: None,
         };
 
         if let Some(existing) = packages.get(&entry.lock_key) {

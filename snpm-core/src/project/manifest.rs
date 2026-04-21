@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 pub type CatalogMap = BTreeMap<String, String>;
 pub type NamedCatalogsMap = BTreeMap<String, BTreeMap<String, String>>;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum WorkspacesField {
     Patterns(Vec<String>),
@@ -52,6 +52,8 @@ pub struct Manifest {
     pub optional_dependencies: BTreeMap<String, String>,
     #[serde(default)]
     pub scripts: BTreeMap<String, String>,
+    #[serde(default)]
+    pub resolutions: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,7 +68,7 @@ pub struct Manifest {
     pub workspaces: Option<WorkspacesField>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum BinField {
     Single(String),

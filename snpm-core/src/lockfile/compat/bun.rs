@@ -1,5 +1,6 @@
 use super::super::keys::{package_key, split_dep_key};
 use super::super::types::{LockPackage, LockRoot, LockRootDependency, Lockfile};
+use crate::project::BinField;
 use crate::protocols::encode_package_name;
 use crate::{Result, SnpmConfig, SnpmError};
 
@@ -215,6 +216,7 @@ fn build_packages(
             dependencies,
             bundled_dependencies: None,
             has_bin: !entry.meta.bin.is_empty(),
+            bin: (!entry.meta.bin.is_empty()).then(|| BinField::Map(entry.meta.bin.clone())),
         };
 
         if let Some(existing) = packages.get(&lock_key) {

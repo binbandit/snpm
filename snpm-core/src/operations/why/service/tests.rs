@@ -28,6 +28,7 @@ fn graph_fixture() -> ResolutionGraph {
             peer_dependencies: BTreeMap::new(),
             bundled_dependencies: None,
             has_bin: false,
+            bin: None,
         },
     );
 
@@ -41,6 +42,7 @@ fn graph_fixture() -> ResolutionGraph {
             peer_dependencies: BTreeMap::new(),
             bundled_dependencies: None,
             has_bin: false,
+            bin: None,
         },
     );
 
@@ -54,6 +56,7 @@ fn graph_fixture() -> ResolutionGraph {
             peer_dependencies: BTreeMap::new(),
             bundled_dependencies: None,
             has_bin: false,
+            bin: None,
         },
     );
 

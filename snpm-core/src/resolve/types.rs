@@ -1,3 +1,4 @@
+use crate::project::BinField;
 use crate::registry::BundledDependencies;
 use std::collections::BTreeMap;
 
@@ -16,6 +17,7 @@ pub struct ResolvedPackage {
     pub peer_dependencies: BTreeMap<String, String>,
     pub bundled_dependencies: Option<BundledDependencies>,
     pub has_bin: bool,
+    pub bin: Option<BinField>,
 }
 
 #[derive(Clone, Debug)]

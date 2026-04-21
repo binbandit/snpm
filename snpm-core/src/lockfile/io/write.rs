@@ -85,6 +85,7 @@ fn build_packages(graph: &ResolutionGraph) -> BTreeMap<String, LockPackage> {
                 dependencies,
                 bundled_dependencies: package.bundled_dependencies.clone(),
                 has_bin: package.has_bin,
+                bin: package.bin.clone(),
             },
         );
     }

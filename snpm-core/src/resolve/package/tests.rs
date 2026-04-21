@@ -63,6 +63,7 @@ fn make_seed_graph_for_chain() -> ResolutionGraph {
                     peer_dependencies: BTreeMap::new(),
                     bundled_dependencies: None,
                     has_bin: false,
+                    bin: None,
                 },
             ),
             (
@@ -75,6 +76,7 @@ fn make_seed_graph_for_chain() -> ResolutionGraph {
                     peer_dependencies: BTreeMap::new(),
                     bundled_dependencies: None,
                     has_bin: false,
+                    bin: None,
                 },
             ),
         ]),
@@ -126,6 +128,7 @@ fn make_parent_scoped_graph() -> (ResolutionGraph, PackageId, PackageId, Package
                         peer_dependencies: BTreeMap::new(),
                         bundled_dependencies: None,
                         has_bin: false,
+                        bin: None,
                     },
                 ),
                 (
@@ -138,6 +141,7 @@ fn make_parent_scoped_graph() -> (ResolutionGraph, PackageId, PackageId, Package
                         peer_dependencies: BTreeMap::new(),
                         bundled_dependencies: None,
                         has_bin: false,
+                        bin: None,
                     },
                 ),
                 (
@@ -150,6 +154,7 @@ fn make_parent_scoped_graph() -> (ResolutionGraph, PackageId, PackageId, Package
                         peer_dependencies: BTreeMap::new(),
                         bundled_dependencies: None,
                         has_bin: false,
+                        bin: None,
                     },
                 ),
             ]),
@@ -172,6 +177,7 @@ fn make_context<'a>(
         None,
         false,
         None,
+        None,
         OfflineMode::Online,
     )
 }
@@ -191,6 +197,7 @@ async fn resolve_with_seeded_graph_reuses_complete_seed_graph() {
         &BTreeSet::new(),
         None,
         false,
+        None,
         None,
         Some(&seed_graph),
         {
@@ -236,6 +243,7 @@ async fn resolve_with_seeded_graph_prefers_parent_scoped_dependency_over_root_ca
         &BTreeSet::new(),
         None,
         false,
+        None,
         None,
         Some(&seed_graph),
         |_package| async move { Ok::<(), crate::SnpmError>(()) },

@@ -16,6 +16,7 @@ fn make_graph() -> ResolutionGraph {
         peer_dependencies: BTreeMap::new(),
         bundled_dependencies: None,
         has_bin: false,
+        bin: None,
     };
     ResolutionGraph {
         root: ResolutionRoot {
@@ -56,6 +57,7 @@ fn compute_lockfile_hash_changes_with_different_graph() {
         peer_dependencies: BTreeMap::new(),
         bundled_dependencies: None,
         has_bin: false,
+        bin: None,
     };
     let graph2 = ResolutionGraph {
         root: ResolutionRoot {

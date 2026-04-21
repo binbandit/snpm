@@ -1,3 +1,4 @@
+use crate::project::BinField;
 use crate::registry::BundledDependencies;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -35,6 +36,8 @@ pub struct LockPackage {
     pub bundled_dependencies: Option<BundledDependencies>,
     #[serde(default, skip_serializing_if = "is_false", rename = "hasBin")]
     pub has_bin: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin: Option<BinField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

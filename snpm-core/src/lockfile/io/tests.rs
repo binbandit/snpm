@@ -1,4 +1,5 @@
 use super::{read, write};
+use crate::project::BinField;
 use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency};
 
 use std::collections::BTreeMap;
@@ -16,7 +17,8 @@ fn write_and_read_round_trip() {
         dependencies: BTreeMap::new(),
         peer_dependencies: BTreeMap::new(),
         bundled_dependencies: None,
-        has_bin: false,
+        has_bin: true,
+        bin: Some(BinField::Single("cli.js".to_string())),
     };
 
     let graph = ResolutionGraph {
@@ -45,6 +47,7 @@ fn write_and_read_round_trip() {
     let pkg = &lockfile.packages["test-pkg@1.0.0"];
     assert_eq!(pkg.tarball, "https://example.com/test-pkg-1.0.0.tgz");
     assert_eq!(pkg.integrity.as_deref(), Some("sha512-abc"));
+    assert!(matches!(pkg.bin, Some(BinField::Single(ref script)) if script == "cli.js"));
 }
 
 #[test]

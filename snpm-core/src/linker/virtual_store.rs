@@ -269,6 +269,7 @@ mod tests {
             peer_dependencies: BTreeMap::new(),
             bundled_dependencies: None,
             has_bin: false,
+            bin: None,
         };
 
         ResolutionGraph {

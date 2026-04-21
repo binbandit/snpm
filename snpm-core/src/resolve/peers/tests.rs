@@ -16,6 +16,7 @@ fn make_package(name: &str, version: &str) -> (PackageId, ResolvedPackage) {
         peer_dependencies: BTreeMap::new(),
         bundled_dependencies: None,
         has_bin: false,
+        bin: None,
     };
     (id, pkg)
 }

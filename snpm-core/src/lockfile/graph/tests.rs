@@ -1,5 +1,6 @@
 use super::to_graph;
 use crate::lockfile::{LockPackage, LockRoot, LockRootDependency, Lockfile};
+use crate::project::BinField;
 use crate::resolve::PackageId;
 
 use std::collections::BTreeMap;
@@ -68,6 +69,7 @@ fn to_graph_reconstructs_dependencies() {
                     )]),
                     bundled_dependencies: None,
                     has_bin: true,
+                    bin: Some(BinField::Single("cli.js".to_string())),
                 },
             ),
             (
@@ -81,6 +83,7 @@ fn to_graph_reconstructs_dependencies() {
                     dependencies: BTreeMap::new(),
                     bundled_dependencies: None,
                     has_bin: false,
+                    bin: None,
                 },
             ),
         ]),
@@ -100,6 +103,7 @@ fn to_graph_reconstructs_dependencies() {
     };
     let express = graph.packages.get(&express_id).unwrap();
     assert!(express.has_bin);
+    assert!(matches!(express.bin, Some(BinField::Single(ref script)) if script == "cli.js"));
     assert!(express.dependencies.contains_key("body-parser"));
     assert_eq!(express.dependencies["body-parser"].version, "1.20.0");
 }

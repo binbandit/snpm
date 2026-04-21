@@ -56,6 +56,7 @@ fn check_store_cache_uses_detected_package_root() {
         peer_dependencies: BTreeMap::new(),
         bundled_dependencies: None,
         has_bin: false,
+        bin: None,
     };
     let graph = ResolutionGraph {
         root: ResolutionRoot {

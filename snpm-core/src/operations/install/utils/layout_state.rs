@@ -1,4 +1,5 @@
 use crate::config::HoistingMode;
+use crate::linker::fs::package_node_modules;
 use crate::linker::hoist::effective_hoisting;
 use crate::operations::install::workspace::is_local_workspace_dependency;
 use crate::resolve::{PackageId, ResolutionGraph};
@@ -447,17 +448,9 @@ fn capture_virtual_store_checks(
         capture_link_or_exists(&package_location, checks, &mut seen)?;
 
         if !package.dependencies.is_empty() {
-            let package_root =
-                fs::canonicalize(&package_location).map_err(|source| SnpmError::ReadFile {
-                    path: package_location.clone(),
-                    source,
-                })?;
-
-            capture_directory_mtime(&package_root.join("node_modules"), checks)?;
-            capture_directory_mtime_if_exists(
-                &package_root.join("node_modules").join(".bin"),
-                checks,
-            )?;
+            let dependency_dir = virtual_package_node_modules(&package_location, &id.name)?;
+            capture_directory_mtime(&dependency_dir, checks)?;
+            capture_directory_mtime_if_exists(&dependency_dir.join(".bin"), checks)?;
         }
     }
 
@@ -628,11 +621,20 @@ fn virtual_package_location(virtual_store_dir: &Path, id: &PackageId) -> PathBuf
         .join(&id.name)
 }
 
+fn virtual_package_node_modules(package_location: &Path, package_name: &str) -> Result<PathBuf> {
+    package_node_modules(package_location, package_name).ok_or_else(|| SnpmError::Internal {
+        reason: format!(
+            "virtual package path missing node_modules parent: {}",
+            package_location.display()
+        ),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         capture_project_layout_state, check_project_layout_state, read_layout_state, state_path,
-        virtual_package_location,
+        virtual_package_location, virtual_package_node_modules,
     };
     use crate::Project;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
@@ -702,6 +704,7 @@ mod tests {
             peer_dependencies: BTreeMap::new(),
             bundled_dependencies: None,
             has_bin: false,
+            bin: None,
         };
 
         ResolutionGraph {
@@ -715,6 +718,45 @@ mod tests {
                 )]),
             },
             packages: BTreeMap::from([(id.clone(), pkg)]),
+        }
+    }
+
+    fn make_graph_with_transitive_dep(
+        root_id: &PackageId,
+        child_id: &PackageId,
+    ) -> ResolutionGraph {
+        let root_pkg = ResolvedPackage {
+            id: root_id.clone(),
+            tarball: String::new(),
+            integrity: None,
+            dependencies: BTreeMap::from([("child".to_string(), child_id.clone())]),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+            bin: None,
+        };
+        let child_pkg = ResolvedPackage {
+            id: child_id.clone(),
+            tarball: String::new(),
+            integrity: None,
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+            bin: None,
+        };
+
+        ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::from([(
+                    "dep".to_string(),
+                    RootDependency {
+                        requested: "^1.0.0".to_string(),
+                        resolved: root_id.clone(),
+                    },
+                )]),
+            },
+            packages: BTreeMap::from([(root_id.clone(), root_pkg), (child_id.clone(), child_pkg)]),
         }
     }
 
@@ -782,5 +824,54 @@ mod tests {
         assert!(!check_project_layout_state(
             &config, &project, None, &graph, true
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_layout_state_captures_virtual_dependency_container_for_shared_packages() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let project = make_project(dir.path().join("project"));
+        let dep_id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let child_id = PackageId {
+            name: "child".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph_with_transitive_dep(&dep_id, &child_id);
+
+        fs::create_dir_all(project.root.join("node_modules")).unwrap();
+        fs::create_dir_all(project.root.join(".snpm")).unwrap();
+
+        let shared_dep_target = config
+            .virtual_store_dir()
+            .join("dep@1.0.0/node_modules/dep");
+        fs::create_dir_all(&shared_dep_target).unwrap();
+        fs::write(
+            shared_dep_target.join("package.json"),
+            r#"{"name":"dep","version":"1.0.0"}"#,
+        )
+        .unwrap();
+
+        let project_dep_location = virtual_package_location(&project.root.join(".snpm"), &dep_id);
+        let project_dep_node_modules =
+            virtual_package_node_modules(&project_dep_location, &dep_id.name).unwrap();
+        fs::create_dir_all(&project_dep_node_modules).unwrap();
+        std::os::unix::fs::symlink(&shared_dep_target, &project_dep_location).unwrap();
+        std::os::unix::fs::symlink(&project_dep_location, project.root.join("node_modules/dep"))
+            .unwrap();
+
+        let child_location = virtual_package_location(&project.root.join(".snpm"), &child_id);
+        fs::create_dir_all(&child_location).unwrap();
+        fs::write(
+            child_location.join("package.json"),
+            r#"{"name":"child","version":"1.0.0"}"#,
+        )
+        .unwrap();
+
+        capture_project_layout_state(&config, &project, None, &graph, true).unwrap();
+        assert!(state_path(&project.root.join("node_modules")).is_file());
     }
 }

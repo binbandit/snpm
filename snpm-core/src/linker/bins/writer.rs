@@ -8,23 +8,42 @@ pub(in crate::linker::bins) fn create_bin_file(
     name: &str,
     target: &Path,
 ) -> Result<()> {
+    let destination = bin_dir.join(name);
+    super::super::fs::ensure_parent_dir(&destination)?;
+
     if !target.is_file() {
+        remove_existing_bin_entry(&destination)?;
         return Ok(());
     }
 
     ensure_bin_target_executable(target)?;
 
-    let destination = bin_dir.join(name);
-    super::super::fs::ensure_parent_dir(&destination)?;
+    if super::super::fs::symlink_is_correct(&destination, target) {
+        return Ok(());
+    }
 
-    if destination.exists() {
-        fs::remove_file(&destination).map_err(|source| SnpmError::WriteFile {
-            path: destination.clone(),
+    remove_existing_bin_entry(&destination)?;
+    write_bin_link(target, &destination)
+}
+
+fn remove_existing_bin_entry(path: &Path) -> Result<()> {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path).map_err(|source| SnpmError::WriteFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    } else {
+        fs::remove_file(path).map_err(|source| SnpmError::WriteFile {
+            path: path.to_path_buf(),
             source,
         })?;
     }
 
-    write_bin_link(target, &destination)
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -118,5 +137,42 @@ mod tests {
         let updated_mode = fs::metadata(&target).unwrap().permissions().mode();
         assert_eq!(updated_mode & 0o111, 0o111);
         assert!(bin_dir.join("tool").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_bin_file_keeps_existing_correct_symlink() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("cli.js");
+        let bin_dir = dir.path().join(".bin");
+
+        fs::write(&target, "#!/usr/bin/env node\n").unwrap();
+
+        create_bin_file(&bin_dir, "tool", &target).unwrap();
+        let destination = bin_dir.join("tool");
+        let before = fs::symlink_metadata(&destination).unwrap().ino();
+
+        create_bin_file(&bin_dir, "tool", &target).unwrap();
+        let after = fs::symlink_metadata(&destination).unwrap().ino();
+
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn create_bin_file_removes_stale_destination_when_target_is_missing() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("missing.js");
+        let bin_dir = dir.path().join(".bin");
+        let destination = bin_dir.join("tool");
+
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(&destination, "stale").unwrap();
+
+        create_bin_file(&bin_dir, "tool", &target).unwrap();
+
+        assert!(!destination.exists());
+        assert!(destination.symlink_metadata().is_err());
     }
 }

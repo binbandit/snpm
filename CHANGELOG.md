@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.4.20] - 2026-04-20
+## [2026.4.21] - 2026-04-21
 
 ### <!-- 0 -->🚀 Features
 
@@ -41,6 +41,14 @@ All notable changes to this project will be documented in this file.
 - Add licenses command ([69a7fbc](https://github.com/binbandit/snpm/commit/69a7fbcb7c501f7ed926dc152c084db172da6c14))
 - Support Bun-style catalog definitions in package.json workspaces ([920cb7f](https://github.com/binbandit/snpm/commit/920cb7f38fd02a5b1057df8c797480313c993fe0))
 - *(publish)* Add package safety checks ([72205bf](https://github.com/binbandit/snpm/commit/72205bf67abbe03032bc7decbd14dbdb3611e143))
+- *(lockfile)* Import pnpm lockfiles for installs ([a6c269e](https://github.com/binbandit/snpm/commit/a6c269e42641409706034b582f881a2cb723dbcc))
+- *(lockfile)* Extend compatible lockfile imports ([54315d7](https://github.com/binbandit/snpm/commit/54315d78c5ce43704e68cf062224418af8d2466c))
+- *(lockfile)* Import bun text lockfiles ([7d0ef81](https://github.com/binbandit/snpm/commit/7d0ef8191b63c675cf170e0075b7951799355ac7))
+- *(resolve)* Reuse frozen lockfile graph in fix mode ([e9b1ff8](https://github.com/binbandit/snpm/commit/e9b1ff81bc2743ace157707d1db66dab146b4417))
+- *(core)* Refine frozen/install mode and workspace lockfile matching ([9769bd9](https://github.com/binbandit/snpm/commit/9769bd919a8f463a4750b181ea9ebe30528f76d6))
+- *(lockfile)* Import yarn lockfiles ([70c7066](https://github.com/binbandit/snpm/commit/70c7066689254ce0fb91cf15ed07dbc2c680025c))
+- Add workspace filters and frozen cli controls ([f9a42df](https://github.com/binbandit/snpm/commit/f9a42df4ee18c7ac94ee992b265d256eac71592e))
+- *(core)* Cache packuments and verified tarballs ([0023f8f](https://github.com/binbandit/snpm/commit/0023f8f08e7d82c4a225a8111a881e24832e4e0b))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -93,6 +101,13 @@ All notable changes to this project will be documented in this file.
 - *(bench)* Build and use snpm from source instead of PATH ([601fc6d](https://github.com/binbandit/snpm/commit/601fc6d511ec2f5e2af26b65673d0fc0838a3b76))
 - *(snpm-core)* Preserve bin permissions and run root postinstall ([2cb70e3](https://github.com/binbandit/snpm/commit/2cb70e34ababea3dbcb18c358982428a877a990f))
 - *(lifecycle)* Add node_modules bin to install script path ([ce8e1c2](https://github.com/binbandit/snpm/commit/ce8e1c2d52998c0f8f7a9f387a89047045e73ccc))
+- *(cli)* Tighten add flag conflicts and document allowlist scripts ([a1bbcc2](https://github.com/binbandit/snpm/commit/a1bbcc204cc9980fff500ba850b81401ccd8a283))
+- Improve workspace and local dependency compatibility ([21e4367](https://github.com/binbandit/snpm/commit/21e43676541b91fdd5c3149ee6ab61681e7b1baa))
+- Support yarn patch and portal protocols ([2dab2c9](https://github.com/binbandit/snpm/commit/2dab2c9ea2944f921344b2d85603db022838e85a))
+- *(audit)* Use npm bulk advisory endpoint ([58e4ba9](https://github.com/binbandit/snpm/commit/58e4ba9903fcccebff2a225f974392f5342b65d8))
+- Complete install state snapshot support ([cc3494d](https://github.com/binbandit/snpm/commit/cc3494d3ab036ba5350323ac827b6a9c280b1fb2))
+- *(snpm-core)* Preserve copy backend semantics ([9c45cdf](https://github.com/binbandit/snpm/commit/9c45cdfad405c14fe11e18d3e842042bcac520f4))
+- *(core)* Detect stale package layouts during install ([2c29be7](https://github.com/binbandit/snpm/commit/2c29be7d3ccd4b7d98cb5017298799ab1bee0d9b))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -106,6 +121,7 @@ All notable changes to this project will be documented in this file.
 - *(snpm-switch)* Modularize runtime and version management ([baf61e8](https://github.com/binbandit/snpm/commit/baf61e882b8f6a5ab16738421fffd07f82f09859))
 - *(snpm-core)* Reorganize modules by responsibility ([223e84b](https://github.com/binbandit/snpm/commit/223e84b665322d93e3256e3da56b3c17a76f0494))
 - *(snpm-cli)* Split command handlers by concern ([ed0c5c9](https://github.com/binbandit/snpm/commit/ed0c5c95080095a25cfc086bf627244020e2986c))
+- Replace runtime panic paths with recoverable errors ([98ad2a0](https://github.com/binbandit/snpm/commit/98ad2a0265aade39339388c5c76f76156aae743b))
 
 ### <!-- 3 -->📚 Documentation
 
@@ -128,6 +144,8 @@ All notable changes to this project will be documented in this file.
 - *(claude)* Add CLAUDE.md containing reference to AGENTS.md ([075c794](https://github.com/binbandit/snpm/commit/075c7941cc80dd56277879e06b58b9daa6ea4457))
 - Add agent skill installation instructions to README ([0e4280d](https://github.com/binbandit/snpm/commit/0e4280da9d1769c939be42f92224a44033f699b3))
 - *(agents)* Refresh command and lifecycle guidance ([52c8982](https://github.com/binbandit/snpm/commit/52c898272d43e3b1101ef567f93b35e3d3933607))
+- Refresh AGENTS.md for current snpm implementation ([c09ea49](https://github.com/binbandit/snpm/commit/c09ea494de7eccb86caee3f367a5a41875d20ed0))
+- *(skills)* Document lockfile mode flags ([8075f85](https://github.com/binbandit/snpm/commit/8075f85a5be2d2cbddd44679c07d755dfc790511))
 
 ### <!-- 4 -->⚡ Performance
 
@@ -142,6 +160,15 @@ All notable changes to this project will be documented in this file.
 - Stream tarball download with inline integrity hashing ([de03abc](https://github.com/binbandit/snpm/commit/de03abc7ed1f1b12f4cae8558ebf69c54b99dcc0))
 - Optimize resolver, store, and linker for install performance ([e182f11](https://github.com/binbandit/snpm/commit/e182f11481073b7b8cd25cff9d5b08b96fc77439))
 - *(linker)* Speed up linking and CLI alloc ([5f09d7e](https://github.com/binbandit/snpm/commit/5f09d7e957d3b31cbc0bd918f80096475de3acdc))
+- Reuse shared virtual store for warm installs ([711a57a](https://github.com/binbandit/snpm/commit/711a57ad553b4999104d2dd75c3ee13a51c1bfbb))
+- Cache install layouts and dependency side effects ([43da962](https://github.com/binbandit/snpm/commit/43da962282e25ef0fa677d4cfb5ba8970f811428))
+- Reuse bin metadata during linking ([36f6561](https://github.com/binbandit/snpm/commit/36f6561fd33336e4053a5d595d24a4bcda021cc1))
+- Persist install metadata for cache reuse ([caf53ca](https://github.com/binbandit/snpm/commit/caf53cacbf285c55cba9af1e483332905559b48c))
+- Unlock workspace hot installs ([cd73726](https://github.com/binbandit/snpm/commit/cd73726191bface834c25c0441e125f71938011f))
+- Consolidate install state snapshots ([068df22](https://github.com/binbandit/snpm/commit/068df22549176fcf2327a633ad8f8d19fbe7e6e6))
+- *(snpm-core)* Add bun-style package import fallbacks ([722dcc9](https://github.com/binbandit/snpm/commit/722dcc908af4207a4ad8fcf3855ea2a68a6322fe))
+- Speed up cold extraction ([39d8fbf](https://github.com/binbandit/snpm/commit/39d8fbf6b78feb2fe69d8a16d5212df202da0a89))
+- *(core)* Prefetch registry metadata during resolution ([23505a1](https://github.com/binbandit/snpm/commit/23505a1dd0f14ac8a30cf24ae883df21ea983652))
 
 ### <!-- 5 -->🎨 Styling
 
@@ -154,11 +181,15 @@ All notable changes to this project will be documented in this file.
 - Run cargo fmt ([5295aca](https://github.com/binbandit/snpm/commit/5295aca54f5d9d71a0a03d0c374d629b36cd74ae))
 - Apply cargo fmt formatting ([0e40e4b](https://github.com/binbandit/snpm/commit/0e40e4bf100227853cc8e009e31d1e701f1d02a1))
 - Format code with cargo fmt ([d26a49e](https://github.com/binbandit/snpm/commit/d26a49e351eeb2ef0c018a4a890d24f8ff47867e))
+- *(cli)* Format multicall rewrite test ([2f8a35a](https://github.com/binbandit/snpm/commit/2f8a35aca5b86c9de15cad330fbeb1f1dd60c99b))
 
 ### <!-- 6 -->✅ Testing
 
 - Add unit tests across core modules ([3807311](https://github.com/binbandit/snpm/commit/380731173cf3b0e7cf6e68f6e2268ae02a89cf6a))
 - Expand unit test coverage across remaining modules ([9c4e2d2](https://github.com/binbandit/snpm/commit/9c4e2d26adb148aa92ed04e237ca47e29cb16f75))
+- *(install)* Expand frozen/fix mode lockfile coverage ([e59c50d](https://github.com/binbandit/snpm/commit/e59c50dddedbeebd04e379c4527e671c808a25d7))
+- Cover workspace install state ([007fbd3](https://github.com/binbandit/snpm/commit/007fbd3d780356bfeeb15ea8ca7d6cae5f9e4870))
+- *(core)* Isolate frozen lockfile CI defaults ([88bcda5](https://github.com/binbandit/snpm/commit/88bcda544e91b74a27c0f780c5b578801111043b))
 
 ### <!-- 7 -->⚙️ Miscellaneous Tasks
 
@@ -322,7 +353,10 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.4.17 release [skip ci] ([98a94c6](https://github.com/binbandit/snpm/commit/98a94c6ec96fff5ab1aad6a6a2faa0a8af01200c))
 - *(release)* Bump version to 2026.4.18 [skip ci] ([b31d333](https://github.com/binbandit/snpm/commit/b31d333d8e54c90bce7f69fbdedcddee2485d506))
 - *(release)* Merge 2026.4.18 release [skip ci] ([bb67087](https://github.com/binbandit/snpm/commit/bb6708794834876f1e74385e883ca2a09d96a424))
-- *(release)* Bump version to 2026.4.20 [skip ci] ([76b50fb](https://github.com/binbandit/snpm/commit/76b50fba0d3a2dd5ec1a29422bf9f0ccd53b062e))
+- *(release)* Bump version to 2026.4.20 [skip ci] ([db69de1](https://github.com/binbandit/snpm/commit/db69de1c44b95213c1f46c026d763952026d7939))
+- *(release)* Merge 2026.4.20 release [skip ci] ([a485316](https://github.com/binbandit/snpm/commit/a485316e325c2b77f1392cdc21d33f880aea3ccf))
+- Clean pack clippy warnings ([a46ef55](https://github.com/binbandit/snpm/commit/a46ef5547aa16c020301b5dfc0d72c39b00268c8))
+- *(release)* Bump version to 2026.4.21 [skip ci] ([14c149d](https://github.com/binbandit/snpm/commit/14c149d21eaf71dd593a6df39b07937a201440b7))
 
 ## [2025.12.24] - 2025-12-24
 

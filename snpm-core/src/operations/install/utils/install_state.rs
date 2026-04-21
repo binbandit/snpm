@@ -381,9 +381,9 @@ fn resolve_symlink_target(link: &Path, target: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        check_project_layout_from_install_state, install_state_path,
-        load_graph_snapshot_from_install_state, load_project_install_state,
-        write_project_install_state,
+        check_project_layout_from_install_state, check_workspace_layout_from_install_state,
+        install_state_path, load_graph_snapshot_from_install_state, load_project_install_state,
+        load_workspace_install_state, write_project_install_state, write_workspace_install_state,
     };
     use crate::Project;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
@@ -391,6 +391,8 @@ mod tests {
     use crate::resolve::{
         PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
     };
+    use crate::workspace::types::WorkspaceConfig;
+    use crate::Workspace;
 
     use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
@@ -440,6 +442,21 @@ mod tests {
                 pnpm: None,
                 snpm: None,
                 workspaces: None,
+            },
+        }
+    }
+
+    fn make_workspace(root: PathBuf) -> Workspace {
+        Workspace {
+            root: root.clone(),
+            projects: vec![make_project(root)],
+            config: WorkspaceConfig {
+                packages: Vec::new(),
+                catalog: BTreeMap::new(),
+                catalogs: BTreeMap::new(),
+                only_built_dependencies: Vec::new(),
+                ignored_built_dependencies: Vec::new(),
+                hoisting: None,
             },
         }
     }
@@ -604,6 +621,122 @@ mod tests {
         assert!(!state.layout_valid);
         assert_eq!(
             check_project_layout_from_install_state(&config, &project, None, &graph, true),
+            Some(false)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_install_state_round_trips_with_valid_layout() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let workspace = make_workspace(dir.path().join("workspace"));
+        let project = &workspace.projects[0];
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph(&id);
+        let lockfile_path = workspace.root.join("snpm-lock.yaml");
+
+        fs::create_dir_all(workspace.root.join("node_modules")).unwrap();
+        fs::write(
+            &lockfile_path,
+            "version: 1\nroot:\n  dependencies: {}\npackages: {}\n",
+        )
+        .unwrap();
+
+        let package_root = virtual_package_location(&workspace.root, &id);
+        fs::create_dir_all(&package_root).unwrap();
+        std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
+
+        write_workspace_install_state(
+            &config,
+            &workspace,
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+            &BTreeMap::new(),
+            &graph,
+            true,
+        )
+        .unwrap();
+
+        let state = load_workspace_install_state(
+            &config,
+            &workspace,
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+            &BTreeMap::new(),
+            true,
+        )
+        .unwrap();
+
+        assert!(install_state_path(&workspace.root).is_file());
+        assert!(state.root_specs_matches);
+        assert!(state.layout_valid);
+        assert_eq!(
+            state
+                .graph
+                .root
+                .dependencies
+                .get("dep")
+                .map(|dep| dep.resolved.version.as_str()),
+            Some("1.0.0")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_install_state_marks_removed_links_as_stale() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let workspace = make_workspace(dir.path().join("workspace"));
+        let project = &workspace.projects[0];
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph(&id);
+        let lockfile_path = workspace.root.join("snpm-lock.yaml");
+
+        fs::create_dir_all(workspace.root.join("node_modules")).unwrap();
+        fs::write(
+            &lockfile_path,
+            "version: 1\nroot:\n  dependencies: {}\npackages: {}\n",
+        )
+        .unwrap();
+
+        let package_root = virtual_package_location(&workspace.root, &id);
+        fs::create_dir_all(&package_root).unwrap();
+        std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
+
+        write_workspace_install_state(
+            &config,
+            &workspace,
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+            &BTreeMap::new(),
+            &graph,
+            true,
+        )
+        .unwrap();
+
+        fs::remove_file(project.root.join("node_modules/dep")).unwrap();
+
+        let state = load_workspace_install_state(
+            &config,
+            &workspace,
+            &lockfile_path,
+            &BTreeMap::from([("dep".to_string(), "^1.0.0".to_string())]),
+            &BTreeMap::new(),
+            true,
+        )
+        .unwrap();
+
+        assert!(state.root_specs_matches);
+        assert!(!state.layout_valid);
+        assert_eq!(
+            check_workspace_layout_from_install_state(&config, &workspace, &graph, true),
             Some(false)
         );
     }

@@ -1,7 +1,5 @@
-use super::paths::{headers_cache_path, package_cache_dir};
+use super::metadata::storage::{read_cached_package_record, write_cached_headers};
 use crate::SnpmConfig;
-
-use std::fs;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CachedHeaders {
@@ -10,26 +8,11 @@ pub struct CachedHeaders {
 }
 
 pub fn load_cached_headers(config: &SnpmConfig, name: &str) -> Option<CachedHeaders> {
-    let headers_path = headers_cache_path(config, name);
-
-    if let Ok(data) = fs::read_to_string(&headers_path)
-        && let Ok(headers) = serde_json::from_str::<CachedHeaders>(&data)
-    {
-        return Some(headers);
-    }
-
-    None
+    read_cached_package_record(config, name).and_then(|record| record.headers)
 }
 
 pub fn save_cached_headers(config: &SnpmConfig, name: &str, headers: &CachedHeaders) {
-    let cache_dir = package_cache_dir(config, name);
-    let headers_path = headers_cache_path(config, name);
-
-    let _ = fs::create_dir_all(&cache_dir);
-
-    if let Ok(json) = serde_json::to_string(headers) {
-        let _ = fs::write(headers_path, json);
-    }
+    let _ = write_cached_headers(config, name, headers);
 }
 
 #[cfg(test)]
@@ -69,8 +52,6 @@ mod tests {
     fn save_and_load_cached_headers_roundtrip() {
         let dir = tempdir().unwrap();
         let config = make_config(dir.path().to_path_buf());
-
-        std::fs::create_dir_all(config.metadata_dir().join("test-pkg")).unwrap();
 
         let headers = CachedHeaders {
             etag: Some("\"abc123\"".to_string()),

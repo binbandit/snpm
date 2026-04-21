@@ -1,4 +1,6 @@
-use crate::cache::{CachedHeaders, load_metadata_with_offline, save_cached_headers, save_metadata};
+use crate::cache::{
+    CachedHeaders, load_metadata_with_offline, save_metadata, save_metadata_with_headers,
+};
 use crate::config::OfflineMode;
 use crate::console;
 use crate::registry::RegistryPackage;
@@ -57,26 +59,13 @@ pub(super) async fn handle_registry_response(
         package.dist_tags.len()
     ));
 
-    let _ = save_metadata(config, name, &package);
-    save_response_headers(config, name, response_etag, response_last_modified);
+    let response_headers =
+        (response_etag.is_some() || response_last_modified.is_some()).then_some(CachedHeaders {
+            etag: response_etag,
+            last_modified: response_last_modified,
+        });
+
+    let _ = save_metadata_with_headers(config, name, &package, response_headers.as_ref());
 
     Ok(package)
-}
-
-fn save_response_headers(
-    config: &SnpmConfig,
-    name: &str,
-    etag: Option<String>,
-    last_modified: Option<String>,
-) {
-    if etag.is_some() || last_modified.is_some() {
-        save_cached_headers(
-            config,
-            name,
-            &CachedHeaders {
-                etag,
-                last_modified,
-            },
-        );
-    }
 }

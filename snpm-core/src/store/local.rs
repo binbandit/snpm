@@ -2,12 +2,11 @@ use crate::console;
 use crate::resolve::types::ResolvedPackage;
 use crate::{Result, SnpmError};
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::archive::unpack_tarball;
+use super::archive::unpack_tarball_file;
 use super::filesystem::{copy_dir_all, reset_package_dir};
-use super::integrity::verify_integrity;
+use super::integrity::verify_integrity_file;
 use super::limits::extraction_semaphore;
 
 pub(super) async fn materialize_local_package(
@@ -45,12 +44,8 @@ pub(super) async fn materialize_local_package(
             source,
         })?;
     } else {
-        let bytes = fs::read(&source_path).map_err(|source| SnpmError::ReadFile {
-            path: source_path.clone(),
-            source,
-        })?;
-        verify_integrity(&package.tarball, package.integrity.as_deref(), &bytes)?;
-        unpack_tarball(package_dir, bytes)?;
+        verify_integrity_file(&package.tarball, package.integrity.as_deref(), &source_path)?;
+        unpack_tarball_file(package_dir, &source_path)?;
     }
 
     Ok(())

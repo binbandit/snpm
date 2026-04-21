@@ -3,6 +3,10 @@ use crate::config::SnpmConfig;
 use std::path::PathBuf;
 
 impl SnpmConfig {
+    pub fn tarball_blob_cache_dir(&self) -> PathBuf {
+        self.cache_dir.join("tarballs-v1")
+    }
+
     pub fn packages_dir(&self) -> PathBuf {
         self.data_dir.join("packages")
     }

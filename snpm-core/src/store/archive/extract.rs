@@ -2,15 +2,30 @@ use crate::{Result, SnpmError};
 
 use flate2::read::GzDecoder;
 use std::fs;
-use std::io::{Cursor, ErrorKind};
+#[cfg(test)]
+use std::io::Cursor;
+use std::io::{ErrorKind, Read};
 use std::path::Path;
 use tar::Archive;
 
 use super::paths::safe_join;
 
+#[cfg(test)]
 pub(crate) fn unpack_tarball(pkg_dir: &Path, data: Vec<u8>) -> Result<()> {
-    let cursor = Cursor::new(data);
-    let decoder = GzDecoder::new(cursor);
+    unpack_tarball_reader(pkg_dir, Cursor::new(data))
+}
+
+pub(crate) fn unpack_tarball_file(pkg_dir: &Path, tarball_path: &Path) -> Result<()> {
+    let file = fs::File::open(tarball_path).map_err(|source| SnpmError::ReadFile {
+        path: tarball_path.to_path_buf(),
+        source,
+    })?;
+
+    unpack_tarball_reader(pkg_dir, file)
+}
+
+fn unpack_tarball_reader<R: Read>(pkg_dir: &Path, reader: R) -> Result<()> {
+    let decoder = GzDecoder::new(reader);
     let mut archive = Archive::new(decoder);
 
     let entries = archive.entries().map_err(|source| SnpmError::Archive {

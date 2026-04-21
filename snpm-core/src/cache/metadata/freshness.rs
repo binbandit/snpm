@@ -1,23 +1,20 @@
 use crate::SnpmConfig;
 use crate::console;
 
-use std::fs;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(super) fn is_fresh(config: &SnpmConfig, cache_path: &Path) -> bool {
+pub(super) fn is_fresh(config: &SnpmConfig, updated_at_unix_secs: u64) -> bool {
     let Some(max_age_days) = config.min_package_cache_age_days else {
         return false;
     };
 
-    if let Ok(metadata) = fs::metadata(cache_path)
-        && let Ok(modified) = metadata.modified()
-        && let Ok(elapsed) = modified.elapsed()
-    {
-        let age_days = elapsed.as_secs() / 86400;
-        return age_days < max_age_days as u64;
-    }
+    let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return false;
+    };
 
-    false
+    let age_days = now.saturating_sub(std::time::Duration::from_secs(updated_at_unix_secs));
+    age_days.as_secs() / 86400 < max_age_days as u64
 }
 
 pub(super) fn log_cache_hit(name: &str, cache_path: &Path, fresh: bool) {

@@ -146,6 +146,10 @@ fn authorization_header_returns_none_without_token() {
 #[test]
 fn derived_directories() {
     let config = make_config();
+    assert_eq!(
+        config.tarball_blob_cache_dir(),
+        PathBuf::from("/tmp/cache/tarballs-v1")
+    );
     assert_eq!(config.packages_dir(), PathBuf::from("/tmp/data/packages"));
     assert_eq!(
         config.virtual_store_dir(),

@@ -6,12 +6,21 @@ mod state;
 use super::super::types::ResolvedPackage;
 use crate::SnpmConfig;
 use crate::config::OfflineMode;
+use crate::registry::RegistryProtocol;
 use crate::resolve::types::ResolutionGraph;
 use reqwest::Client;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
+pub(crate) use registry::prefetch_registry_request;
 pub(crate) use state::ResolverState;
+
+#[derive(Clone, Debug)]
+pub(in crate::resolve) struct RegistryPrefetchRequest {
+    pub(in crate::resolve) cache_key: String,
+    pub(in crate::resolve) source: String,
+    pub(in crate::resolve) protocol: RegistryProtocol,
+}
 
 #[derive(Clone)]
 pub(in crate::resolve) struct ResolverContext<'a> {
@@ -25,6 +34,7 @@ pub(in crate::resolve) struct ResolverContext<'a> {
     pub(in crate::resolve) offline_mode: OfflineMode,
     pub(super) state: ResolverState,
     pub(super) prefetch_tx: mpsc::UnboundedSender<ResolvedPackage>,
+    pub(super) metadata_prefetch_tx: mpsc::UnboundedSender<RegistryPrefetchRequest>,
 }
 
 #[cfg(test)]
@@ -41,6 +51,7 @@ impl<'a> ResolverContext<'a> {
     ) -> Self {
         let state = ResolverState::new(64);
         let (prefetch_tx, _prefetch_rx) = mpsc::unbounded_channel();
+        let (metadata_prefetch_tx, _metadata_prefetch_rx) = mpsc::unbounded_channel();
 
         Self {
             config,
@@ -53,6 +64,7 @@ impl<'a> ResolverContext<'a> {
             offline_mode,
             state,
             prefetch_tx,
+            metadata_prefetch_tx,
         }
     }
 }

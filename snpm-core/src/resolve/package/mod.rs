@@ -74,6 +74,7 @@ impl<'a> ResolverContext<'a> {
         }
 
         self.notify_prefetch(placeholder);
+        self.prefetch_dependency_frontier(&version_meta).await;
 
         let dependencies = self.resolve_dependencies(&id, &version_meta).await?;
         self.update_dependencies(&id, dependencies).await;

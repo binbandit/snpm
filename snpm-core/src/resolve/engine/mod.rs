@@ -4,17 +4,19 @@ use super::peers::validate_peers;
 use super::types::{ResolutionGraph, ResolvedPackage};
 use crate::config::OfflineMode;
 use crate::{Result, SnpmConfig, console};
-use futures::future::join;
+use futures::future::join3;
 use reqwest::Client;
 use std::collections::{BTreeMap, BTreeSet};
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 
-pub(super) use context::ResolverContext;
 #[cfg(test)]
 pub(crate) use context::ResolverState;
+pub(super) use context::{RegistryPrefetchRequest, ResolverContext};
 
 #[cfg(not(test))]
 use context::ResolverState;
+use context::prefetch_registry_request;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn resolve_with_offline<F, Fut>(
@@ -37,6 +39,7 @@ where
 {
     let state = ResolverState::new(config.registry_concurrency);
     let (prefetch_tx, prefetch_rx) = mpsc::unbounded_channel();
+    let (metadata_prefetch_tx, metadata_prefetch_rx) = mpsc::unbounded_channel();
 
     let resolver_context = ResolverContext {
         config,
@@ -49,6 +52,7 @@ where
         offline_mode,
         state: state.clone(),
         prefetch_tx: prefetch_tx.clone(),
+        metadata_prefetch_tx: metadata_prefetch_tx.clone(),
     };
 
     let resolver_task = async move {
@@ -56,11 +60,20 @@ where
             .resolve_root_dependencies(root_deps, root_protocols, optional_root_names)
             .await;
         drop(prefetch_tx);
+        drop(metadata_prefetch_tx);
         result
     };
 
     let prefetcher_task = run_prefetcher(prefetch_rx, on_package);
-    let (root_result, prefetch_result) = join(resolver_task, prefetcher_task).await;
+    let metadata_prefetcher_task = run_metadata_prefetcher(
+        config.clone(),
+        client.clone(),
+        state.clone(),
+        offline_mode,
+        metadata_prefetch_rx,
+    );
+    let (root_result, prefetch_result, metadata_prefetch_result) =
+        join3(resolver_task, prefetcher_task, metadata_prefetcher_task).await;
 
     let graph = ResolutionGraph {
         root: root_result?,
@@ -78,6 +91,7 @@ where
     }
 
     prefetch_result?;
+    metadata_prefetch_result?;
 
     Ok(graph)
 }
@@ -92,6 +106,49 @@ where
 {
     while let Some(package) = rx.recv().await {
         on_package(package).await?;
+    }
+
+    Ok(())
+}
+
+async fn run_metadata_prefetcher(
+    config: SnpmConfig,
+    client: Client,
+    state: ResolverState,
+    offline_mode: OfflineMode,
+    mut rx: mpsc::UnboundedReceiver<RegistryPrefetchRequest>,
+) -> Result<()> {
+    let concurrency = config.registry_concurrency.max(1);
+    let mut tasks = JoinSet::new();
+    let mut open = true;
+
+    loop {
+        while open && tasks.len() < concurrency {
+            match rx.recv().await {
+                Some(request) => {
+                    let config = config.clone();
+                    let client = client.clone();
+                    let state = state.clone();
+                    tasks.spawn(async move {
+                        prefetch_registry_request(state, config, client, offline_mode, request)
+                            .await;
+                    });
+                }
+                None => {
+                    open = false;
+                }
+            }
+        }
+
+        if !open && tasks.is_empty() {
+            break;
+        }
+
+        if let Some(result) = tasks.join_next().await
+            && let Err(error) = result
+        {
+            console::verbose(&format!("packument prefetch task failed: {error}"));
+        }
     }
 
     Ok(())

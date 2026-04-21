@@ -1,4 +1,5 @@
-use super::super::engine::ResolverContext;
+use super::super::engine::{RegistryPrefetchRequest, ResolverContext};
+use super::super::query::build_dep_request;
 use super::super::source::{normalize_dependency_range, protocol_from_range};
 use super::super::types::PackageId;
 use crate::SnpmError;
@@ -10,6 +11,62 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::metadata::bundled_dependency_names;
 
 impl<'a> ResolverContext<'a> {
+    pub(super) async fn prefetch_dependency_frontier(&self, version_meta: &RegistryVersion) {
+        let bundled = bundled_dependency_names(version_meta);
+        let mut requests = BTreeMap::new();
+
+        for (name, range) in &version_meta.dependencies {
+            if bundled.contains(name) {
+                continue;
+            }
+
+            let range = normalize_dependency_range(&version_meta.dist.tarball, range);
+            let protocol = protocol_from_range(&range);
+            let request = build_dep_request(
+                name,
+                &range,
+                &protocol,
+                self.overrides,
+                self.workspace_sources,
+            );
+            let cache_key = format!("{}:{}", request.protocol.name, request.source);
+            requests
+                .entry(cache_key.clone())
+                .or_insert(RegistryPrefetchRequest {
+                    cache_key,
+                    source: request.source,
+                    protocol: request.protocol,
+                });
+        }
+
+        for (name, range) in &version_meta.optional_dependencies {
+            if bundled.contains(name) {
+                continue;
+            }
+
+            let protocol = protocol_from_range(range);
+            let request = build_dep_request(
+                name,
+                range,
+                &protocol,
+                self.overrides,
+                self.workspace_sources,
+            );
+            let cache_key = format!("{}:{}", request.protocol.name, request.source);
+            requests
+                .entry(cache_key.clone())
+                .or_insert(RegistryPrefetchRequest {
+                    cache_key,
+                    source: request.source,
+                    protocol: request.protocol,
+                });
+        }
+
+        for request in requests.into_values() {
+            self.schedule_registry_prefetch(request).await;
+        }
+    }
+
     pub(super) async fn resolve_dependencies(
         &self,
         package_id: &PackageId,

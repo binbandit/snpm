@@ -59,10 +59,10 @@ pub(super) fn finalize_workspace_install(
     }
 
     let blocked_scripts = run_workspace_scripts(config, workspace)?;
-    capture_workspace_layout_state(config, workspace, graph, include_dev)?;
     let workspace_integrity = build_workspace_integrity_state(workspace, graph)?;
     write_workspace_integrity(&workspace.root, &workspace_integrity)?;
     write_project_integrity_files(workspace, &workspace_integrity)?;
+    capture_workspace_layout_state(config, workspace, graph, include_dev)?;
 
     Ok(blocked_scripts)
 }

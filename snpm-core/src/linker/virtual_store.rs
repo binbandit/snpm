@@ -1,16 +1,31 @@
 use crate::resolve::{PackageId, ResolutionGraph};
+use crate::store::PACKAGE_METADATA_FILE;
 use crate::{Result, SnpmConfig, SnpmError, Workspace, lifecycle};
 
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
 use super::fs::{
     copy_dir, ensure_parent_dir, link_dir, package_node_modules, symlink_dir_entry,
     symlink_is_correct,
 };
+
+const VIRTUAL_DEPENDENCY_STATE_FILE: &str = ".snpm-dependencies.bin";
+const VIRTUAL_DEPENDENCY_STATE_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VirtualDependencyState {
+    version: u32,
+    dependency_hash: String,
+    directory_seconds: u64,
+    directory_nanoseconds: u32,
+}
 
 pub(crate) fn populate_shared_virtual_store(
     config: &SnpmConfig,
@@ -25,7 +40,7 @@ pub(crate) fn populate_shared_virtual_store(
 
     let shared_paths =
         materialize_virtual_store(&shared_virtual_store_dir, graph, store_paths, config)?;
-    link_virtual_dependencies(&shared_paths, graph)?;
+    link_virtual_dependencies(shared_paths.as_ref(), graph)?;
 
     Ok(shared_paths)
 }
@@ -148,8 +163,8 @@ fn materialize_virtual_store(
     Ok(Arc::new(map))
 }
 
-pub(super) fn link_virtual_dependencies(
-    virtual_store_paths: &Arc<BTreeMap<PackageId, PathBuf>>,
+pub(crate) fn link_virtual_dependencies(
+    virtual_store_paths: &BTreeMap<PackageId, PathBuf>,
     graph: &ResolutionGraph,
 ) -> Result<()> {
     let packages: Vec<_> = graph.packages.iter().collect();
@@ -169,6 +184,16 @@ pub(super) fn link_virtual_dependencies(
                     name: id.name.clone(),
                     version: id.version.clone(),
                 })?;
+
+            if package.dependencies.is_empty() {
+                remove_dependency_state(package_location, &id.name);
+                return Ok(());
+            }
+
+            let dependency_hash = dependency_state_hash(package, virtual_store_paths)?;
+            if dependency_state_matches(package_location, &id.name, &dependency_hash) {
+                return Ok(());
+            }
 
             for (dep_name, dep_id) in &package.dependencies {
                 let dep_target =
@@ -191,6 +216,8 @@ pub(super) fn link_virtual_dependencies(
                 symlink_dir_entry(dep_target, &dep_link)
                     .or_else(|_| copy_dir(dep_target, &dep_link))?;
             }
+
+            write_dependency_state(package_location, &id.name, &dependency_hash)?;
 
             Ok(())
         })
@@ -217,17 +244,154 @@ fn virtual_package_ready(package_location: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
 
     is_real_dir
-        && fs::read_dir(package_location)
-            .ok()
-            .and_then(|mut entries| entries.next())
-            .is_some()
+        && (package_location.join(PACKAGE_METADATA_FILE).is_file()
+            || fs::read_dir(package_location)
+                .ok()
+                .and_then(|mut entries| entries.next())
+                .is_some())
+}
+
+fn dependency_state_hash(
+    package: &crate::resolve::ResolvedPackage,
+    virtual_store_paths: &BTreeMap<PackageId, PathBuf>,
+) -> Result<String> {
+    let mut hasher = Sha256::new();
+
+    for (dep_name, dep_id) in &package.dependencies {
+        let dep_target =
+            virtual_store_paths
+                .get(dep_id)
+                .ok_or_else(|| SnpmError::GraphMissing {
+                    name: dep_id.name.clone(),
+                    version: dep_id.version.clone(),
+                })?;
+
+        hasher.update(dep_name.as_bytes());
+        hasher.update([0]);
+        hasher.update(dep_id.name.as_bytes());
+        hasher.update([0]);
+        hasher.update(dep_id.version.as_bytes());
+        hasher.update([0]);
+        hasher.update(dep_target.as_os_str().as_encoded_bytes());
+        hasher.update([0]);
+    }
+
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn dependency_state_matches(
+    package_location: &Path,
+    package_name: &str,
+    expected_hash: &str,
+) -> bool {
+    let dependency_dir = match package_node_modules(package_location, package_name) {
+        Some(path) => path,
+        None => return false,
+    };
+    let state_path = match dependency_state_path(package_location, package_name) {
+        Some(path) => path,
+        None => return false,
+    };
+    let Some(state) = read_dependency_state_lossy(&state_path) else {
+        return false;
+    };
+
+    if state.version != VIRTUAL_DEPENDENCY_STATE_VERSION || state.dependency_hash != expected_hash {
+        return false;
+    }
+
+    let Ok(metadata) = fs::metadata(&dependency_dir) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+    let Ok(duration) = modified.duration_since(UNIX_EPOCH) else {
+        return false;
+    };
+
+    duration.as_secs() == state.directory_seconds
+        && duration.subsec_nanos() == state.directory_nanoseconds
+}
+
+fn write_dependency_state(
+    package_location: &Path,
+    package_name: &str,
+    dependency_hash: &str,
+) -> Result<()> {
+    let dependency_dir = package_node_modules(package_location, package_name).ok_or_else(|| {
+        SnpmError::Internal {
+            reason: format!(
+                "virtual package path missing dependency container: {}",
+                package_location.display()
+            ),
+        }
+    })?;
+    let state_path = dependency_state_path(package_location, package_name).ok_or_else(|| {
+        SnpmError::Internal {
+            reason: format!(
+                "virtual package path missing state directory: {}",
+                package_location.display()
+            ),
+        }
+    })?;
+    let metadata = fs::metadata(&dependency_dir).map_err(|source| SnpmError::ReadFile {
+        path: dependency_dir.clone(),
+        source,
+    })?;
+    let modified = metadata.modified().map_err(|source| SnpmError::ReadFile {
+        path: dependency_dir.clone(),
+        source,
+    })?;
+    let duration = modified
+        .duration_since(UNIX_EPOCH)
+        .map_err(|source| SnpmError::Io {
+            path: dependency_dir,
+            source: std::io::Error::other(source),
+        })?;
+    let state = VirtualDependencyState {
+        version: VIRTUAL_DEPENDENCY_STATE_VERSION,
+        dependency_hash: dependency_hash.to_string(),
+        directory_seconds: duration.as_secs(),
+        directory_nanoseconds: duration.subsec_nanos(),
+    };
+    let data = bincode::serialize(&state).map_err(|source| SnpmError::SerializeJson {
+        path: state_path.clone(),
+        reason: source.to_string(),
+    })?;
+
+    fs::write(&state_path, data).map_err(|source| SnpmError::WriteFile {
+        path: state_path,
+        source,
+    })
+}
+
+fn read_dependency_state_lossy(path: &Path) -> Option<VirtualDependencyState> {
+    let bytes = fs::read(path).ok()?;
+    bincode::deserialize(&bytes).ok()
+}
+
+fn remove_dependency_state(package_location: &Path, package_name: &str) {
+    if let Some(path) = dependency_state_path(package_location, package_name) {
+        fs::remove_file(path).ok();
+    }
+}
+
+fn dependency_state_path(package_location: &Path, package_name: &str) -> Option<PathBuf> {
+    package_node_modules(package_location, package_name)?
+        .parent()
+        .map(|parent| parent.join(VIRTUAL_DEPENDENCY_STATE_FILE))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::populate_virtual_store;
+    use super::{
+        dependency_state_hash, dependency_state_matches, dependency_state_path,
+        link_virtual_dependencies, populate_virtual_store,
+    };
     use crate::Workspace;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::linker::fs::package_node_modules;
     use crate::resolve::{PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage};
     use crate::workspace::types::WorkspaceConfig;
 
@@ -277,6 +441,39 @@ mod tests {
                 dependencies: BTreeMap::new(),
             },
             packages: BTreeMap::from([(id.clone(), pkg)]),
+        }
+    }
+
+    fn make_graph_with_transitive_dep(
+        root_id: &PackageId,
+        child_id: &PackageId,
+    ) -> ResolutionGraph {
+        let root_pkg = ResolvedPackage {
+            id: root_id.clone(),
+            tarball: String::new(),
+            integrity: None,
+            dependencies: BTreeMap::from([("child".to_string(), child_id.clone())]),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+            bin: None,
+        };
+        let child_pkg = ResolvedPackage {
+            id: child_id.clone(),
+            tarball: String::new(),
+            integrity: None,
+            dependencies: BTreeMap::new(),
+            peer_dependencies: BTreeMap::new(),
+            bundled_dependencies: None,
+            has_bin: false,
+            bin: None,
+        };
+
+        ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::new(),
+            },
+            packages: BTreeMap::from([(root_id.clone(), root_pkg), (child_id.clone(), child_pkg)]),
         }
     }
 
@@ -384,5 +581,61 @@ mod tests {
                 .file_type()
                 .is_symlink()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn link_virtual_dependencies_reuses_persisted_dependency_state() {
+        let dir = tempdir().unwrap();
+        let root_id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let child_id = PackageId {
+            name: "child".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph_with_transitive_dep(&root_id, &child_id);
+        let root_location = dir.path().join(".snpm/dep@1.0.0/node_modules/dep");
+        let child_location = dir.path().join(".snpm/child@1.0.0/node_modules/child");
+
+        fs::create_dir_all(root_location.join("node_modules")).unwrap();
+        fs::create_dir_all(&child_location).unwrap();
+        fs::write(root_location.join("package.json"), "{}").unwrap();
+        fs::write(child_location.join("package.json"), "{}").unwrap();
+
+        let virtual_store_paths = BTreeMap::from([
+            (root_id.clone(), root_location.clone()),
+            (child_id.clone(), child_location.clone()),
+        ]);
+
+        link_virtual_dependencies(&virtual_store_paths, &graph).unwrap();
+
+        let dependency_hash =
+            dependency_state_hash(graph.packages.get(&root_id).unwrap(), &virtual_store_paths)
+                .unwrap();
+        assert!(
+            dependency_state_path(&root_location, &root_id.name)
+                .unwrap()
+                .is_file()
+        );
+        assert!(dependency_state_matches(
+            &root_location,
+            &root_id.name,
+            &dependency_hash
+        ));
+
+        fs::remove_file(
+            package_node_modules(&root_location, &root_id.name)
+                .unwrap()
+                .join("child"),
+        )
+        .unwrap();
+
+        assert!(!dependency_state_matches(
+            &root_location,
+            &root_id.name,
+            &dependency_hash
+        ));
     }
 }

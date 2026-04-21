@@ -593,7 +593,10 @@ fn resolve_symlink_target(link: &Path, target: &Path) -> PathBuf {
 }
 
 fn state_path(node_modules: &Path) -> PathBuf {
-    node_modules.join(LAYOUT_STATE_FILE)
+    node_modules
+        .parent()
+        .unwrap_or(node_modules)
+        .join(LAYOUT_STATE_FILE)
 }
 
 fn hash_entries(entries: &[String]) -> String {
@@ -758,6 +761,31 @@ mod tests {
             },
             packages: BTreeMap::from([(root_id.clone(), root_pkg), (child_id.clone(), child_pkg)]),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_layout_state_accepts_fresh_capture() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let project = make_project(dir.path().join("project"));
+        let id = PackageId {
+            name: "dep".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let graph = make_graph(&id);
+
+        fs::create_dir_all(project.root.join("node_modules")).unwrap();
+        let package_root = virtual_package_location(&project.root.join(".snpm"), &id);
+        fs::create_dir_all(&package_root).unwrap();
+        std::os::unix::fs::symlink(&package_root, project.root.join("node_modules/dep")).unwrap();
+
+        capture_project_layout_state(&config, &project, None, &graph, true).unwrap();
+
+        assert!(state_path(&project.root.join("node_modules")).is_file());
+        assert!(check_project_layout_state(
+            &config, &project, None, &graph, true
+        ));
     }
 
     #[cfg(unix)]

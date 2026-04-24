@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 pub(super) async fn resolve_cold_install(
@@ -25,10 +26,12 @@ pub(super) async fn resolve_cold_install(
 
     let store_paths = Arc::new(Mutex::new(BTreeMap::<PackageId, PathBuf>::new()));
     let store_tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> = Arc::new(Mutex::new(Vec::new()));
+    let store_task_limit = Arc::new(Semaphore::new(store::store_task_concurrency(config)));
 
     let resolve_started = Instant::now();
     let paths = store_paths.clone();
     let tasks = store_tasks.clone();
+    let task_limit = store_task_limit.clone();
     let config_clone = config.clone();
     let client_clone = registry_client.clone();
     let progress_count = Arc::new(AtomicUsize::new(0));
@@ -63,6 +66,7 @@ pub(super) async fn resolve_cold_install(
                 let client = client_clone.clone();
                 let paths = paths.clone();
                 let tasks = tasks.clone();
+                let task_limit = task_limit.clone();
                 let count = progress_count.clone();
                 let total = progress_total.clone();
                 let name = package.id.name.clone();
@@ -78,6 +82,8 @@ pub(super) async fn resolve_cold_install(
 
                     let package_id = package.id.clone();
                     let handle = tokio::spawn(async move {
+                        let _permit =
+                            store::acquire_store_task_permit(task_limit, &package_id).await?;
                         let path = store::ensure_package(&config, &package, &client).await?;
                         let mut map = paths.lock().await;
                         map.insert(package_id, path);
@@ -106,6 +112,7 @@ pub(super) async fn resolve_cold_install(
                 let client = client_clone.clone();
                 let paths = paths.clone();
                 let tasks = tasks.clone();
+                let task_limit = task_limit.clone();
                 let count = progress_count.clone();
                 let total = progress_total.clone();
                 let name = package.id.name.clone();
@@ -121,6 +128,8 @@ pub(super) async fn resolve_cold_install(
 
                     let package_id = package.id.clone();
                     let handle = tokio::spawn(async move {
+                        let _permit =
+                            store::acquire_store_task_permit(task_limit, &package_id).await?;
                         let path = store::ensure_package(&config, &package, &client).await?;
                         let mut map = paths.lock().await;
                         map.insert(package_id, path);

@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 pub(super) async fn resolve_dlx_graph(
@@ -19,6 +20,7 @@ pub(super) async fn resolve_dlx_graph(
 ) -> Result<(ResolutionGraph, BTreeMap<PackageId, PathBuf>)> {
     let store_paths = Arc::new(Mutex::new(BTreeMap::new()));
     let store_tasks = Arc::new(Mutex::new(Vec::<JoinHandle<Result<()>>>::new()));
+    let store_task_limit = Arc::new(Semaphore::new(store::store_task_concurrency(store_config)));
     let progress_count = Arc::new(AtomicUsize::new(0));
     let progress_total = Arc::new(AtomicUsize::new(1));
 
@@ -39,6 +41,7 @@ pub(super) async fn resolve_dlx_graph(
             let store_client = registry_client.clone();
             let store_paths = store_paths.clone();
             let store_tasks = store_tasks.clone();
+            let store_task_limit = store_task_limit.clone();
             let progress_count = progress_count.clone();
             let progress_total = progress_total.clone();
 
@@ -47,6 +50,7 @@ pub(super) async fn resolve_dlx_graph(
                 let store_client = store_client.clone();
                 let store_paths = store_paths.clone();
                 let store_tasks = store_tasks.clone();
+                let store_task_limit = store_task_limit.clone();
                 let progress_count = progress_count.clone();
                 let progress_total = progress_total.clone();
                 let name = package.id.name.clone();
@@ -62,6 +66,8 @@ pub(super) async fn resolve_dlx_graph(
 
                     let package_id = package.id.clone();
                     let handle = tokio::spawn(async move {
+                        let _permit =
+                            store::acquire_store_task_permit(store_task_limit, &package_id).await?;
                         let path = store::ensure_package_with_offline(
                             &store_config,
                             &package,

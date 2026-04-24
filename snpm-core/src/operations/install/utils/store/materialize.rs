@@ -39,7 +39,7 @@ where
     I: IntoIterator<Item = ResolvedPackage>,
 {
     let packages: Vec<_> = packages.into_iter().collect();
-    let concurrency = config.registry_concurrency;
+    let concurrency = store::store_task_concurrency(config);
     let total = packages.len();
     let progress_count = Arc::new(AtomicUsize::new(0));
     let mut paths = BTreeMap::new();

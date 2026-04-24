@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 pub(crate) async fn resolve_workspace_deps(
@@ -24,6 +25,7 @@ pub(crate) async fn resolve_workspace_deps(
 ) -> Result<ResolutionGraph> {
     let paths = Arc::new(Mutex::new(BTreeMap::new()));
     let tasks: Arc<Mutex<Vec<JoinHandle<Result<()>>>>> = Arc::new(Mutex::new(Vec::new()));
+    let store_task_limit = Arc::new(Semaphore::new(store::store_task_concurrency(config)));
     let progress_count = Arc::new(AtomicUsize::new(0));
     let progress_total = Arc::new(AtomicUsize::new(root_deps.len()));
 
@@ -32,6 +34,7 @@ pub(crate) async fn resolve_workspace_deps(
     let graph = {
         let paths = paths.clone();
         let tasks = tasks.clone();
+        let task_limit = store_task_limit.clone();
         let count = progress_count.clone();
         let total = progress_total.clone();
         let config_clone = config.clone();
@@ -54,6 +57,7 @@ pub(crate) async fn resolve_workspace_deps(
                     let client = client_clone.clone();
                     let paths = paths.clone();
                     let tasks = tasks.clone();
+                    let task_limit = task_limit.clone();
                     let count = count.clone();
                     let total = total.clone();
                     let name = package.id.name.clone();
@@ -69,6 +73,8 @@ pub(crate) async fn resolve_workspace_deps(
 
                         let package_id = package.id.clone();
                         let handle = tokio::spawn(async move {
+                            let _permit =
+                                store::acquire_store_task_permit(task_limit, &package_id).await?;
                             let path = store::ensure_package(&config, &package, &client).await?;
                             let mut map = paths.lock().await;
                             map.insert(package_id, path);
@@ -98,6 +104,7 @@ pub(crate) async fn resolve_workspace_deps(
                     let client = client_clone.clone();
                     let paths = paths.clone();
                     let tasks = tasks.clone();
+                    let task_limit = task_limit.clone();
                     let count = count.clone();
                     let total = total.clone();
                     let name = package.id.name.clone();
@@ -113,6 +120,8 @@ pub(crate) async fn resolve_workspace_deps(
 
                         let package_id = package.id.clone();
                         let handle = tokio::spawn(async move {
+                            let _permit =
+                                store::acquire_store_task_permit(task_limit, &package_id).await?;
                             let path = store::ensure_package(&config, &package, &client).await?;
                             let mut map = paths.lock().await;
                             map.insert(package_id, path);

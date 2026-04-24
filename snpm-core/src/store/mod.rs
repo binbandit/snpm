@@ -14,6 +14,7 @@ pub(crate) use cache_index::{
 };
 pub use ensure::{ensure_package, ensure_package_with_offline};
 pub use filesystem::package_root_dir;
+pub(crate) use limits::{acquire_store_task_permit, store_task_concurrency};
 pub(crate) use metadata::{
     PACKAGE_METADATA_FILE, read_package_filesystem_shape_lossy, read_package_metadata_lossy,
 };

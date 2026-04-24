@@ -60,6 +60,14 @@ pub(super) async fn download_and_verify_tarball(
         });
     }
 
+    let _download_permit =
+        download_semaphore()
+            .acquire()
+            .await
+            .map_err(|error| SnpmError::Internal {
+                reason: format!("download semaphore closed while fetching {url}: {error}"),
+            })?;
+
     let temp_parent = config.tarball_blob_cache_dir().join("tmp");
     let temp_path = create_temp_path(&temp_parent)?;
     let file_path = temp_path.to_path_buf();
@@ -79,13 +87,6 @@ pub(super) async fn download_and_verify_tarball(
         request = request.header("authorization", header_value);
     }
 
-    let _download_permit =
-        download_semaphore()
-            .acquire()
-            .await
-            .map_err(|error| SnpmError::Internal {
-                reason: format!("download semaphore closed while fetching {url}: {error}"),
-            })?;
     let response = request
         .send()
         .await
@@ -231,6 +232,7 @@ mod tests {
     use super::{TarballSource, download_and_verify_tarball};
     use crate::SnpmError;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::store::limits::download_semaphore;
 
     use base64::Engine;
     use flate2::Compression;
@@ -245,6 +247,7 @@ mod tests {
     use tempfile::tempdir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::time::{Duration, sleep, timeout};
 
     fn make_config(root: PathBuf) -> SnpmConfig {
         SnpmConfig {
@@ -378,5 +381,26 @@ mod tests {
         assert!(!config.tarball_blob_cache_dir().join("sha512").exists());
 
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn download_waits_for_permit_before_creating_temp_file() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let permits = download_semaphore().acquire_many(64).await.unwrap();
+        let client = reqwest::Client::new();
+        let download =
+            download_and_verify_tarball(&config, "http://127.0.0.1:9/pkg.tgz", None, &client);
+        tokio::pin!(download);
+
+        tokio::select! {
+            result = &mut download => panic!("download should wait for a permit: {result:?}"),
+            _ = sleep(Duration::from_millis(25)) => {}
+        }
+
+        assert!(!config.tarball_blob_cache_dir().join("tmp").exists());
+
+        drop(permits);
+        let _ = timeout(Duration::from_secs(1), download).await;
     }
 }

@@ -135,6 +135,25 @@ fn apply_rc_file_parses_hoisting() {
 }
 
 #[test]
+fn apply_rc_file_parses_global_virtual_store_package_list() {
+    let file = NamedTempFile::new().unwrap();
+    fs::write(
+        file.path(),
+        r#"disable-global-virtual-store-for-packages=["vite", "next"]"#,
+    )
+    .unwrap();
+
+    let mut config = RegistryConfig::default();
+    apply_rc_file(file.path(), &mut config);
+
+    let packages = config
+        .disable_global_virtual_store_for_packages
+        .expect("package list");
+    assert!(packages.contains("vite"));
+    assert!(packages.contains("next"));
+}
+
+#[test]
 fn apply_rc_file_parses_always_auth() {
     let file = NamedTempFile::new().unwrap();
     fs::write(file.path(), "always-auth=true\n").unwrap();

@@ -120,7 +120,7 @@ pub(crate) fn build_project_layout_hash(
         hoisting_label(effective_hoisting(config, workspace))
     ));
 
-    append_virtual_store_entries(&mut entries, config, workspace, graph);
+    append_virtual_store_entries(&mut entries, config, workspace, &[project], graph);
     append_project_link_entries(&mut entries, project, workspace, graph, include_dev)?;
     append_hoist_entries(&mut entries, graph, effective_hoisting(config, workspace));
 
@@ -136,7 +136,8 @@ pub(crate) fn build_workspace_layout_hash(
     let mut entries = Vec::new();
     entries.push("kind=workspace".to_string());
 
-    append_virtual_store_entries(&mut entries, config, Some(workspace), graph);
+    let projects = workspace.projects.iter().collect::<Vec<_>>();
+    append_virtual_store_entries(&mut entries, config, Some(workspace), &projects, graph);
 
     for project in &workspace.projects {
         entries.push(format!("project={}", project.root.display()));
@@ -150,10 +151,14 @@ fn append_virtual_store_entries(
     entries: &mut Vec<String>,
     config: &SnpmConfig,
     workspace: Option<&Workspace>,
+    projects: &[&Project],
     graph: &ResolutionGraph,
 ) {
+    let locally_materialized_ids =
+        crate::linker::local_global_virtual_store_package_ids(config, workspace, projects, graph);
+
     for id in graph.packages.keys() {
-        let locality = if crate::lifecycle::is_dep_script_allowed(config, workspace, &id.name) {
+        let locality = if locally_materialized_ids.contains(id) {
             "local"
         } else {
             "shared"
@@ -675,6 +680,7 @@ mod tests {
             cache_dir: data_dir.join("cache"),
             data_dir,
             allow_scripts: BTreeSet::new(),
+            disable_global_virtual_store_for_packages: BTreeSet::new(),
             min_package_age_days: None,
             min_package_cache_age_days: None,
             default_registry: "https://registry.npmjs.org".to_string(),

@@ -22,6 +22,7 @@ snpm can be configured using environment variables:
 | `SNPM_FROZEN_LOCKFILE` | Default frozen lockfile mode | `false` |
 | `SNPM_REGISTRY_CONCURRENCY` | Max concurrent registry requests | `64` |
 | `SNPM_ALLOW_SCRIPTS` | Comma-separated list of packages allowed to run install scripts | - |
+| `SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES` | Comma-separated packages to force into the project-local virtual store | `next,nuxt,vite,vitepress,parcel` |
 | `SNPM_VERBOSE` | Enable verbose logging | `false` |
 | `SNPM_LOG_FILE` | Custom log file path | `.snpm.log` |
 | `NPM_TOKEN`, `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` | Registry authentication token (Bearer scheme) | - |
@@ -58,6 +59,9 @@ export SNPM_REGISTRY_CONCURRENCY=128
 
 # Allow specific packages to run install scripts
 export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild,@swc/core"
+
+# Keep resolver-walk-up-sensitive tools project-local
+export SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES="next,nuxt,vite,vitepress,parcel"
 
 # Enable verbose logging
 export SNPM_VERBOSE=true
@@ -210,6 +214,28 @@ export SNPM_LINK_BACKEND=symlink
 # Copy files (slowest, most compatible)
 export SNPM_LINK_BACKEND=copy
 ```
+
+## Global Virtual Store Compatibility
+
+snpm keeps packages in a shared virtual store for fast warm installs. Shared entries are keyed by package version and resolved dependency closure so two projects can reuse the same bytes without fighting over different transitive dependency links.
+
+Like Bun's isolated linker, snpm keeps entries project-local when they are not safe to share: patched packages, packages allowed to run dependency lifecycle scripts, directory-backed `file:` packages, and any package that depends on a project-local entry. This keeps mutable or project-specific links out of the shared store.
+
+Some tools also resolve their own package through symlinks and then walk up parent directories to find project configuration. snpm keeps known resolver-walk-up-sensitive tools project-local through an explicit compatibility list.
+
+The default list is `next`, `nuxt`, `vite`, `vitepress`, and `parcel`. Override it with:
+
+```bash
+export SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES="next,vite"
+```
+
+Or configure it via `.snpmrc`/`.npmrc`:
+
+```ini title=".snpmrc"
+disable-global-virtual-store-for-packages=next,vite
+```
+
+Use `[]` to disable the heuristic.
 
 ## Install Scripts Configuration
 

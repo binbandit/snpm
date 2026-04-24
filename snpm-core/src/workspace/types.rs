@@ -15,6 +15,12 @@ pub struct WorkspaceConfig {
     pub only_built_dependencies: Vec<String>,
     #[serde(default, rename = "ignoredBuiltDependencies")]
     pub ignored_built_dependencies: Vec<String>,
+    #[serde(
+        default,
+        rename = "disableGlobalVirtualStoreForPackages",
+        alias = "disable-global-virtual-store-for-packages"
+    )]
+    pub disable_global_virtual_store_for_packages: Option<Vec<String>>,
     #[serde(default)]
     pub hoisting: Option<String>,
 }

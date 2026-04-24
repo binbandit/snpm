@@ -33,7 +33,6 @@ pub(super) fn apply_patches(
         let safe_name = name.replace('/', "+");
         let package_dir = project
             .root
-            .join("node_modules")
             .join(".snpm")
             .join(format!("{}@{}", safe_name, version))
             .join("node_modules")

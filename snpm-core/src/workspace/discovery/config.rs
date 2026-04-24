@@ -13,6 +13,7 @@ pub(super) fn empty_workspace_config() -> WorkspaceConfig {
         catalogs: BTreeMap::new(),
         only_built_dependencies: Vec::new(),
         ignored_built_dependencies: Vec::new(),
+        disable_global_virtual_store_for_packages: None,
         hoisting: None,
     }
 }

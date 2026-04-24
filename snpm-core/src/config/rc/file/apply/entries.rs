@@ -1,7 +1,7 @@
 use super::super::super::types::RegistryConfig;
 use super::super::super::url::normalize_registry_url;
 use super::auth::apply_scoped_auth;
-use crate::config::HoistingMode;
+use crate::config::{HoistingMode, parse_package_name_list};
 
 pub(super) fn apply_rc_entry(config: &mut RegistryConfig, key: &str, value: String) {
     if key == "registry" {
@@ -15,6 +15,16 @@ pub(super) fn apply_rc_entry(config: &mut RegistryConfig, key: &str, value: Stri
         if let Some(mode) = HoistingMode::parse(&value) {
             config.hoisting = Some(mode);
         }
+        return;
+    }
+
+    if matches!(
+        key,
+        "disableGlobalVirtualStoreForPackages"
+            | "disable-global-virtual-store-for-packages"
+            | "disable_global_virtual_store_for_packages"
+    ) {
+        config.disable_global_virtual_store_for_packages = Some(parse_package_name_list(&value));
         return;
     }
 

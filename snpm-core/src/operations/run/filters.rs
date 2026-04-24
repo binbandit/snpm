@@ -611,6 +611,7 @@ mod tests {
                 catalogs: BTreeMap::new(),
                 only_built_dependencies: vec![],
                 ignored_built_dependencies: vec![],
+                disable_global_virtual_store_for_packages: None,
                 hoisting: None,
             },
             projects: vec![

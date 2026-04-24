@@ -44,6 +44,10 @@ pub(super) fn print_install(config: &SnpmConfig) {
         "  link backend: {}",
         link_backend_label(config.link_backend)
     ));
+    console::info(&format!(
+        "  local virtual store packages: {}",
+        format_list(&config.disable_global_virtual_store_for_packages)
+    ));
     console::info(&format!("  strict peers: {}", config.strict_peers));
     console::info(&format!(
         "  frozen lockfile: {}",

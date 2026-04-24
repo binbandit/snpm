@@ -2,10 +2,13 @@ mod dirs;
 mod env;
 
 use super::rc::{
-    read_allow_scripts_from_env, read_min_package_age_from_env,
-    read_min_package_cache_age_from_env, read_registry_config,
+    read_allow_scripts_from_env, read_disable_global_virtual_store_for_packages_from_env,
+    read_min_package_age_from_env, read_min_package_cache_age_from_env, read_registry_config,
 };
-use super::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+use super::{
+    AuthScheme, HoistingMode, LinkBackend, SnpmConfig,
+    default_disable_global_virtual_store_for_packages,
+};
 
 use dirs::resolve_home_dirs;
 use env::{apply_auth_env, apply_default_registry_env, apply_install_env, read_logging_env};
@@ -28,6 +31,9 @@ impl SnpmConfig {
         let mut hoisting = runtime_config
             .hoisting
             .unwrap_or(HoistingMode::SingleVersion);
+        let mut disable_global_virtual_store_for_packages = runtime_config
+            .disable_global_virtual_store_for_packages
+            .unwrap_or_else(default_disable_global_virtual_store_for_packages);
         let mut link_backend = LinkBackend::Auto;
         let mut strict_peers = false;
         let mut frozen_lockfile_default = false;
@@ -48,6 +54,9 @@ impl SnpmConfig {
             &mut registry_concurrency,
             &mut always_auth,
         );
+        if let Some(packages) = read_disable_global_virtual_store_for_packages_from_env() {
+            disable_global_virtual_store_for_packages = packages;
+        }
 
         let (verbose, log_file) = read_logging_env();
 
@@ -55,6 +64,7 @@ impl SnpmConfig {
             cache_dir,
             data_dir,
             allow_scripts,
+            disable_global_virtual_store_for_packages,
             min_package_age_days,
             min_package_cache_age_days,
             default_registry,

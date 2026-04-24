@@ -326,6 +326,7 @@ mod tests {
             cache_dir: data_dir.join("cache"),
             data_dir,
             allow_scripts: BTreeSet::new(),
+            disable_global_virtual_store_for_packages: BTreeSet::new(),
             min_package_age_days: None,
             min_package_cache_age_days: None,
             default_registry: "https://registry.npmjs.org".to_string(),

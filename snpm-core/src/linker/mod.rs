@@ -17,7 +17,10 @@ use hoist::{effective_hoisting, hoist_packages};
 use root::{link_root_bins, link_root_dependencies};
 use selection::filter_root_dependencies;
 use virtual_store::populate_virtual_store;
-pub(crate) use virtual_store::{link_virtual_dependencies, populate_shared_virtual_store};
+pub(crate) use virtual_store::{
+    link_virtual_dependencies, local_global_virtual_store_package_ids,
+    log_locally_materialized_packages, populate_shared_virtual_store_for_packages,
+};
 
 pub fn link(
     config: &SnpmConfig,
@@ -39,8 +42,14 @@ pub fn link(
         source,
     })?;
 
-    let virtual_store_paths =
-        populate_virtual_store(&virtual_store_dir, graph, store_paths, config, workspace)?;
+    let virtual_store_paths = populate_virtual_store(
+        &virtual_store_dir,
+        graph,
+        store_paths,
+        config,
+        workspace,
+        project,
+    )?;
 
     link_virtual_dependencies(virtual_store_paths.as_ref(), graph)?;
 

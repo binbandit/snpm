@@ -48,15 +48,32 @@ pub fn read_allow_scripts_from_env() -> BTreeSet<String> {
     let mut allowed = BTreeSet::new();
 
     if let Ok(value) = env::var("SNPM_ALLOW_SCRIPTS") {
-        for part in value.split(',') {
-            let name = part.trim();
-            if !name.is_empty() {
-                allowed.insert(name.to_string());
-            }
-        }
+        allowed = parse_package_name_list(&value);
     }
 
     allowed
+}
+
+pub fn read_disable_global_virtual_store_for_packages_from_env() -> Option<BTreeSet<String>> {
+    env::var("NPM_CONFIG_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES")
+        .or_else(|_| env::var("npm_config_disable_global_virtual_store_for_packages"))
+        .or_else(|_| env::var("SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES"))
+        .ok()
+        .map(|value| parse_package_name_list(&value))
+}
+
+pub fn parse_package_name_list(value: &str) -> BTreeSet<String> {
+    let mut trimmed = value.trim();
+    if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        trimmed = &trimmed[1..trimmed.len() - 1];
+    }
+
+    trimmed
+        .split(',')
+        .map(|part| part.trim().trim_matches(['"', '\'']))
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn read_min_package_age_from_env() -> Option<u32> {
@@ -149,5 +166,18 @@ mod tests {
     #[test]
     fn expand_env_vars_bare_dollar() {
         assert_eq!(expand_env_vars("cost is $"), "cost is $");
+    }
+
+    #[test]
+    fn parse_package_name_list_accepts_comma_and_array_forms() {
+        assert_eq!(
+            parse_package_name_list(r#"next, "vite", 'parcel'"#),
+            BTreeSet::from(["next".to_string(), "parcel".to_string(), "vite".to_string()])
+        );
+        assert_eq!(
+            parse_package_name_list(r#"["next", "vite"]"#),
+            BTreeSet::from(["next".to_string(), "vite".to_string()])
+        );
+        assert!(parse_package_name_list("[]").is_empty());
     }
 }

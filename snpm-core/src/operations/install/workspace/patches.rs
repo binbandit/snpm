@@ -16,9 +16,8 @@ pub(super) fn apply_workspace_patches(
     for project in &workspace.projects {
         for (name, version, patch_path) in patch_ops::get_patches_to_apply(project)? {
             let safe_name = name.replace('/', "+");
-            let package_dir = project
+            let package_dir = workspace
                 .root
-                .join("node_modules")
                 .join(".snpm")
                 .join(format!("{}@{}", safe_name, version))
                 .join("node_modules")

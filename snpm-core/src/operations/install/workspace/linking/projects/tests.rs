@@ -37,6 +37,7 @@ fn collect_workspace_protocol_deps_filters_correctly() {
             catalogs: BTreeMap::new(),
             only_built_dependencies: Vec::new(),
             ignored_built_dependencies: Vec::new(),
+            disable_global_virtual_store_for_packages: None,
             hoisting: None,
         },
     };
@@ -110,6 +111,7 @@ fn collect_workspace_protocol_deps_includes_semver_matched_local_packages() {
             catalogs: BTreeMap::new(),
             only_built_dependencies: Vec::new(),
             ignored_built_dependencies: Vec::new(),
+            disable_global_virtual_store_for_packages: None,
             hoisting: None,
         },
     };

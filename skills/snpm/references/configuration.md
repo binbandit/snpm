@@ -35,6 +35,7 @@ Derived directories under data dir: `packages/`, `metadata/`, `global/`, `bin/`.
 | `SNPM_STRICT_PEERS` | `false` | `true`/`1`/`yes`/`y`/`on` |
 | `SNPM_FROZEN_LOCKFILE` | `false` | `true`/`1`/`yes`/`y`/`on` |
 | `SNPM_REGISTRY_CONCURRENCY` | `64` | Any integer > 0 |
+| `SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES` | `next,nuxt,vite,vitepress,parcel` | Comma-separated packages to force into the project-local virtual store |
 
 ### Security
 
@@ -184,6 +185,12 @@ Only written when `include_dev = true` (not with `--production`).
 Package store: `<data_dir>/packages/<name_slug>/<version>/`
 - Scoped names: `/` becomes `_` (e.g., `@babel/core` → `@babel_core`)
 - `.snpm_complete` marker indicates successful extraction
+
+Shared virtual store: `<data_dir>/virtual-store/`
+- Project `.snpm` entries usually symlink into this shared store for fast warm installs.
+- Shared entries are keyed by package version plus resolved dependency closure.
+- Patched packages, script-allowed packages, directory-backed `file:` packages, and packages that depend on project-local entries stay local to the project `.snpm` store.
+- Packages listed in `SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES` or `disable-global-virtual-store-for-packages` also stay project-local for resolver walk-up compatibility.
 
 ## Hoisting modes
 

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.4.23] - 2026-04-23
+## [2026.4.24] - 2026-04-24
 
 ### <!-- 0 -->🚀 Features
 
@@ -108,6 +108,8 @@ All notable changes to this project will be documented in this file.
 - Complete install state snapshot support ([cc3494d](https://github.com/binbandit/snpm/commit/cc3494d3ab036ba5350323ac827b6a9c280b1fb2))
 - *(snpm-core)* Preserve copy backend semantics ([9c45cdf](https://github.com/binbandit/snpm/commit/9c45cdfad405c14fe11e18d3e842042bcac520f4))
 - *(core)* Detect stale package layouts during install ([2c29be7](https://github.com/binbandit/snpm/commit/2c29be7d3ccd4b7d98cb5017298799ab1bee0d9b))
+- Localize unsafe virtual store packages ([f2a93d1](https://github.com/binbandit/snpm/commit/f2a93d1fc4a1e2f8f6da06e5ef95ee94b0e3a513))
+- Bound store materialization concurrency ([36e40b2](https://github.com/binbandit/snpm/commit/36e40b29608ce174cd2f2f04975de0b1bdceb451))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -146,6 +148,7 @@ All notable changes to this project will be documented in this file.
 - *(agents)* Refresh command and lifecycle guidance ([52c8982](https://github.com/binbandit/snpm/commit/52c898272d43e3b1101ef567f93b35e3d3933607))
 - Refresh AGENTS.md for current snpm implementation ([c09ea49](https://github.com/binbandit/snpm/commit/c09ea494de7eccb86caee3f367a5a41875d20ed0))
 - *(skills)* Document lockfile mode flags ([8075f85](https://github.com/binbandit/snpm/commit/8075f85a5be2d2cbddd44679c07d755dfc790511))
+- Refresh readme current state ([51af3f7](https://github.com/binbandit/snpm/commit/51af3f700f26a5d53ca57976e583e14b18bc3121))
 
 ### <!-- 4 -->⚡ Performance
 
@@ -360,7 +363,10 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.4.21 release [skip ci] ([a12f365](https://github.com/binbandit/snpm/commit/a12f365c9d6c7f4cd18b9b0c590d9e5889eff589))
 - *(release)* Bump version to 2026.4.22 [skip ci] ([d286dd0](https://github.com/binbandit/snpm/commit/d286dd077ddc7e70c49d5c99b2af5a9628313be8))
 - *(release)* Merge 2026.4.22 release [skip ci] ([1f511a6](https://github.com/binbandit/snpm/commit/1f511a6c6bb411e2138b831cd46d207e8b050522))
-- *(release)* Bump version to 2026.4.23 [skip ci] ([e078008](https://github.com/binbandit/snpm/commit/e0780083c8d9493468e5dd855e773fe990ee074c))
+- *(release)* Bump version to 2026.4.23 [skip ci] ([93fd78b](https://github.com/binbandit/snpm/commit/93fd78bbdf66172696217a5e365b9c20f92c3178))
+- *(release)* Merge 2026.4.23 release [skip ci] ([0bee9d2](https://github.com/binbandit/snpm/commit/0bee9d2c9294f709108959880e52aa575b617fd8))
+- *(release)* Bump version to 2026.4.23 [skip ci] ([90d2402](https://github.com/binbandit/snpm/commit/90d24027a59920f3dacec81337fb7b6c13b930e4))
+- *(release)* Bump version to 2026.4.24 [skip ci] ([d6d1f56](https://github.com/binbandit/snpm/commit/d6d1f567159228019fce80a4434f2d777147a084))
 
 ## [2025.12.24] - 2025-12-24
 

@@ -36,6 +36,8 @@ jobs:
       - name: Determine release necessity
         id: compute
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -44,7 +46,10 @@ jobs:
           TODAY_PATTERN="$(printf '%s' "$TODAY" | sed 's/\./\\./g')"
           echo "Evaluating release for ${TODAY}"
 
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          LAST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+          if [[ -z "$LAST_TAG" ]]; then
+            LAST_TAG=$(git tag --list '20*' --sort=-creatordate | head -n 1 || true)
+          fi
           
           if [[ -z "$LAST_TAG" ]]; then
             echo "No previous releases found. Creating initial release."

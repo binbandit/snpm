@@ -1,6 +1,9 @@
 name: Daily Release
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '30 7 * * *'  # 5:30 PM AEST (7:30 AM UTC)
   workflow_dispatch:
@@ -38,7 +41,8 @@ jobs:
 
           TZ_REGION="Australia/Brisbane"
           TODAY=$(TZ="$TZ_REGION" date '+%Y.%-m.%-d')
-          echo "Evaluating release for ${TODAY} (5:30 PM AEST schedule)"
+          TODAY_PATTERN="$(printf '%s' "$TODAY" | sed 's/\./\\./g')"
+          echo "Evaluating release for ${TODAY}"
 
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
@@ -62,15 +66,37 @@ jobs:
              exit 0
           fi
 
-          if [[ "$LAST_TAG" == "$TODAY" ]]; then
-            echo "A release for ${TODAY} already exists. Skipping to enforce daily cadence."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          VERSION="$TODAY"
+          NEXT_SAME_DAY_RELEASE=0
+          HAS_TODAY_RELEASE=false
+
+          while IFS= read -r TAG; do
+            CLEAN_TAG="${TAG#v}"
+
+            if [[ "$CLEAN_TAG" == "$TODAY" ]]; then
+              HAS_TODAY_RELEASE=true
+              if (( NEXT_SAME_DAY_RELEASE < 1 )); then
+                NEXT_SAME_DAY_RELEASE=1
+              fi
+              continue
+            fi
+
+            if [[ "$CLEAN_TAG" =~ ^${TODAY_PATTERN}-r\.([0-9]+)$ ]]; then
+              HAS_TODAY_RELEASE=true
+              RELEASE_NUMBER="${BASH_REMATCH[1]}"
+              if (( RELEASE_NUMBER >= NEXT_SAME_DAY_RELEASE )); then
+                NEXT_SAME_DAY_RELEASE=$((RELEASE_NUMBER + 1))
+              fi
+            fi
+          done < <(git tag --list | grep -E "^v?${TODAY_PATTERN}(-r\.[0-9]+)?$" || true)
+
+          if [[ "$HAS_TODAY_RELEASE" == "true" ]]; then
+            VERSION="${TODAY}-r.${NEXT_SAME_DAY_RELEASE}"
           fi
 
           echo "New commits found since ${LAST_TAG}. Creating release."
-          echo "Computed daily release version: ${TODAY}"
-          echo "version=${TODAY}" >> "$GITHUB_OUTPUT"
+          echo "Computed release version: ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "should_release=true" >> "$GITHUB_OUTPUT"
 
   run-release-workflow:

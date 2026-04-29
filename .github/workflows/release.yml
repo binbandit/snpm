@@ -103,6 +103,9 @@ jobs:
           # Update snpm-cli version
           sed -i "s/^version[[:space:]]*=[[:space:]]*\".*\"/version = \"${VERSION_NO_V}\"/" snpm-cli/Cargo.toml
 
+          # Keep the npm installer wrapper in lockstep with the released binaries.
+          npm --prefix npm-package pkg set "version=${VERSION_NO_V}"
+
           # Update Cargo.lock to reflect the version change
           cargo update --workspace
 
@@ -114,8 +117,8 @@ jobs:
 
           RELEASE_BRANCH="release-${VERSION_NO_V}"
 
-          if ! git diff --quiet snpm-cli/Cargo.toml Cargo.lock; then
-            git add snpm-cli/Cargo.toml Cargo.lock
+          if ! git diff --quiet snpm-cli/Cargo.toml Cargo.lock npm-package/package.json; then
+            git add snpm-cli/Cargo.toml Cargo.lock npm-package/package.json
             git commit -m "chore(release): bump version to ${VERSION_NO_V} [skip ci]"
             
             if [ "${DRY_RUN}" != "true" ]; then
@@ -353,7 +356,7 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "is_prerelease=false" >> $GITHUB_OUTPUT
-          elif [[ "$VERSION" =~ ^v?[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+          elif [[ "$VERSION" =~ ^v?[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(-r\.[0-9]+)?$ ]]; then
             echo "is_prerelease=false" >> $GITHUB_OUTPUT
           else
             echo "is_prerelease=true" >> $GITHUB_OUTPUT

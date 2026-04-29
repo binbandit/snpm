@@ -1,0 +1,108 @@
+name: Publish npm Package
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - npm-package/**
+      - .github/workflows/npm-publish.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish npm Package
+    if: github.repository == 'binbandit/snpm'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: npm-package
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      - name: Read package metadata
+        id: package
+        run: |
+          set -euo pipefail
+
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+          echo "name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check npm publish state
+        id: published
+        env:
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is already published."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} has not been published yet."
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify matching GitHub release assets
+        if: steps.published.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t release_assets < <(gh release view "${PACKAGE_VERSION}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')
+
+          required_assets=(
+            snpm-linux-amd64.tar.gz
+            snpm-linux-arm64.tar.gz
+            snpm-macos-amd64.tar.gz
+            snpm-macos-arm64.tar.gz
+            snpm-windows-amd64.zip
+            snpm-windows-arm64.zip
+            snpm-switch-linux-amd64.tar.gz
+            snpm-switch-linux-arm64.tar.gz
+            snpm-switch-macos-amd64.tar.gz
+            snpm-switch-macos-arm64.tar.gz
+            snpm-switch-windows-amd64.zip
+            snpm-switch-windows-arm64.zip
+          )
+
+          missing=0
+          for asset in "${required_assets[@]}"; do
+            if ! printf '%s\n' "${release_assets[@]}" | grep -Fxq "$asset"; then
+              echo "Missing GitHub release asset: $asset"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "Refusing to publish npm package before all installer assets exist."
+            exit 1
+          fi
+
+      - name: Validate package contents
+        if: steps.published.outputs.should_publish == 'true'
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        if: steps.published.outputs.should_publish == 'true'
+        run: npm publish --access public --tag latest

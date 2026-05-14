@@ -37,22 +37,28 @@ impl WorkspacesField {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
     pub name: Option<String>,
     pub version: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_boolish")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_manager: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_boolish",
+        skip_serializing_if = "is_false"
+    )]
     pub private: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dependencies: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dev_dependencies: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub optional_dependencies: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub scripts: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resolutions: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<String>>,
@@ -60,12 +66,14 @@ pub struct Manifest {
     pub bin: Option<BinField>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pnpm: Option<ManifestPnpm>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snpm: Option<ManifestSnpm>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspaces: Option<WorkspacesField>,
+    #[serde(default, flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -142,4 +150,8 @@ where
             ))),
         },
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }

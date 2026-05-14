@@ -1,4 +1,4 @@
-use super::Manifest;
+use super::{Manifest, format_manifest};
 use crate::{Result, SnpmError};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,12 +55,7 @@ impl Project {
     }
 
     pub fn write_manifest(&self, manifest: &Manifest) -> Result<()> {
-        let mut data =
-            serde_json::to_string_pretty(manifest).map_err(|error| SnpmError::SerializeJson {
-                path: self.manifest_path.clone(),
-                reason: error.to_string(),
-            })?;
-        data.push('\n');
+        let data = format_manifest(manifest, &self.manifest_path)?;
 
         fs::write(&self.manifest_path, data).map_err(|source| SnpmError::WriteFile {
             path: self.manifest_path.clone(),

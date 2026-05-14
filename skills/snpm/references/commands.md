@@ -360,6 +360,8 @@ Create a new package.json.
 snpm init
 ```
 
+The generated manifest includes a normalized package name, `1.0.0` version, a `packageManager` pin for the current `snpm` version, and well-known package.json field ordering.
+
 ## clean
 
 Remove cached packages and metadata.

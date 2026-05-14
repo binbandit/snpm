@@ -553,18 +553,7 @@ mod tests {
             manifest: Manifest {
                 name: Some("my-project".to_string()),
                 version: None,
-                private: false,
-                dependencies: BTreeMap::new(),
-                dev_dependencies: BTreeMap::new(),
-                optional_dependencies: BTreeMap::new(),
-                scripts: BTreeMap::new(),
-                resolutions: BTreeMap::new(),
-                files: None,
-                bin: None,
-                main: None,
-                pnpm: None,
-                snpm: None,
-                workspaces: None,
+                ..Manifest::default()
             },
         };
 
@@ -580,18 +569,7 @@ mod tests {
             manifest: Manifest {
                 name: None,
                 version: None,
-                private: false,
-                dependencies: BTreeMap::new(),
-                dev_dependencies: BTreeMap::new(),
-                optional_dependencies: BTreeMap::new(),
-                scripts: BTreeMap::new(),
-                resolutions: BTreeMap::new(),
-                files: None,
-                bin: None,
-                main: None,
-                pnpm: None,
-                snpm: None,
-                workspaces: None,
+                ..Manifest::default()
             },
         };
 
@@ -621,18 +599,8 @@ mod tests {
                     manifest: Manifest {
                         name: Some("api".to_string()),
                         version: None,
-                        private: false,
                         dependencies: BTreeMap::from([("lib".to_string(), "1".to_string())]),
-                        dev_dependencies: BTreeMap::new(),
-                        optional_dependencies: BTreeMap::new(),
-                        scripts: BTreeMap::new(),
-                        resolutions: BTreeMap::new(),
-                        files: None,
-                        bin: None,
-                        main: None,
-                        pnpm: None,
-                        snpm: None,
-                        workspaces: None,
+                        ..Manifest::default()
                     },
                 },
                 Project {
@@ -641,18 +609,7 @@ mod tests {
                     manifest: Manifest {
                         name: Some("lib".to_string()),
                         version: None,
-                        private: false,
-                        dependencies: BTreeMap::new(),
-                        dev_dependencies: BTreeMap::new(),
-                        optional_dependencies: BTreeMap::new(),
-                        scripts: BTreeMap::new(),
-                        resolutions: BTreeMap::new(),
-                        files: None,
-                        bin: None,
-                        main: None,
-                        pnpm: None,
-                        snpm: None,
-                        workspaces: None,
+                        ..Manifest::default()
                     },
                 },
             ],

@@ -11,18 +11,7 @@ fn make_workspace_with_project(name: &str, version: Option<&str>) -> Workspace {
         manifest: Manifest {
             name: Some(name.to_string()),
             version: version.map(str::to_string),
-            private: false,
-            dependencies: BTreeMap::new(),
-            dev_dependencies: BTreeMap::new(),
-            optional_dependencies: BTreeMap::new(),
-            scripts: BTreeMap::new(),
-            resolutions: BTreeMap::new(),
-            files: None,
-            bin: None,
-            main: None,
-            pnpm: None,
-            snpm: None,
-            workspaces: None,
+            ..Manifest::default()
         },
     };
 

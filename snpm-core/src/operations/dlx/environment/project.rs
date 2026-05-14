@@ -8,18 +8,8 @@ pub(super) fn temporary_project(temp_path: &Path, root_deps: BTreeMap<String, St
     let manifest = Manifest {
         name: Some("dlx-project".to_string()),
         version: Some("0.0.0".to_string()),
-        private: false,
         dependencies: root_deps,
-        dev_dependencies: BTreeMap::new(),
-        optional_dependencies: BTreeMap::new(),
-        scripts: BTreeMap::new(),
-        resolutions: BTreeMap::new(),
-        files: None,
-        bin: None,
-        main: None,
-        pnpm: None,
-        snpm: None,
-        workspaces: None,
+        ..Manifest::default()
     };
 
     Project {

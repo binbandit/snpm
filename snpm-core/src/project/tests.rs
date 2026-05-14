@@ -130,3 +130,73 @@ fn project_write_manifest_roundtrip() {
     let reloaded = Project::from_manifest_path(project.manifest_path).unwrap();
     assert_eq!(reloaded.manifest.name.as_deref(), Some("modified"));
 }
+
+#[test]
+fn project_write_manifest_preserves_unknown_fields() {
+    let dir = tempdir().unwrap();
+    let manifest_path = dir.path().join("package.json");
+    std::fs::write(
+        &manifest_path,
+        r#"{ "name": "app", "type": "module", "license": "MIT" }"#,
+    )
+    .unwrap();
+
+    let project = Project::from_manifest_path(manifest_path).unwrap();
+
+    let mut modified = project.manifest.clone();
+    modified.version = Some("1.0.0".to_string());
+    project.write_manifest(&modified).unwrap();
+
+    let data = std::fs::read_to_string(project.manifest_path).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&data).unwrap();
+    assert_eq!(value["type"], "module");
+    assert_eq!(value["license"], "MIT");
+    assert!(value.get("dependencies").is_none());
+    assert!(value.get("pnpm").is_none());
+}
+
+#[test]
+fn project_write_manifest_uses_package_json_field_order() {
+    let dir = tempdir().unwrap();
+    let manifest_path = dir.path().join("package.json");
+    std::fs::write(
+        &manifest_path,
+        r#"{
+            "packageManager": "snpm@2026.4.29",
+            "dependencies": { "z": "1", "a": "1" },
+            "license": "MIT",
+            "name": "app",
+            "type": "module",
+            "alpha": true,
+            "scripts": { "test": "vitest" },
+            "version": "1.0.0",
+            "zebra": true
+        }"#,
+    )
+    .unwrap();
+
+    let project = Project::from_manifest_path(manifest_path).unwrap();
+    project.write_manifest(&project.manifest).unwrap();
+
+    let data = std::fs::read_to_string(project.manifest_path).unwrap();
+    assert_eq!(
+        data,
+        r#"{
+  "name": "app",
+  "version": "1.0.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "vitest"
+  },
+  "dependencies": {
+    "a": "1",
+    "z": "1"
+  },
+  "packageManager": "snpm@2026.4.29",
+  "alpha": true,
+  "zebra": true
+}
+"#
+    );
+}

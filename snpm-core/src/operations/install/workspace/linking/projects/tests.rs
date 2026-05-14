@@ -14,18 +14,7 @@ fn collect_workspace_protocol_deps_filters_correctly() {
         manifest: Manifest {
             name: Some("lib-a".to_string()),
             version: Some("1.2.3".to_string()),
-            private: false,
-            dependencies: BTreeMap::new(),
-            dev_dependencies: BTreeMap::new(),
-            optional_dependencies: BTreeMap::new(),
-            scripts: BTreeMap::new(),
-            resolutions: BTreeMap::new(),
-            files: None,
-            bin: None,
-            main: None,
-            pnpm: None,
-            snpm: None,
-            workspaces: None,
+            ..Manifest::default()
         },
     };
     let workspace = Workspace {
@@ -47,7 +36,6 @@ fn collect_workspace_protocol_deps_filters_correctly() {
         manifest: Manifest {
             name: Some("test".to_string()),
             version: None,
-            private: false,
             dependencies: BTreeMap::from([
                 ("lib-a".to_string(), "workspace:*".to_string()),
                 ("lodash".to_string(), "^4.0.0".to_string()),
@@ -60,14 +48,7 @@ fn collect_workspace_protocol_deps_filters_correctly() {
                 "lib-c".to_string(),
                 "workspace:~".to_string(),
             )]),
-            scripts: BTreeMap::new(),
-            resolutions: BTreeMap::new(),
-            files: None,
-            bin: None,
-            main: None,
-            pnpm: None,
-            snpm: None,
-            workspaces: None,
+            ..Manifest::default()
         },
     };
 
@@ -88,18 +69,7 @@ fn collect_workspace_protocol_deps_includes_semver_matched_local_packages() {
         manifest: Manifest {
             name: Some("shared".to_string()),
             version: Some("1.0.0".to_string()),
-            private: false,
-            dependencies: BTreeMap::new(),
-            dev_dependencies: BTreeMap::new(),
-            optional_dependencies: BTreeMap::new(),
-            scripts: BTreeMap::new(),
-            resolutions: BTreeMap::new(),
-            files: None,
-            bin: None,
-            main: None,
-            pnpm: None,
-            snpm: None,
-            workspaces: None,
+            ..Manifest::default()
         },
     };
     let workspace = Workspace {
@@ -121,18 +91,8 @@ fn collect_workspace_protocol_deps_includes_semver_matched_local_packages() {
         manifest: Manifest {
             name: Some("app".to_string()),
             version: Some("1.0.0".to_string()),
-            private: false,
             dependencies: BTreeMap::from([("shared".to_string(), "^1.0.0".to_string())]),
-            dev_dependencies: BTreeMap::new(),
-            optional_dependencies: BTreeMap::new(),
-            scripts: BTreeMap::new(),
-            resolutions: BTreeMap::new(),
-            files: None,
-            bin: None,
-            main: None,
-            pnpm: None,
-            snpm: None,
-            workspaces: None,
+            ..Manifest::default()
         },
     };
 

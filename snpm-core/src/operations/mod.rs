@@ -29,7 +29,7 @@ pub use clean::{
 };
 pub use dlx::{dlx, dlx_with_offline};
 pub use global::{install_global, remove_global};
-pub use init::init;
+pub use init::{InitOptions, init, init_with_options};
 pub use install::{
     InstallOptions, InstallResult, OutdatedEntry, install, install_workspace, outdated, remove,
     upgrade,

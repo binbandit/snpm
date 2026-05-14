@@ -34,7 +34,7 @@ pub use install::{
     InstallOptions, InstallResult, OutdatedEntry, install, install_workspace, outdated, remove,
     upgrade,
 };
-pub use lazy::{is_stale, lazy_install};
+pub use lazy::{is_stale, is_stale_with_config, lazy_install};
 pub use licenses::{LicenseEntry, collect_licenses};
 pub use link::{link_global, link_local, unlink_global, unlink_local};
 pub use pack::{

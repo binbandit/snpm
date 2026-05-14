@@ -27,6 +27,7 @@ serde_yaml = "0.9.34"
 async-recursion = "1.1"
 futures = "0.3"
 glob = "0.3"
+libc = "0.2"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 snpm-semver = { path = "../snpm-semver" }
 tokio = { workspace = true, features = ["full"] }

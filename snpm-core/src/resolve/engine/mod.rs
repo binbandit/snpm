@@ -37,7 +37,8 @@ where
     F: FnMut(ResolvedPackage) -> Fut + Send,
     Fut: std::future::Future<Output = Result<()>> + Send,
 {
-    let state = ResolverState::new(config.registry_concurrency);
+    let registry_concurrency = crate::store::registry_task_concurrency(config);
+    let state = ResolverState::new(registry_concurrency);
     let (prefetch_tx, prefetch_rx) = mpsc::unbounded_channel();
     let (metadata_prefetch_tx, metadata_prefetch_rx) = mpsc::unbounded_channel();
 
@@ -118,7 +119,7 @@ async fn run_metadata_prefetcher(
     offline_mode: OfflineMode,
     mut rx: mpsc::UnboundedReceiver<RegistryPrefetchRequest>,
 ) -> Result<()> {
-    let concurrency = config.registry_concurrency.max(1);
+    let concurrency = crate::store::registry_task_concurrency(&config);
     let mut tasks = JoinSet::new();
     let mut open = true;
 

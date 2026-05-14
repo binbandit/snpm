@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use crate::operations::install::utils::{
     InstallOptions, InstallScenario, IntegrityState, ScenarioResult, detect_install_scenario,
-    materialize_missing_packages,
+    load_graph_snapshot, materialize_missing_packages,
 };
 
 pub(super) struct ResolvedInstall {
@@ -37,13 +37,7 @@ pub(super) async fn resolve_install_state(
         plan.root_dependencies.clone()
     };
 
-    let explicit_lockfile_seed = if matches!(options.frozen_lockfile, FrozenLockfileMode::Fix) {
-        read_lockfile_for_fix(plan, config)
-            .map(|lockfile| lockfile::to_graph(&lockfile))
-            .ok()
-    } else {
-        None
-    };
+    let explicit_lockfile_seed = explicit_lockfile_seed(config, project, plan, options);
 
     let scenario_result = if options.include_dev
         && plan.additions.is_empty()
@@ -214,6 +208,46 @@ fn pinned_root_dependencies_for_fix(
     Ok(root_dependencies)
 }
 
+fn explicit_lockfile_seed(
+    config: &SnpmConfig,
+    project: &Project,
+    plan: &ProjectInstallPlan,
+    options: &InstallOptions,
+) -> Option<ResolutionGraph> {
+    if matches!(options.frozen_lockfile, FrozenLockfileMode::Fix) {
+        return read_lockfile_for_fix(plan, config)
+            .map(|lockfile| lockfile::to_graph(&lockfile))
+            .ok();
+    }
+
+    if plan.additions.is_empty() || matches!(options.frozen_lockfile, FrozenLockfileMode::No) {
+        return None;
+    }
+
+    read_existing_graph_seed(config, project, plan)
+}
+
+fn read_existing_graph_seed(
+    config: &SnpmConfig,
+    project: &Project,
+    plan: &ProjectInstallPlan,
+) -> Option<ResolutionGraph> {
+    if plan.lockfile_path.is_file() {
+        if let Some(snapshot) = load_graph_snapshot(&project.root, &plan.lockfile_path) {
+            return Some(snapshot.graph);
+        }
+
+        return lockfile::read(&plan.lockfile_path)
+            .map(|lockfile| lockfile::to_graph(&lockfile))
+            .ok();
+    }
+
+    let source = plan.compatible_lockfile.as_ref()?;
+    lockfile::read_compatible_lockfile(source, config)
+        .map(|lockfile| lockfile::to_graph(&lockfile))
+        .ok()
+}
+
 fn read_lockfile_for_fix(
     plan: &ProjectInstallPlan,
     config: &SnpmConfig,
@@ -247,14 +281,22 @@ fn require_cache<T>(cache_check: Option<T>, message: &str) -> Result<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectInstallPlan, pinned_root_dependencies_for_fix, read_lockfile_for_fix};
+    use super::{
+        ProjectInstallPlan, explicit_lockfile_seed, pinned_root_dependencies_for_fix,
+        read_lockfile_for_fix,
+    };
+    use crate::Project;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
     use crate::lockfile::{LockRoot, LockRootDependency, Lockfile};
     use crate::operations::install::manifest::RootSpecSet;
+    use crate::operations::install::utils::{FrozenLockfileMode, InstallOptions};
+    use crate::project::Manifest;
     use serde_yaml;
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::Path;
     use tempfile::tempdir;
+
+    type LockfileDep<'a> = (&'a str, (&'a str, Option<&'a str>, bool));
 
     fn make_config() -> SnpmConfig {
         SnpmConfig {
@@ -278,6 +320,44 @@ mod tests {
             registry_concurrency: 64,
             verbose: false,
             log_file: None,
+        }
+    }
+
+    fn make_project(root: std::path::PathBuf) -> Project {
+        Project {
+            manifest_path: root.join("package.json"),
+            root,
+            manifest: Manifest {
+                name: Some("app".to_string()),
+                version: Some("1.0.0".to_string()),
+                private: false,
+                dependencies: BTreeMap::new(),
+                dev_dependencies: BTreeMap::new(),
+                optional_dependencies: BTreeMap::new(),
+                scripts: BTreeMap::new(),
+                resolutions: BTreeMap::new(),
+                files: None,
+                bin: None,
+                main: None,
+                pnpm: None,
+                snpm: None,
+                workspaces: None,
+            },
+        }
+    }
+
+    fn make_install_options(
+        requested: Vec<String>,
+        frozen_lockfile: FrozenLockfileMode,
+    ) -> InstallOptions {
+        InstallOptions {
+            requested,
+            dev: false,
+            include_dev: true,
+            frozen_lockfile,
+            strict_no_lockfile: false,
+            force: false,
+            silent_summary: false,
         }
     }
 
@@ -308,7 +388,7 @@ mod tests {
         }
     }
 
-    fn write_lockfile(path: &std::path::Path, deps: Vec<(&str, (&str, Option<&str>, bool))>) {
+    fn write_lockfile(path: &std::path::Path, deps: Vec<LockfileDep<'_>>) {
         let lockfile = Lockfile {
             version: 1,
             root: LockRoot {
@@ -416,6 +496,56 @@ mod tests {
             loaded.root.dependencies["left"].requested,
             "^1.0.0".to_string()
         );
+    }
+
+    #[test]
+    fn explicit_lockfile_seed_reuses_existing_graph_for_additions() {
+        let dir = tempdir().unwrap();
+        write_lockfile(dir.path(), vec![("left", ("^1.0.0", Some("1.2.3"), false))]);
+        let config = make_config();
+        let project = make_project(dir.path().to_path_buf());
+        let mut plan = make_plan(
+            dir.path().join("snpm-lock.yaml"),
+            BTreeMap::from([("left".to_string(), "^1.0.0".to_string())]),
+            BTreeMap::new(),
+        );
+        plan.additions
+            .insert("right".to_string(), "^2.0.0".to_string());
+        plan.root_dependencies
+            .insert("right".to_string(), "^2.0.0".to_string());
+        let options =
+            make_install_options(vec!["right@^2.0.0".to_string()], FrozenLockfileMode::Prefer);
+
+        let graph = explicit_lockfile_seed(&config, &project, &plan, &options).unwrap();
+
+        assert_eq!(
+            graph
+                .root
+                .dependencies
+                .get("left")
+                .map(|dep| dep.resolved.version.as_str()),
+            Some("1.2.3")
+        );
+        assert!(!graph.root.dependencies.contains_key("right"));
+    }
+
+    #[test]
+    fn explicit_lockfile_seed_respects_disabled_lockfile_mode() {
+        let dir = tempdir().unwrap();
+        write_lockfile(dir.path(), vec![("left", ("^1.0.0", Some("1.2.3"), false))]);
+        let config = make_config();
+        let project = make_project(dir.path().to_path_buf());
+        let mut plan = make_plan(
+            dir.path().join("snpm-lock.yaml"),
+            BTreeMap::from([("left".to_string(), "^1.0.0".to_string())]),
+            BTreeMap::new(),
+        );
+        plan.additions
+            .insert("right".to_string(), "^2.0.0".to_string());
+        let options =
+            make_install_options(vec!["right@^2.0.0".to_string()], FrozenLockfileMode::No);
+
+        assert!(explicit_lockfile_seed(&config, &project, &plan, &options).is_none());
     }
 
     #[test]

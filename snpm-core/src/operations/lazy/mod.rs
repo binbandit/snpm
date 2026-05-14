@@ -52,8 +52,12 @@ pub async fn lazy_install_with_mode(
 
 pub fn is_stale(project: &Project) -> bool {
     let config = SnpmConfig::from_env();
+    is_stale_with_config(&config, project)
+}
+
+pub fn is_stale_with_config(config: &SnpmConfig, project: &Project) -> bool {
     let workspace = Workspace::discover(&project.root).unwrap_or_default();
-    check_staleness(&config, project, workspace.as_ref()).is_stale
+    check_staleness(config, project, workspace.as_ref()).is_stale
 }
 
 fn reason_message(reason: Option<&StalenessReason>) -> &'static str {

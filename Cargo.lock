@@ -1978,6 +1978,7 @@ dependencies = [
  "futures",
  "glob",
  "hex",
+ "libc",
  "rayon",
  "reflink-copy",
  "reqwest",

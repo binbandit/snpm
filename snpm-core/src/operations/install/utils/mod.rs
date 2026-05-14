@@ -11,8 +11,8 @@ pub(crate) use graph_snapshot::load_graph_snapshot;
 #[cfg(test)]
 pub(crate) use graph_snapshot::write_graph_snapshot;
 pub(crate) use install_state::{
-    load_project_install_state, load_workspace_install_state, write_project_install_state,
-    write_workspace_install_state,
+    load_project_install_state, load_project_install_state_fast, load_workspace_install_state,
+    load_workspace_install_state_fast, write_project_install_state, write_workspace_install_state,
 };
 pub use integrity::*;
 pub(crate) use layout_state::{check_project_layout_state, check_workspace_layout_state};

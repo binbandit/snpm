@@ -47,7 +47,7 @@ pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
 
         if !args.skip_install
             && let Some(first_project) = workspace.projects.first()
-            && operations::is_stale(first_project)
+            && operations::is_stale_with_config(config, first_project)
         {
             let mut project_clone = first_project.clone();
             lazy_install_with_mode(
@@ -63,7 +63,7 @@ pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
     } else {
         let mut project = Project::discover(&cwd)?;
 
-        if !args.skip_install && operations::is_stale(&project) {
+        if !args.skip_install && operations::is_stale_with_config(config, &project) {
             lazy_install_with_mode(
                 config,
                 &mut project,

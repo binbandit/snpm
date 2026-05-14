@@ -232,7 +232,7 @@ mod tests {
     use super::{TarballSource, download_and_verify_tarball};
     use crate::SnpmError;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
-    use crate::store::limits::download_semaphore;
+    use crate::store::limits::{download_concurrency, download_semaphore};
 
     use base64::Engine;
     use flate2::Compression;
@@ -387,7 +387,10 @@ mod tests {
     async fn download_waits_for_permit_before_creating_temp_file() {
         let dir = tempdir().unwrap();
         let config = make_config(dir.path().to_path_buf());
-        let permits = download_semaphore().acquire_many(64).await.unwrap();
+        let permits = download_semaphore()
+            .acquire_many(download_concurrency() as u32)
+            .await
+            .unwrap();
         let client = reqwest::Client::new();
         let download =
             download_and_verify_tarball(&config, "http://127.0.0.1:9/pkg.tgz", None, &client);

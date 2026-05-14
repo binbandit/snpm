@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.4.29] - 2026-04-29
+## [2026.5.15] - 2026-05-14
 
 ### <!-- 0 -->🚀 Features
 
@@ -172,6 +172,7 @@ All notable changes to this project will be documented in this file.
 - *(snpm-core)* Add bun-style package import fallbacks ([722dcc9](https://github.com/binbandit/snpm/commit/722dcc908af4207a4ad8fcf3855ea2a68a6322fe))
 - Speed up cold extraction ([39d8fbf](https://github.com/binbandit/snpm/commit/39d8fbf6b78feb2fe69d8a16d5212df202da0a89))
 - *(core)* Prefetch registry metadata during resolution ([23505a1](https://github.com/binbandit/snpm/commit/23505a1dd0f14ac8a30cf24ae883df21ea983652))
+- *(core)* Speed lazy install staleness checks ([470f323](https://github.com/binbandit/snpm/commit/470f323dd0eaee4b1b47194e3e8ebfa32d8850f8))
 
 ### <!-- 5 -->🎨 Styling
 
@@ -376,7 +377,11 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.4.27 release [skip ci] ([2fc0e04](https://github.com/binbandit/snpm/commit/2fc0e049885f6d81f34e04507cee58db98d204cd))
 - *(release)* Bump version to 2026.4.28 [skip ci] ([f895321](https://github.com/binbandit/snpm/commit/f8953216bc50eeb0fdf21f1c4bf5b3f51ea06649))
 - *(release)* Merge 2026.4.28 release [skip ci] ([c105dec](https://github.com/binbandit/snpm/commit/c105decbf3677d74c970cfaba2dabff0ba7fef02))
-- *(release)* Bump version to 2026.4.29 [skip ci] ([b16e9ad](https://github.com/binbandit/snpm/commit/b16e9ad13801a2ae649e5adc927ba40689be30c7))
+- *(release)* Bump version to 2026.4.29 [skip ci] ([5f041bc](https://github.com/binbandit/snpm/commit/5f041bcbd7f2c6e01f6254c02bf6fcbd7c94cb1e))
+- *(release)* Merge 2026.4.29 release [skip ci] ([153e0f2](https://github.com/binbandit/snpm/commit/153e0f20280a797583cf2acecd32e65c7f928439))
+- Publish npm package from trusted workflow ([6d3601c](https://github.com/binbandit/snpm/commit/6d3601c1a6505040b62d2320a648201473ed1dd9))
+- Use GitHub release tag for release checks ([c684754](https://github.com/binbandit/snpm/commit/c6847545a2789a09e022526472bc9a6eeef653e4))
+- *(release)* Bump version to 2026.5.15 [skip ci] ([1d47c05](https://github.com/binbandit/snpm/commit/1d47c05eee5ebce2d2811b566d6ee6659848181d))
 
 ## [2025.12.24] - 2025-12-24
 

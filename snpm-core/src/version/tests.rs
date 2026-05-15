@@ -1,6 +1,8 @@
 use super::*;
 use crate::registry::{RegistryPackage, RegistryVersion};
 use snpm_semver::Version;
+use time::format_description::well_known::Rfc3339;
+use time::{Duration, OffsetDateTime};
 
 #[test]
 fn parses_and_matches_simple_range() {
@@ -79,6 +81,29 @@ fn make_package_with_versions(versions: &[&str]) -> RegistryPackage {
     }
 }
 
+fn rfc3339_days_ago(days: i64) -> String {
+    (OffsetDateTime::now_utc() - Duration::days(days))
+        .format(&Rfc3339)
+        .unwrap()
+}
+
+fn make_package_with_version_ages(versions: &[(&str, i64)]) -> RegistryPackage {
+    let mut package = make_package_with_versions(
+        &versions
+            .iter()
+            .map(|(version, _)| *version)
+            .collect::<Vec<_>>(),
+    );
+
+    for (version, age_days) in versions {
+        package
+            .time
+            .insert((*version).to_string(), rfc3339_days_ago(*age_days));
+    }
+
+    package
+}
+
 #[test]
 fn selects_highest_matching_version() {
     let package = make_package_with_versions(&["1.0.0", "1.1.0", "1.2.0", "2.0.0"]);
@@ -105,6 +130,46 @@ fn selects_latest_dist_tag() {
     let package = make_package_with_versions(&["1.0.0", "2.0.0"]);
     let result = select_version("pkg", "latest", &package, None, false).unwrap();
     assert_eq!(result.version, "2.0.0");
+}
+
+#[test]
+fn min_package_age_skips_young_matching_versions() {
+    let package = make_package_with_version_ages(&[("1.0.0", 30), ("1.1.0", 1)]);
+    let result = select_version("pkg", "^1.0.0", &package, Some(7), false).unwrap();
+    assert_eq!(result.version, "1.0.0");
+}
+
+#[test]
+fn min_package_age_rejects_young_dist_tag() {
+    let package = make_package_with_version_ages(&[("1.0.0", 1)]);
+    let result = select_version("pkg", "latest", &package, Some(7), false);
+    assert!(result.is_err());
+}
+
+#[test]
+fn min_package_age_reports_latest_young_matching_version() {
+    let package = make_package_with_version_ages(&[("1.0.0", 3), ("1.1.0", 1)]);
+    let result = select_version("pkg", "^1.0.0", &package, Some(7), false);
+    match result.unwrap_err() {
+        crate::SnpmError::ResolutionFailed { reason, .. } => {
+            assert!(reason.contains("1.1.0"), "{reason}");
+        }
+        error => panic!("expected resolution failure, got {error:?}"),
+    }
+}
+
+#[test]
+fn force_bypasses_min_package_age() {
+    let package = make_package_with_version_ages(&[("1.0.0", 1)]);
+    let result = select_version("pkg", "latest", &package, Some(7), true).unwrap();
+    assert_eq!(result.version, "1.0.0");
+}
+
+#[test]
+fn min_package_age_is_tolerant_of_missing_time_metadata() {
+    let package = make_package_with_versions(&["1.0.0"]);
+    let result = select_version("pkg", "latest", &package, Some(7), false).unwrap();
+    assert_eq!(result.version, "1.0.0");
 }
 
 #[test]

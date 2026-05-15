@@ -84,6 +84,31 @@ fn save_and_load_metadata_roundtrip() {
 }
 
 #[test]
+fn min_package_age_cache_requires_publish_time_metadata() {
+    let dir = tempdir().unwrap();
+    let mut config = make_config(dir.path().to_path_buf());
+    config.min_package_age_days = Some(7);
+    let package = make_package();
+
+    save_metadata(&config, "test-pkg", &package).unwrap();
+
+    let loaded = load_metadata_with_offline(&config, "test-pkg", OfflineMode::PreferOffline);
+    assert!(loaded.is_none());
+
+    let mut package_with_time = package;
+    package_with_time
+        .time
+        .insert("1.0.0".to_string(), "2026-01-01T00:00:00Z".to_string());
+    let dir = tempdir().unwrap();
+    let mut config = make_config(dir.path().to_path_buf());
+    config.min_package_age_days = Some(7);
+    save_metadata(&config, "test-pkg", &package_with_time).unwrap();
+
+    let loaded = load_metadata_with_offline(&config, "test-pkg", OfflineMode::PreferOffline);
+    assert!(loaded.is_some());
+}
+
+#[test]
 fn save_metadata_with_headers_roundtrip() {
     let dir = tempdir().unwrap();
     let config = make_config(dir.path().to_path_buf());

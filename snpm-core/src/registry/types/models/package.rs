@@ -8,7 +8,7 @@ use super::RegistryVersion;
 pub struct RegistryPackage {
     pub versions: BTreeMap<String, RegistryVersion>,
     #[serde(default)]
-    pub time: BTreeMap<String, serde_json::Value>,
+    pub time: BTreeMap<String, String>,
     #[serde(default, rename = "dist-tags")]
     pub dist_tags: BTreeMap<String, String>,
 }

@@ -40,12 +40,14 @@ pub async fn fetch_package_with_offline(
 
     let mut request = client.get(&url);
 
-    request = request.header(
-        ACCEPT,
+    let accept = if config.min_package_age_days.is_some() {
+        HeaderValue::from_static("application/json; q=1.0, */*")
+    } else {
         HeaderValue::from_static(
             "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
-        ),
-    );
+        )
+    };
+    request = request.header(ACCEPT, accept);
 
     if let Some(header_value) = config.authorization_header_for_url(&url) {
         request = request.header("authorization", header_value);

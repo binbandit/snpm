@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use super::super::utils::{
     InstallScenario, check_store_cache, materialize_missing_packages, materialize_store,
+    validate_graph_min_package_age,
 };
 use super::plan::WorkspaceInstallPlan;
 use super::resolution::resolve_workspace_deps;
@@ -27,6 +28,10 @@ pub(super) async fn load_workspace_graph(
     include_dev: bool,
     force: bool,
 ) -> Result<WorkspaceGraphLoad> {
+    if let Some(graph) = plan.scenario_graph.as_ref() {
+        validate_graph_min_package_age(config, registry_client, graph, force).await?;
+    }
+
     let mut workspace_graph = match plan.scenario {
         InstallScenario::Hot => load_hot_graph(plan),
         InstallScenario::WarmLinkOnly => load_warm_link_graph(config, plan),

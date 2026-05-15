@@ -41,7 +41,7 @@ pub fn select_version(
     let ranges = parse_range_set(name, range)?;
     let mut selected: Option<(Version, RegistryVersion)> = None;
     let now = OffsetDateTime::now_utc();
-    let mut youngest_rejected: Option<(String, i64)> = None;
+    let mut latest_rejected: Option<(Version, String, i64)> = None;
 
     for (version_str, meta) in package.versions.iter() {
         let parsed = parse_version(version_str);
@@ -55,8 +55,9 @@ pub fn select_version(
                 && let Some(age_days) = version_age_days(package, version_str, now)
                 && age_days < min_days as i64
             {
-                if youngest_rejected.is_none() {
-                    youngest_rejected = Some((version_str.clone(), age_days));
+                match &latest_rejected {
+                    Some((latest, _, _)) if ver <= *latest => {}
+                    _ => latest_rejected = Some((ver, version_str.clone(), age_days)),
                 }
                 continue;
             }
@@ -73,7 +74,7 @@ pub fn select_version(
     } else {
         if let Some(min_days) = min_age_days
             && !force
-            && let Some((ver_str, age_days)) = youngest_rejected
+            && let Some((_, ver_str, age_days)) = latest_rejected
         {
             return Err(SnpmError::ResolutionFailed {
                 name: name.to_string(),
@@ -92,9 +93,12 @@ pub fn select_version(
     }
 }
 
-fn version_age_days(package: &RegistryPackage, version: &str, now: OffsetDateTime) -> Option<i64> {
-    let time_val = package.time.get(version)?;
-    let time_str = time_val.as_str()?;
+pub(crate) fn version_age_days(
+    package: &RegistryPackage,
+    version: &str,
+    now: OffsetDateTime,
+) -> Option<i64> {
+    let time_str = package.time.get(version)?;
     let published = OffsetDateTime::parse(time_str, &Rfc3339).ok()?;
     let age = now - published;
     Some(age.whole_days())

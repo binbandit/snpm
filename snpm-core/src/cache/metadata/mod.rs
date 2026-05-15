@@ -24,12 +24,14 @@ pub fn load_metadata_with_offline(
         && let Some(package) = record.package
     {
         let fresh = is_fresh(config, record.updated_at_unix_secs);
-        if fresh
+        let has_required_age_metadata =
+            config.min_package_age_days.is_none() || !package.time.is_empty();
+        let usable_for_mode = fresh
             || matches!(
                 offline_mode,
                 OfflineMode::PreferOffline | OfflineMode::Offline
-            )
-        {
+            );
+        if usable_for_mode && has_required_age_metadata {
             log_cache_hit(name, &record.cache_path, fresh);
             return Some(package);
         }

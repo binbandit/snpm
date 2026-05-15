@@ -1,3 +1,4 @@
+mod age_policy;
 mod graph_snapshot;
 mod install_state;
 mod integrity;
@@ -7,6 +8,7 @@ mod script_policy;
 mod store;
 mod types;
 
+pub(crate) use age_policy::validate_graph_min_package_age;
 pub(crate) use graph_snapshot::load_graph_snapshot;
 #[cfg(test)]
 pub(crate) use graph_snapshot::write_graph_snapshot;

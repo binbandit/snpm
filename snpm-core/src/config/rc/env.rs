@@ -1,3 +1,4 @@
+use super::super::env_vars::{ConfigEnvPrefix, read_config_env};
 use std::collections::BTreeSet;
 use std::env;
 
@@ -13,13 +14,12 @@ pub fn expand_env_vars(text: &str) -> String {
             continue;
         }
 
-        if index + 1 < bytes.len()
-            && bytes[index + 1] == b'{'
-            && let Some(end) = text[index + 2..].find('}')
-        {
-            let name = &text[index + 2..index + 2 + end];
-            expanded.push_str(&env::var(name).unwrap_or_default());
-            index += end + 3;
+        if let Some((end, name, fallback)) = braced_env_reference(text, index) {
+            match env::var(name).ok().filter(|value| !value.is_empty()) {
+                Some(value) => expanded.push_str(&value),
+                None => expanded.push_str(fallback.unwrap_or_default()),
+            }
+            index = end + 1;
             continue;
         }
 
@@ -44,6 +44,25 @@ pub fn expand_env_vars(text: &str) -> String {
     expanded
 }
 
+fn braced_env_reference(text: &str, start: usize) -> Option<(usize, &str, Option<&str>)> {
+    let bytes = text.as_bytes();
+    if bytes.get(start)? != &b'$' || bytes.get(start + 1)? != &b'{' {
+        return None;
+    }
+
+    let end = text[start + 2..].find('}')? + start + 2;
+    let body = &text[start + 2..end];
+    if body.is_empty() {
+        return None;
+    }
+
+    if let Some(separator) = body.find(":-") {
+        Some((end, &body[..separator], Some(&body[separator + 2..])))
+    } else {
+        Some((end, body, None))
+    }
+}
+
 pub fn read_allow_scripts_from_env() -> BTreeSet<String> {
     let mut allowed = BTreeSet::new();
 
@@ -55,10 +74,18 @@ pub fn read_allow_scripts_from_env() -> BTreeSet<String> {
 }
 
 pub fn read_disable_global_virtual_store_for_packages_from_env() -> Option<BTreeSet<String>> {
-    env::var("NPM_CONFIG_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES")
-        .or_else(|_| env::var("npm_config_disable_global_virtual_store_for_packages"))
-        .or_else(|_| env::var("SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES"))
+    env::var("SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES")
         .ok()
+        .or_else(|| {
+            read_config_env(
+                "disable_global_virtual_store_for_packages",
+                &[
+                    ConfigEnvPrefix::Snpm,
+                    ConfigEnvPrefix::Pnpm,
+                    ConfigEnvPrefix::Npm,
+                ],
+            )
+        })
         .map(|value| parse_package_name_list(&value))
 }
 
@@ -159,6 +186,21 @@ mod tests {
     }
 
     #[test]
+    fn expand_env_vars_braced_default_for_missing_and_empty_vars() {
+        let _lock = env_lock();
+        let _missing = EnvVarGuard::set("SNPM_MISSING_WITH_DEFAULT", None);
+        let _empty = EnvVarGuard::set("SNPM_EMPTY_WITH_DEFAULT", Some(""));
+        assert_eq!(
+            expand_env_vars("${SNPM_MISSING_WITH_DEFAULT:-fallback}"),
+            "fallback"
+        );
+        assert_eq!(
+            expand_env_vars("${SNPM_EMPTY_WITH_DEFAULT:-fallback}"),
+            "fallback"
+        );
+    }
+
+    #[test]
     fn expand_env_vars_no_vars() {
         assert_eq!(expand_env_vars("no vars here"), "no vars here");
     }
@@ -179,5 +221,36 @@ mod tests {
             BTreeSet::from(["next".to_string(), "vite".to_string()])
         );
         assert!(parse_package_name_list("[]").is_empty());
+    }
+
+    #[test]
+    fn read_disable_global_virtual_store_accepts_pnpm_config_alias() {
+        let _lock = env_lock();
+        let _guards = [
+            EnvVarGuard::set("SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES", None),
+            EnvVarGuard::set(
+                "snpm_config_disable_global_virtual_store_for_packages",
+                None,
+            ),
+            EnvVarGuard::set(
+                "SNPM_CONFIG_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES",
+                None,
+            ),
+            EnvVarGuard::set(
+                "pnpm_config_disable_global_virtual_store_for_packages",
+                None,
+            ),
+            EnvVarGuard::set(
+                "PNPM_CONFIG_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES",
+                Some("vite,next"),
+            ),
+            EnvVarGuard::set("npm_config_disable_global_virtual_store_for_packages", None),
+            EnvVarGuard::set("NPM_CONFIG_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES", None),
+        ];
+
+        assert_eq!(
+            read_disable_global_virtual_store_for_packages_from_env(),
+            Some(BTreeSet::from(["next".to_string(), "vite".to_string()]))
+        );
     }
 }

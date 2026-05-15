@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use crate::operations::install::utils::{
     InstallOptions, InstallScenario, IntegrityState, ScenarioResult, detect_install_scenario,
-    load_graph_snapshot, materialize_missing_packages,
+    load_graph_snapshot, materialize_missing_packages, validate_graph_min_package_age,
 };
 
 pub(super) struct ResolvedInstall {
@@ -69,6 +69,13 @@ pub(super) async fn resolve_install_state(
     } = scenario_result;
     let mut store_paths = BTreeMap::new();
     let mut wrote_lockfile = false;
+
+    if let Some(seed_graph) = explicit_lockfile_seed.as_ref() {
+        validate_graph_min_package_age(config, registry_client, seed_graph, options.force).await?;
+    }
+    if let Some(graph) = graph.as_ref() {
+        validate_graph_min_package_age(config, registry_client, graph, options.force).await?;
+    }
 
     let graph = match scenario {
         InstallScenario::Hot => require_graph(graph, "Hot")?,

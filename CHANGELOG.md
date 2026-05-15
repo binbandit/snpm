@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.5.16] - 2026-05-15
+## [2026.5.16-r.1] - 2026-05-15
 
 ### <!-- 0 -->🚀 Features
 
@@ -112,6 +112,7 @@ All notable changes to this project will be documented in this file.
 - *(core)* Detect stale package layouts during install ([2c29be7](https://github.com/binbandit/snpm/commit/2c29be7d3ccd4b7d98cb5017298799ab1bee0d9b))
 - Localize unsafe virtual store packages ([f2a93d1](https://github.com/binbandit/snpm/commit/f2a93d1fc4a1e2f8f6da06e5ef95ee94b0e3a513))
 - Bound store materialization concurrency ([36e40b2](https://github.com/binbandit/snpm/commit/36e40b29608ce174cd2f2f04975de0b1bdceb451))
+- *(core)* Honor libc platform constraints ([d6a7dbf](https://github.com/binbandit/snpm/commit/d6a7dbf8f6882e68087578c1a870b9a06f35756c))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -385,7 +386,9 @@ All notable changes to this project will be documented in this file.
 - Use GitHub release tag for release checks ([c684754](https://github.com/binbandit/snpm/commit/c6847545a2789a09e022526472bc9a6eeef653e4))
 - *(release)* Bump version to 2026.5.15 [skip ci] ([2db0238](https://github.com/binbandit/snpm/commit/2db0238bdc89f03f71d6312224be9c7fa89a45de))
 - *(release)* Merge 2026.5.15 release [skip ci] ([382bfad](https://github.com/binbandit/snpm/commit/382bfad7fdee8b2217bae24ced242b995f4f8a02))
-- *(release)* Bump version to 2026.5.16 [skip ci] ([2fb665f](https://github.com/binbandit/snpm/commit/2fb665f97c501d364daf7d02352df176b75ded6f))
+- *(release)* Bump version to 2026.5.16 [skip ci] ([dd1eb94](https://github.com/binbandit/snpm/commit/dd1eb94fc1d65625547728c69d3ffde9ebe758fd))
+- *(release)* Merge 2026.5.16 release [skip ci] ([58e09cc](https://github.com/binbandit/snpm/commit/58e09ccab4064467f262bd59c314c4a21b34bc1f))
+- *(release)* Bump version to 2026.5.16-r.1 [skip ci] ([5b80a47](https://github.com/binbandit/snpm/commit/5b80a47bf0972b489200e2557f543542efcb1f63))
 
 ## [2025.12.24] - 2025-12-24
 

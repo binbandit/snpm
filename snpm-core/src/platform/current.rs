@@ -15,3 +15,24 @@ pub fn current_cpu() -> &'static str {
         other => other,
     }
 }
+
+pub fn current_libc() -> &'static str {
+    if env::consts::OS != "linux" {
+        return "unknown";
+    }
+
+    #[cfg(target_env = "musl")]
+    {
+        "musl"
+    }
+
+    #[cfg(target_env = "gnu")]
+    {
+        "glibc"
+    }
+
+    #[cfg(not(any(target_env = "musl", target_env = "gnu")))]
+    {
+        "unknown"
+    }
+}

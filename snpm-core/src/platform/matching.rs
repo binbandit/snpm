@@ -1,4 +1,4 @@
-use super::{current_cpu, current_os};
+use super::{current_cpu, current_libc, current_os};
 
 pub fn matches_os(list: &[String]) -> bool {
     is_compatible(list, &[])
@@ -9,13 +9,24 @@ pub fn matches_cpu(list: &[String]) -> bool {
 }
 
 pub fn is_compatible(os: &[String], cpu: &[String]) -> bool {
+    is_compatible_with_libc(os, cpu, &[])
+}
+
+pub fn is_compatible_with_libc(os: &[String], cpu: &[String], libc: &[String]) -> bool {
     let current_os = current_os();
     let current_cpu = current_cpu();
+    let current_libc = current_libc();
 
-    check_platform_list(os, current_os) && check_platform_list(cpu, current_cpu)
+    check_platform_list(os, current_os)
+        && check_platform_list(cpu, current_cpu)
+        && (current_libc == "unknown" || check_platform_list(libc, current_libc))
 }
 
 pub(super) fn check_platform_list(list: &[String], current: &str) -> bool {
+    if list.len() == 1 && list[0] == "any" {
+        return true;
+    }
+
     if list.is_empty() {
         return true;
     }

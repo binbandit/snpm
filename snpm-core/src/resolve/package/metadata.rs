@@ -9,14 +9,18 @@ pub(super) fn ensure_platform_compatible(
     range: &str,
     version_meta: &RegistryVersion,
 ) -> Result<()> {
-    if crate::platform::is_compatible(&version_meta.os, &version_meta.cpu) {
+    if crate::platform::is_compatible_with_libc(
+        &version_meta.os,
+        &version_meta.cpu,
+        &version_meta.libc,
+    ) {
         return Ok(());
     }
 
     Err(SnpmError::ResolutionFailed {
         name: name.to_string(),
         range: range.to_string(),
-        reason: "package is not compatible with current OS/CPU".to_string(),
+        reason: "package is not compatible with current OS/CPU/libc".to_string(),
     })
 }
 

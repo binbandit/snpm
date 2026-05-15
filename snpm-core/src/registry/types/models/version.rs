@@ -32,6 +32,8 @@ pub struct RegistryVersion {
     #[serde(default)]
     pub cpu: Vec<String>,
     #[serde(default)]
+    pub libc: Vec<String>,
+    #[serde(default)]
     pub bin: Option<serde_json::Value>,
 }
 

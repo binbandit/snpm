@@ -51,6 +51,7 @@ fn make_package() -> RegistryPackage {
             },
             os: vec![],
             cpu: vec![],
+            libc: vec![],
             bin: None,
         },
     );
@@ -154,6 +155,7 @@ fn save_metadata_updates_existing_shard_entry_without_dropping_headers() {
             },
             os: Vec::new(),
             cpu: Vec::new(),
+            libc: Vec::new(),
             bin: None,
         },
     );

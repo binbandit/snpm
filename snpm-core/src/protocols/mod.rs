@@ -22,6 +22,7 @@ pub fn registry_version_from_manifest(manifest: Manifest, dist_url: &str) -> Reg
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: None,
     }
 }

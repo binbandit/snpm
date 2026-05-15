@@ -19,6 +19,7 @@ fn registry_version_has_bin_string() {
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: Some(serde_json::json!("./cli.js")),
     };
     assert!(version.has_bin());
@@ -40,6 +41,7 @@ fn registry_version_has_bin_null() {
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: Some(serde_json::json!(null)),
     };
     assert!(!version.has_bin());
@@ -61,6 +63,7 @@ fn registry_version_has_bin_none() {
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: None,
     };
     assert!(!version.has_bin());
@@ -82,6 +85,7 @@ fn registry_version_get_bundled_prefers_bundled_dependencies() {
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: None,
     };
     let bundled = version.get_bundled_dependencies().unwrap();
@@ -107,6 +111,7 @@ fn registry_version_get_bundled_falls_back_to_bundle() {
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: None,
     };
     let bundled = version.get_bundled_dependencies().unwrap();

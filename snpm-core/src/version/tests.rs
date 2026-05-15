@@ -28,6 +28,7 @@ fn selects_custom_dist_tag() {
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: None,
     };
     versions.insert("1.0.0".to_string(), version_meta);
@@ -61,6 +62,7 @@ fn make_version(ver: &str) -> RegistryVersion {
         },
         os: vec![],
         cpu: vec![],
+        libc: vec![],
         bin: None,
     }
 }

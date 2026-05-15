@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.5.15] - 2026-05-14
+## [2026.5.16] - 2026-05-15
 
 ### <!-- 0 -->🚀 Features
 
@@ -49,6 +49,8 @@ All notable changes to this project will be documented in this file.
 - *(lockfile)* Import yarn lockfiles ([70c7066](https://github.com/binbandit/snpm/commit/70c7066689254ce0fb91cf15ed07dbc2c680025c))
 - Add workspace filters and frozen cli controls ([f9a42df](https://github.com/binbandit/snpm/commit/f9a42df4ee18c7ac94ee992b265d256eac71592e))
 - *(core)* Cache packuments and verified tarballs ([0023f8f](https://github.com/binbandit/snpm/commit/0023f8f08e7d82c4a225a8111a881e24832e4e0b))
+- Improve snpm init package manifest ([5a66871](https://github.com/binbandit/snpm/commit/5a668716e293f4134ae8ff7f37ad76a0961008b0))
+- *(core)* Harden package age enforcement ([255b199](https://github.com/binbandit/snpm/commit/255b1999a001604472f797356e7eb1d2cd1c14f8))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -381,7 +383,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.4.29 release [skip ci] ([153e0f2](https://github.com/binbandit/snpm/commit/153e0f20280a797583cf2acecd32e65c7f928439))
 - Publish npm package from trusted workflow ([6d3601c](https://github.com/binbandit/snpm/commit/6d3601c1a6505040b62d2320a648201473ed1dd9))
 - Use GitHub release tag for release checks ([c684754](https://github.com/binbandit/snpm/commit/c6847545a2789a09e022526472bc9a6eeef653e4))
-- *(release)* Bump version to 2026.5.15 [skip ci] ([1d47c05](https://github.com/binbandit/snpm/commit/1d47c05eee5ebce2d2811b566d6ee6659848181d))
+- *(release)* Bump version to 2026.5.15 [skip ci] ([2db0238](https://github.com/binbandit/snpm/commit/2db0238bdc89f03f71d6312224be9c7fa89a45de))
+- *(release)* Merge 2026.5.15 release [skip ci] ([382bfad](https://github.com/binbandit/snpm/commit/382bfad7fdee8b2217bae24ced242b995f4f8a02))
+- *(release)* Bump version to 2026.5.16 [skip ci] ([2fb665f](https://github.com/binbandit/snpm/commit/2fb665f97c501d364daf7d02352df176b75ded6f))
 
 ## [2025.12.24] - 2025-12-24
 

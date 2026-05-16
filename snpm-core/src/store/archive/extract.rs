@@ -24,7 +24,7 @@ pub(crate) fn unpack_tarball_file(pkg_dir: &Path, tarball_path: &Path) -> Result
     unpack_tarball_reader(pkg_dir, file)
 }
 
-fn unpack_tarball_reader<R: Read>(pkg_dir: &Path, reader: R) -> Result<()> {
+pub(crate) fn unpack_tarball_reader<R: Read>(pkg_dir: &Path, reader: R) -> Result<()> {
     let decoder = GzDecoder::new(reader);
     let mut archive = Archive::new(decoder);
 

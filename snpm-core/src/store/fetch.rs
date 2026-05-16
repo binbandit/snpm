@@ -1,10 +1,13 @@
 use crate::{Result, SnpmConfig, SnpmError};
 use futures::StreamExt;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tempfile::{Builder, TempPath};
 use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc;
 
+use super::archive::{unpack_tarball_file, unpack_tarball_reader};
 use super::integrity::{IntegrityCacheKey, IntegritySpec};
 use super::limits::download_semaphore;
 
@@ -36,12 +39,16 @@ impl DownloadedTarball {
     }
 }
 
-pub(super) async fn download_and_verify_tarball(
+/// Materialize a tarball into `target_dir`, downloading and extracting concurrently
+/// on the cache-miss path. On cache hit, falls back to reading the cached blob
+/// from disk and extracting it. `target_dir` must already be prepared (empty).
+pub(super) async fn download_and_extract(
     config: &SnpmConfig,
     package_name: &str,
     url: &str,
     integrity: Option<&str>,
     client: &reqwest::Client,
+    target_dir: &Path,
 ) -> Result<DownloadedTarball> {
     let integrity_spec = IntegritySpec::parse(integrity);
     let blob_cache_paths = cached_blob_paths(config, url, integrity_spec.as_ref())?;
@@ -53,6 +60,13 @@ pub(super) async fn download_and_verify_tarball(
                 source,
             })?
             .len();
+        let cached = cached_path.clone();
+        let target = target_dir.to_path_buf();
+        tokio::task::spawn_blocking(move || unpack_tarball_file(&target, &cached))
+            .await
+            .map_err(|error| SnpmError::StoreTask {
+                reason: error.to_string(),
+            })??;
         return Ok(DownloadedTarball {
             path: cached_path.clone(),
             size_bytes,
@@ -81,9 +95,9 @@ pub(super) async fn download_and_verify_tarball(
             path: file_path.clone(),
             source,
         })?;
+
     let mut verifier = integrity_spec.as_ref().map(IntegritySpec::verifier);
     let mut request = client.get(url);
-
     if let Some(header_value) = config.authorization_header_for_tarball(package_name, url) {
         request = request.header("authorization", header_value);
     }
@@ -101,15 +115,31 @@ pub(super) async fn download_and_verify_tarball(
             source,
         })?;
 
+    // Bounded channel so the network task applies backpressure when the
+    // extractor falls behind (and vice versa). 8 chunks ≈ ~64KB–1MB of in-flight
+    // buffer depending on chunk size — small enough to keep memory bounded,
+    // large enough to absorb network jitter.
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(8);
+    let target = target_dir.to_path_buf();
+    let extract_task = tokio::task::spawn_blocking(move || -> Result<()> {
+        let reader = ChannelReader::new(rx);
+        unpack_tarball_reader(&target, reader)
+    });
+
     let mut body_stream = response.bytes_stream();
     let mut size_bytes = 0_u64;
-
+    let mut stream_failed: Option<SnpmError> = None;
     while let Some(chunk_result) = body_stream.next().await {
-        let chunk = chunk_result.map_err(|source| SnpmError::Http {
-            url: url.to_string(),
-            source,
-        })?;
-
+        let chunk = match chunk_result {
+            Ok(chunk) => chunk,
+            Err(source) => {
+                stream_failed = Some(SnpmError::Http {
+                    url: url.to_string(),
+                    source,
+                });
+                break;
+            }
+        };
         if let Some(verifier) = verifier.as_mut() {
             verifier.update(&chunk);
         }
@@ -120,13 +150,28 @@ pub(super) async fn download_and_verify_tarball(
                 source,
             })?;
         size_bytes += chunk.len() as u64;
+        if tx.send(chunk.to_vec()).await.is_err() {
+            // Extractor dropped its receiver, almost certainly because it
+            // returned an error. Stop pulling from the network and surface the
+            // extractor's error below.
+            break;
+        }
     }
+    drop(tx);
 
     file.flush().await.map_err(|source| SnpmError::WriteFile {
         path: file_path.clone(),
         source,
     })?;
     drop(file);
+
+    let extract_outcome = extract_task.await.map_err(|error| SnpmError::StoreTask {
+        reason: error.to_string(),
+    })?;
+    extract_outcome?;
+    if let Some(error) = stream_failed {
+        return Err(error);
+    }
 
     let matched_cache_key = verifier
         .map(|verifier| verifier.finish(url))
@@ -188,6 +233,44 @@ pub(super) async fn download_and_verify_tarball(
     })
 }
 
+struct ChannelReader {
+    rx: mpsc::Receiver<Vec<u8>>,
+    current: Vec<u8>,
+    offset: usize,
+}
+
+impl ChannelReader {
+    fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
+        Self {
+            rx,
+            current: Vec::new(),
+            offset: 0,
+        }
+    }
+}
+
+impl Read for ChannelReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        while self.offset >= self.current.len() {
+            match self.rx.blocking_recv() {
+                Some(chunk) => {
+                    self.current = chunk;
+                    self.offset = 0;
+                }
+                None => return Ok(0),
+            }
+        }
+        let available = &self.current[self.offset..];
+        let take = available.len().min(buf.len());
+        buf[..take].copy_from_slice(&available[..take]);
+        self.offset += take;
+        Ok(take)
+    }
+}
+
 fn cached_blob_paths(
     config: &SnpmConfig,
     url: &str,
@@ -230,7 +313,7 @@ fn create_temp_path(parent: &Path) -> Result<TempPath> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TarballSource, download_and_verify_tarball};
+    use super::{TarballSource, download_and_extract};
     use crate::SnpmError;
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
     use crate::store::limits::{download_concurrency, download_semaphore};
@@ -352,6 +435,12 @@ mod tests {
             .any(|line| line.to_ascii_lowercase().starts_with("authorization:"))
     }
 
+    fn prepare_target_dir(root: &std::path::Path) -> PathBuf {
+        let target = root.join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        target
+    }
+
     #[tokio::test]
     async fn download_and_reuse_verified_blob_cache() {
         let dir = tempdir().unwrap();
@@ -365,9 +454,17 @@ mod tests {
         let (url, server) = spawn_tarball_server(tarball.clone(), request_count.clone()).await;
         let client = reqwest::Client::new();
 
-        let first = download_and_verify_tarball(&config, "pkg", &url, Some(&integrity), &client)
-            .await
-            .unwrap();
+        let target_first = prepare_target_dir(dir.path());
+        let first = download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some(&integrity),
+            &client,
+            &target_first,
+        )
+        .await
+        .unwrap();
         let expected_path = config
             .tarball_blob_cache_dir()
             .join("sha512")
@@ -377,13 +474,47 @@ mod tests {
         assert_eq!(first.path(), expected_path.as_path());
         assert_eq!(first.size_bytes(), tarball.len() as u64);
         assert!(expected_path.is_file());
+        assert!(target_first.join("package/package.json").is_file());
 
-        let second = download_and_verify_tarball(&config, "pkg", &url, Some(&integrity), &client)
-            .await
-            .unwrap();
+        let target_second = dir.path().join("target-second");
+        std::fs::create_dir_all(&target_second).unwrap();
+        let second = download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some(&integrity),
+            &client,
+            &target_second,
+        )
+        .await
+        .unwrap();
         assert_eq!(second.source(), TarballSource::BlobCache);
         assert_eq!(second.path(), expected_path.as_path());
         assert_eq!(request_count.load(Ordering::SeqCst), 1);
+        assert!(target_second.join("package/package.json").is_file());
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn streaming_extract_matches_unpacked_tree_on_cache_miss() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let tarball = build_tarball();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (url, server) = spawn_tarball_server(tarball.clone(), request_count.clone()).await;
+        let client = reqwest::Client::new();
+
+        let target = prepare_target_dir(dir.path());
+        let result = download_and_extract(&config, "pkg", &url, None, &client, &target)
+            .await
+            .unwrap();
+
+        assert_eq!(result.source(), TarballSource::Downloaded);
+        assert_eq!(result.size_bytes(), tarball.len() as u64);
+
+        let extracted = std::fs::read_to_string(target.join("package/package.json")).unwrap();
+        assert_eq!(extracted, "{\"name\":\"pkg\",\"version\":\"1.0.0\"}");
 
         server.abort();
     }
@@ -402,7 +533,8 @@ mod tests {
             spawn_capturing_tarball_server(tarball, request_count).await;
         let client = reqwest::Client::new();
 
-        let _result = download_and_verify_tarball(&config, "pkg", &url, None, &client)
+        let target = prepare_target_dir(dir.path());
+        let _result = download_and_extract(&config, "pkg", &url, None, &client, &target)
             .await
             .unwrap();
 
@@ -436,7 +568,8 @@ mod tests {
         config.default_registry_auth_token = Some("legit-token".to_string());
 
         let client = reqwest::Client::new();
-        let _result = download_and_verify_tarball(&config, "pkg", &url, None, &client)
+        let target = prepare_target_dir(dir.path());
+        let _result = download_and_extract(&config, "pkg", &url, None, &client, &target)
             .await
             .unwrap();
 
@@ -459,8 +592,9 @@ mod tests {
         let (url, server) = spawn_tarball_server(tarball, request_count).await;
         let client = reqwest::Client::new();
 
+        let target = prepare_target_dir(dir.path());
         let error =
-            download_and_verify_tarball(&config, "pkg", &url, Some("sha512-invalid"), &client)
+            download_and_extract(&config, "pkg", &url, Some("sha512-invalid"), &client, &target)
                 .await
                 .unwrap_err();
 
@@ -479,12 +613,14 @@ mod tests {
             .await
             .unwrap();
         let client = reqwest::Client::new();
-        let download = download_and_verify_tarball(
+        let target = prepare_target_dir(dir.path());
+        let download = download_and_extract(
             &config,
             "pkg",
             "http://127.0.0.1:9/pkg.tgz",
             None,
             &client,
+            &target,
         );
         tokio::pin!(download);
 

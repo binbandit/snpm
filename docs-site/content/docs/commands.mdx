@@ -1,422 +1,551 @@
 ---
 title: Commands
-description: Complete guide to snpm commands
+description: Complete guide to every snpm command
 ---
 
-Complete reference for all snpm commands.
+This page covers every command exposed by the `snpm` CLI. For a terse flag/env-var matrix see [CLI Reference](/docs/cli-reference).
 
-## Global Flags
+## Global flags
 
-All commands support these global flags:
+These apply to any subcommand and can also be passed before the subcommand (`snpm --frozen-lockfile install`).
 
-- `-v, --verbose` - Enable verbose logging for debugging
+- `-v, --verbose` — verbose logging (also `SNPM_VERBOSE=1`).
+- `--frozen-lockfile` — fail if the lockfile is missing or out of date.
+- `--no-frozen-lockfile` — ignore the lockfile and re-resolve.
+- `--prefer-frozen-lockfile` — reuse the lockfile when valid, otherwise re-resolve.
 
-**Example:**
-```bash
-snpm install --verbose
-snpm add react --verbose
-```
+The lockfile flags propagate from the top-level call into any install-like subcommand (`install`, `add`, `remove`, `upgrade`, `run`, `exec`).
 
 ## install
-
-Install dependencies from `package.json`.
 
 ```bash
 snpm install [packages...]
 ```
 
-**Options:**
-- `--production` - Skip dev dependencies
-- `--frozen-lockfile` (alias: `--immutable`) - Fail if lockfile needs updates
-- `-f, --force` - Force re-download all packages
-- `-w, --workspace <name>` - Install in specific workspace project
+Install dependencies. With package arguments, behaves like `snpm add` for that list while still keeping the rest of the project in sync.
 
-**Examples:**
+**Flags**
+
+- `--production` — skip `devDependencies`.
+- `--frozen-lockfile` (alias `--immutable`) — fail if the lockfile is missing or stale.
+- `--no-frozen-lockfile` — ignore the lockfile and re-resolve.
+- `--prefer-frozen-lockfile` — reuse lockfile when valid, otherwise re-resolve.
+- `--fix-lockfile` — re-resolve drifted entries while preserving unchanged ones.
+- `-f, --force` — ignore cached state and force a full install.
+- `-w, --workspace <name>` — target a specific workspace project.
+
+**Examples**
 
 ```bash
-# Install all dependencies
 snpm install
-
-# Install specific packages
 snpm install react react-dom
-
-# Production install
-snpm install --production
-
-# CI install (strict lockfile)
-snpm install --frozen-lockfile
-
-# Install in workspace project
-snpm install -w ui
+snpm install --production --frozen-lockfile
+snpm install --fix-lockfile
+snpm install -w @acme/api
 ```
 
 ## add
-
-Add packages to your project.
 
 ```bash
 snpm add <packages...>
 ```
 
-**Options:**
-- `-D, --dev` - Add as dev dependency
-- `-g, --global` - Install globally
-- `-f, --force` - Force re-download
-- `-w, --workspace <name>` - Add to specific workspace project
+Add packages to `dependencies` (or `devDependencies` with `-D`).
 
-**Examples:**
+**Flags**
+
+- `-D, --dev` — save to `devDependencies`.
+- `-g, --global` — install globally.
+- `-f, --force` — ignore cached state.
+- `-w, --workspace <name>` — target a specific workspace project.
+- `-r, --recursive` — run in all workspace projects.
+- `--filter <selector>` — workspace filter (see [Workspaces](/docs/workspaces)).
+- `--filter-prod <selector>` — production-only filter.
+
+**Examples**
 
 ```bash
-# Add package
-snpm add react
-
-# Add specific version
-snpm add react@18.2.0
-
-# Add as dev dependency
-snpm add -D typescript
-
-# Add multiple packages
 snpm add react react-dom
-
-# Add to workspace project
-snpm add react -w ui
+snpm add -D typescript
+snpm add -g pnpm
+snpm add react -w @acme/web
+snpm add -r -D vitest
+snpm add zod --filter "@acme/api"
 ```
 
 ## remove
-
-Remove packages from your project.
 
 ```bash
 snpm remove <packages...>
 ```
 
-**Examples:**
+Remove packages from the manifest and `node_modules`.
+
+**Flags**
+
+- `-g, --global` — remove a globally installed package.
+- `-r, --recursive` — run in all workspace projects.
+- `--filter <selector>` — workspace filter.
+- `--filter-prod <selector>` — production-only filter.
+
+**Examples**
 
 ```bash
-# Remove package
-snpm remove react
-
-# Remove multiple packages
-snpm remove react react-dom
+snpm remove lodash
+snpm remove -g create-react-app
+snpm remove -r left-pad
 ```
 
 ## run
 
-Run a script from `package.json`.
-
 ```bash
-snpm run <script> [-- <args>]
+snpm run <script> [-- args...]
 ```
 
-**Options:**
-- `-r, --recursive` - Run in all workspace projects
-- `--filter <pattern>` - Run in filtered workspace projects (supports globs)
-- `--skip-install` - Skip automatic install check before running
+Run a `package.json` script. Unknown top-level subcommands fall through to `run` (`snpm build` → `snpm run build`).
 
-**Examples:**
+**Flags**
+
+- `-r, --recursive` — run in all workspace projects.
+- `--filter <selector>` — workspace filter.
+- `--filter-prod <selector>` — production-only filter.
+- `--skip-install` — skip the lazy install check that normally runs before scripts.
+
+A lazy install runs automatically when `node_modules` is stale; use `--skip-install` to bypass.
+
+**Examples**
 
 ```bash
-# Run script
 snpm run build
-
-# Pass arguments
 snpm run test -- --watch
-
-# Run in all workspaces
-snpm run build --recursive
-
-# Run in filtered workspaces
-snpm run test --filter "ui"
-snpm run build --filter "app-*"
-```
-
-## upgrade
-
-Update packages to their latest versions.
-
-```bash
-snpm upgrade [packages...]
-```
-
-**Options:**
-- `--production` - Only upgrade production dependencies
-- `-f, --force` - Force re-download
-
-**Examples:**
-
-```bash
-# Upgrade all packages
-snpm upgrade
-
-# Upgrade specific packages
-snpm upgrade react react-dom
-
-# Upgrade production only
-snpm upgrade --production
-```
-
-## outdated
-
-Check for outdated packages.
-
-```bash
-snpm outdated
-```
-
-**Options:**
-- `--production` - Only check production dependencies
-
-Shows a table of packages with newer versions available.
-
-## dlx
-
-Download and execute a package binary without installing it.
-
-```bash
-snpm dlx <package> [args...]
-```
-
-**Alias:** `spx` is available as a shorthand (e.g., `spx cowsay`).
-
-**Examples:**
-
-```bash
-# Run cowsay
-snpm dlx cowsay "Hello World"
-
-# Run specific version
-snpm dlx cowsay@latest "Hello World"
-
-# Construct specific commands
-snpm dlx create-react-app my-app
-
-# Use the spx alias
-spx cowsay "Moo"
-```
-
-## init
-
-Initialize a new `package.json`.
-
-```bash
-snpm init
-```
-
-Creates a clean `package.json` in the current directory with a normalized package name, `1.0.0` version, a `packageManager` pin for the current `snpm` version, and well-known package.json field ordering.
-
-## login
-
-Authenticate with an npm registry.
-
-```bash
-snpm login
-```
-
-**Options:**
-- `--registry <url>` - Registry URL (defaults to npmjs.org)
-- `--token <token>` - Auth token (prompts if not provided)
-- `--scope <scope>` - Associate scope with registry (e.g., @myorg)
-- `--web` - Use web-based authentication
-
-**Examples:**
-
-```bash
-# Login to default registry
-snpm login
-
-# Login with token
-snpm login --token npm_xxxxxxxxxxxxx
-
-# Login to private registry
-snpm login --registry https://npm.mycompany.com
-
-# Login with scope
-snpm login --scope @myorg --registry https://npm.mycompany.com
-
-# Web-based login
-snpm login --web
-```
-
-## logout
-
-Remove registry credentials.
-
-```bash
-snpm logout
-```
-
-**Options:**
-- `--registry <url>` - Registry URL (defaults to npmjs.org)
-- `--scope <scope>` - Remove credentials for specific scope
-
-**Examples:**
-
-```bash
-# Logout from default registry
-snpm logout
-
-# Logout from specific registry
-snpm logout --registry https://npm.mycompany.com
-
-# Logout from scoped registry
-snpm logout --scope @myorg
+snpm run build -r
+snpm run test --filter "api..."
+snpm run lint --filter "[origin/main]"
 ```
 
 ## exec
-
-Execute a command with `node_modules/.bin` in PATH.
 
 ```bash
 snpm exec <command> [args...]
 ```
 
-**Options:**
-- `-c, --shell-mode` - Run command through shell (enables pipes, redirects, etc.)
-- `-r, --recursive` - Run in all workspace projects
-- `--filter <pattern>` - Filter workspace projects by name
-- `--skip-install` - Skip automatic install check before executing
+Execute a command with `node_modules/.bin` on `PATH`.
 
-**Examples:**
+**Flags**
+
+- `-c, --shell-mode` — run through the shell (enables pipes, redirects, globs).
+- `-r, --recursive` — run in all workspace projects.
+- `--filter <selector>` — workspace filter.
+- `--filter-prod <selector>` — production-only filter.
+- `--skip-install` — skip the lazy install check.
+
+**Examples**
 
 ```bash
-# Run a binary from node_modules
-snpm exec tsc --version
-
-# Run with shell features
-snpm exec -c "eslint src/**/*.ts | head -20"
-
-# Run in all workspaces
+snpm exec tsc --noEmit
+snpm exec -c "eslint . | head -20"
 snpm exec --recursive tsc --build
 ```
 
-## list
+## init
 
-List installed packages.
+```bash
+snpm init
+```
+
+Generate a fresh `package.json` with a normalized package name, `1.0.0` version, a `packageManager` pin for the current `snpm` version, and well-known field ordering.
+
+## dlx
+
+```bash
+snpm dlx <package> [args...]
+```
+
+Fetch and run a one-off package without persisting it to `node_modules`. Aliased to `spx`, `snpx`, and `pnpx` when invoked through those argv0s.
+
+**Flags**
+
+- `--offline` — run only from cache; fail if not cached.
+- `--prefer-offline` — use cached version when available, fetch only if missing.
+
+**Examples**
+
+```bash
+snpm dlx cowsay "hello"
+snpm dlx create-vite my-app -- --template react-ts
+spx cowsay "moo"
+```
+
+## upgrade
+
+```bash
+snpm upgrade [packages...]
+```
+
+Upgrade dependencies within their declared semver ranges. Without arguments, deletes `snpm-lock.yaml` and re-resolves everything.
+
+**Flags**
+
+- `--production` — skip `devDependencies`.
+- `-f, --force` — ignore cached state.
+- `-r, --recursive` — run in all workspace projects.
+- `--filter <selector>` — workspace filter.
+- `--filter-prod <selector>` — production-only filter.
+
+**Examples**
+
+```bash
+snpm upgrade
+snpm upgrade react react-dom
+snpm upgrade --production
+snpm upgrade -r --filter "@acme/*"
+```
+
+## outdated
+
+```bash
+snpm outdated
+```
+
+Report dependencies whose latest in-range version is newer than what is installed.
+
+**Flags**
+
+- `--production` — only check production dependencies.
+- `-r, --recursive` — check every workspace project.
+- `--filter <selector>` / `--filter-prod <selector>` — workspace filters.
+
+## licenses
+
+```bash
+snpm licenses [--json]
+```
+
+List the license of every installed package. The default table is human-readable; pass `--json` for programmatic consumption.
+
+## why
+
+```bash
+snpm why <package> [flags]
+```
+
+Explain why a package is in the install graph, printing reverse dependency paths from the root.
+
+**Flags**
+
+- `--depth <N>` — limit reverse dependency depth.
+- `--json` — JSON output.
+- `-r, --recursive` — run in all workspace projects.
+- `--filter <selector>` / `--filter-prod <selector>` — workspace filters.
+
+`<package>` accepts globs like `babel-*` and `@types/*`.
+
+## list
 
 ```bash
 snpm list
 ```
 
-**Options:**
-- `-g, --global` - List globally installed packages
+Print the project's direct dependencies (or every globally installed package with `-g`).
 
-**Examples:**
+**Flags**
+
+- `-g, --global` — list global installs and the bin directory.
+- `-r, --recursive` — list across workspace projects.
+- `--filter <selector>` / `--filter-prod <selector>` — workspace filters.
+
+## link
 
 ```bash
-# List local dependencies
-snpm list
+snpm link [package]
+```
 
-# List global packages
-snpm list -g
+- `snpm link` (no argument) — symlink the current package into the global link store.
+- `snpm link <name>` — pull a previously linked package into the current project's `node_modules`.
+
+## unlink
+
+```bash
+snpm unlink [package]
+```
+
+Reverse of `link`. Without an argument, removes the current package from the global link store; with a name, removes the local link from the current project.
+
+## pack
+
+```bash
+snpm pack [flags]
+```
+
+Produce a publish tarball (`<name>-<version>.tgz`) in the current directory.
+
+**Flags**
+
+- `--dry-run` — show what would be packed without writing a tarball.
+- `--list` — list every file included in the tarball.
+- `--json` — emit pack inspection output as JSON.
+
+Pack inspection surfaces findings — missing `README`, oversized files, files outside the package root — alongside the file manifest, so you can audit the tarball before publishing.
+
+## publish
+
+```bash
+snpm publish [flags]
+```
+
+Pack and publish the current package to its configured registry. Reads auth from `.snpmrc` / `.npmrc` / `.pnpmrc` and `snpm login`.
+
+**Flags**
+
+- `--tag <tag>` — distribution tag (defaults to `latest`).
+- `--access <public|restricted>` — package access level for scoped packages.
+- `--otp <code>` — one-time password for two-factor auth.
+- `--dry-run` — perform packing and validation but skip the upload.
+- `--allow-risk <code>` — allow a specific blocking pack-finding code for this publish only.
+- `-r, --recursive` — publish every project in the workspace.
+- `--filter <selector>` / `--filter-prod <selector>` — workspace filters.
+
+The successful publish removes the local tarball it created. With `--dry-run`, the tarball is kept for inspection.
+
+## rebuild
+
+```bash
+snpm rebuild
+```
+
+Re-run install scripts for packages that already extracted, honoring the current allow-list (`SNPM_ALLOW_SCRIPTS`, workspace `onlyBuiltDependencies`). Run this after you change script policy or move a package onto the allow-list.
+
+## audit
+
+```bash
+snpm audit [packages...]
+```
+
+Scan the dependency graph for advisories from the registry's audit endpoint. Non-zero exit when vulnerabilities are reported.
+
+**Flags**
+
+- `--audit-level <critical|high|moderate|low|info>` — minimum severity to report.
+- `-P, --prod` — production dependencies only.
+- `-D, --dev` — devDependencies only.
+- `--format <table|json|sarif>` — output format. SARIF integrates with GitHub/GitLab security tabs.
+- `--fix` — try to upgrade vulnerable packages.
+- `--ignore-cve <id>` (repeatable) — suppress a specific CVE.
+- `--ignore-ghsa <id>` (repeatable) — suppress a specific GHSA.
+- `--ignore-unfixable` — skip advisories with no available fix.
+- `--ignore-registry-errors` — exit `0` if the registry's audit endpoint fails.
+
+**Examples**
+
+```bash
+snpm audit
+snpm audit --audit-level high
+snpm audit --format sarif > audit.sarif
+snpm audit --fix
+snpm audit --ignore-cve CVE-2025-12345 --ignore-unfixable
 ```
 
 ## patch
-
-Modify installed packages to fix bugs or customize behavior. Patches are saved and automatically applied on subsequent installs.
 
 ```bash
 snpm patch <subcommand>
 ```
 
-### patch edit
+Persist edits to installed packages as a unified diff applied on every install.
 
-Prepare a package for patching.
+### patch edit
 
 ```bash
 snpm patch edit <package[@version]>
 ```
 
-**Alias:** `snpm patch start`
-
-**Examples:**
-
-```bash
-# Prepare lodash for patching
-snpm patch edit lodash
-
-# Patch a specific version
-snpm patch edit lodash@4.17.21
-```
+Alias: `snpm patch start`. Copies the installed package into a temp working directory and emits a `.snpm_patch_session` marker.
 
 ### patch commit
-
-Create a patch from your modifications.
 
 ```bash
 snpm patch commit <path>
 ```
 
-**Examples:**
+Diffs the modified directory against the original and writes the patch to `patches/<package>@<version>.patch`. Updates the manifest's `snpm.patched_dependencies` map (`pnpm.patched_dependencies` is also recognized for compatibility).
 
-```bash
-# After editing, commit the patch
-snpm patch commit .snpm-patch/lodash@4.17.21
-```
+Scoped names use `+` in the patch filename — `@babel/core` becomes `+babel+core@7.0.0.patch`.
 
 ### patch remove
-
-Remove a patch for a package.
 
 ```bash
 snpm patch remove <package>
 ```
 
-### patch list
+Deletes the patch file and removes the manifest entry.
 
-List all patches in the current project.
+### patch list
 
 ```bash
 snpm patch list
 ```
 
+Lists every patch declared in the current project.
+
 ## clean
 
-Remove cached packages and metadata to free disk space.
-
 ```bash
-snpm clean
+snpm clean [flags]
 ```
 
-**Options:**
-- `-y, --yes` - Skip confirmation prompt
-- `--dry-run` - Show what would be deleted without deleting
-- `--packages` - Only clean cached packages
-- `--metadata` - Only clean registry metadata cache
-- `--global` - Also clean global packages and binaries
-- `--all` - Clean everything (packages, metadata, and global)
+Reclaim disk space by removing cached packages, metadata, and (optionally) global installs.
 
-**Examples:**
+**Flags**
+
+- `-y, --yes` — skip the confirmation prompt.
+- `--dry-run` — preview what would be removed.
+- `--packages` — only clean the cached package store.
+- `--metadata` — only clean registry metadata.
+- `--global` — also clean global installs and binaries.
+- `--all` — clean everything.
+
+## store
 
 ```bash
-# Interactive clean (prompts for confirmation)
-snpm clean
-
-# Clean without prompts
-snpm clean -y
-
-# Preview what would be cleaned
-snpm clean --dry-run
-
-# Clean only cached packages
-snpm clean --packages
-
-# Clean everything including global installs
-snpm clean --all
+snpm store <subcommand>
 ```
+
+Inspect or maintain the shared package store.
+
+### store status
+
+```bash
+snpm store status
+```
+
+Shows the store path and a breakdown of package and metadata counts/sizes.
+
+### store path
+
+```bash
+snpm store path
+```
+
+Prints just the store path (great for scripting).
+
+### store prune
+
+```bash
+snpm store prune [--dry-run]
+```
+
+Remove incomplete or orphaned packages from the store. `--dry-run` lists candidates without deleting.
+
+## login
+
+```bash
+snpm login [flags]
+```
+
+Authenticate with a registry. The web flow is the default — `snpm login` opens a browser, completes OAuth, and saves the resulting Bearer token to `~/.snpmrc`.
+
+**Flags**
+
+- `--registry <url>` — registry URL (defaults to the configured default; URL is normalized).
+- `--scope <scope>` — associate credentials with a scope (e.g. `@myorg`).
+
+**Examples**
+
+```bash
+snpm login
+snpm login --registry https://npm.mycompany.com
+snpm login --scope @myorg --registry https://npm.mycompany.com
+```
+
+Tokens can also be set via environment variables (`SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN`, `NPM_TOKEN`) or `.snpmrc` (`_authToken`, `_auth`).
+
+## logout
+
+```bash
+snpm logout [flags]
+```
+
+Remove stored registry credentials.
+
+**Flags**
+
+- `--registry <url>` — registry URL to clear (defaults to the current default).
+- `--scope <scope>` — clear credentials for a specific scope.
 
 ## config
 
-Show the resolved configuration and runtime paths.
-
 ```bash
 snpm config
 ```
 
-This prints cache/data locations, registry/auth info, install settings (hoisting, link backend, local virtual-store package fallback, strict peers, frozen lockfile default, min package age, registry concurrency), script allowlist, and logging status.
+Print the resolved configuration: cache and data paths, registry/auth, install settings (hoisting, link backend, local-virtual-store packages, strict peers, frozen-lockfile default, min package age, registry concurrency, always-auth), allow-scripts list, and logging status. Useful as the first step when something looks off.
 
-**Examples:**
+## node
 
 ```bash
-snpm config
+snpm node <subcommand>
 ```
+
+A built-in nvm-style Node.js version manager.
+
+### node install
+
+```bash
+snpm node install [version] [--lts] [--default]
+```
+
+Download and install a Node.js version. Accepts `20`, `20.10.0`, `v20`, `^20`, `lts`, `lts/iron`, or `latest`. `--lts` selects the newest LTS. `--default` activates the install as the new default.
+
+### node use
+
+```bash
+snpm node use [version] [--lts] [--default] [--install] [--silent]
+```
+
+Activate a Node version for the current shell. With no argument, snpm reads `.node-version`, `.nvmrc`, or `engines.node` from the project tree. `--install` downloads the version on demand.
+
+### node list / list-remote
+
+```bash
+snpm node list           # installed versions (alias: ls)
+snpm node ls-remote      # versions available from nodejs.org (alias: remote)
+```
+
+### node current / which
+
+```bash
+snpm node current        # currently active version
+snpm node which 20       # absolute path to a binary for a version
+```
+
+### node alias / unalias / default
+
+```bash
+snpm node alias work 20            # create an alias
+snpm node alias                    # list aliases
+snpm node unalias work
+snpm node default 20               # shortcut for `node alias default 20`
+```
+
+### node exec / run
+
+```bash
+snpm node exec 20 -- node --version           # one-off command under a version
+snpm node run 20 test                         # run a package.json script with that version
+```
+
+### node env
+
+```bash
+snpm node env --shell zsh
+```
+
+Prints shell integration that auto-switches Node versions based on the closest `.node-version` / `.nvmrc` / `engines.node`. Pipe the output into your shell init file (`source <(snpm node env --shell zsh)`).
+
+## completions
+
+```bash
+snpm completions <shell>
+```
+
+Generate shell completions. Supported: `bash`, `zsh`, `fish`, `powershell`, `elvish`. Hidden from `--help` because it is an internal helper; the npm package also bundles completions where possible.

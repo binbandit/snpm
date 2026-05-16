@@ -1,21 +1,30 @@
 ---
 title: CI/CD
-description: Using snpm in continuous integration and deployment
+description: Use snpm in continuous integration and deployment pipelines
 ---
 
-Learn how to use snpm in your CI/CD pipelines.
+snpm is built for CI: deterministic installs, a hot path that exits in milliseconds when nothing changed, parallelism that scales with available bandwidth, and SARIF audit output for security tabs.
 
-## Quick Start
+## Quick start
 
 ```bash
 # Install snpm
-cargo install --path snpm-cli
+npm install -g snpm
 
-# Install dependencies with frozen lockfile
+# Reproducible install
 snpm install --frozen-lockfile
 
-# Run your build
+# Build / test
 snpm run build
+snpm run test
+```
+
+In a monorepo:
+
+```bash
+snpm install --frozen-lockfile
+snpm run build -r
+snpm run test --filter "[origin/main]"   # only what changed
 ```
 
 ## GitHub Actions
@@ -28,53 +37,81 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+
+      - uses: actions/setup-node@v4
         with:
-          toolchain: stable
-      
+          node-version: 20
+
       - name: Install snpm
-        run: cargo install --path snpm-cli
-      
+        run: npm install -g snpm
+
+      - name: Cache snpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/snpm
+          key: ${{ runner.os }}-snpm-${{ hashFiles('**/snpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-snpm-
+
       - name: Install dependencies
+        env:
+          SNPM_MIN_PACKAGE_AGE_DAYS: "7"
+          SNPM_ALLOW_SCRIPTS: "esbuild,sharp"
         run: snpm install --frozen-lockfile
-      
+
       - name: Build
         run: snpm run build
-      
+
       - name: Test
         run: snpm run test
+```
+
+### Audit with SARIF
+
+```yaml
+      - name: Audit dependencies
+        run: snpm audit --format sarif > snpm-audit.sarif
+        continue-on-error: true
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snpm-audit.sarif
 ```
 
 ## GitLab CI
 
 ```yaml title=".gitlab-ci.yml"
-image: rust:latest
+image: node:20
 
 cache:
+  key:
+    files:
+      - snpm-lock.yaml
   paths:
     - ~/.local/share/snpm
 
 stages:
-  - build
+  - install
   - test
 
-before_script:
-  - cargo install --path snpm-cli
-  - snpm install --frozen-lockfile
-
-build:
-  stage: build
+install:
+  stage: install
   script:
-    - snpm run build
+    - npm install -g snpm
+    - snpm install --frozen-lockfile
 
 test:
   stage: test
+  variables:
+    SNPM_MIN_PACKAGE_AGE_DAYS: "7"
   script:
+    - npm install -g snpm
+    - snpm install --frozen-lockfile
     - snpm run test
 ```
 
@@ -86,21 +123,21 @@ version: 2.1
 jobs:
   build:
     docker:
-      - image: cimg/rust:1.70
+      - image: cimg/node:20.0
     steps:
       - checkout
-      - run:
-          name: Install snpm
-          command: cargo install --path snpm-cli
-      - run:
-          name: Install dependencies
-          command: snpm install --frozen-lockfile
-      - run:
-          name: Build
-          command: snpm run build
-      - run:
-          name: Test
-          command: snpm run test
+      - restore_cache:
+          keys:
+            - snpm-{{ checksum "snpm-lock.yaml" }}
+            - snpm-
+      - run: npm install -g snpm
+      - run: snpm install --frozen-lockfile
+      - run: snpm run build
+      - run: snpm run test
+      - save_cache:
+          paths:
+            - ~/.local/share/snpm
+          key: snpm-{{ checksum "snpm-lock.yaml" }}
 
 workflows:
   build-and-test:
@@ -108,145 +145,118 @@ workflows:
       - build
 ```
 
-## Best Practices
+## Docker
 
-### Use Frozen Lockfile
+```dockerfile
+FROM node:20-slim AS deps
 
-Always use `--frozen-lockfile` in CI to ensure the lockfile is up to date:
+WORKDIR /app
+RUN npm install -g snpm
 
-```bash
-snpm install --frozen-lockfile
+COPY package.json snpm-lock.yaml ./
+COPY snpm-workspace.yaml* snpm-catalog.yaml* ./
+COPY packages packages
+COPY apps apps
+
+RUN snpm install --production --frozen-lockfile
+
+FROM node:20-slim
+WORKDIR /app
+COPY --from=deps /app /app
+CMD ["node", "apps/web/dist/index.js"]
 ```
 
-This fails if the lockfile needs updates, catching cases where developers forgot to commit lockfile changes.
+For monorepos you can copy only the workspace metadata first to cache the install layer, then copy source files for the build step.
 
-### Cache the Global Store
+## Common patterns
 
-Cache the snpm data directory to speed up subsequent builds:
-
-**GitHub Actions:**
-
-```yaml
-- name: Cache snpm store
-  uses: actions/cache@v3
-  with:
-    path: ~/.local/share/snpm
-    key: ${{ runner.os }}-snpm-${{ hashFiles('**/snpm-lock.yaml') }}
-```
-
-**GitLab CI:**
-
-```yaml
-cache:
-  paths:
-    - ~/.local/share/snpm
-```
-
-### Set Minimum Version Age
-
-For production deployments, use minimum version age:
-
-```yaml
-- name: Install dependencies
-  env:
-    SNPM_MIN_PACKAGE_AGE_DAYS: 7
-  run: snpm install --frozen-lockfile
-```
-
-### Production Installs
-
-Skip dev dependencies in production:
+### Production install
 
 ```bash
 snpm install --production --frozen-lockfile
 ```
 
-## Workspaces
+Skips `devDependencies` and refuses to touch the lockfile.
 
-For monorepos, install from the workspace root:
+### Min package age
 
 ```bash
-# Install all workspace packages
+SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install --frozen-lockfile
+```
+
+Refuses to use versions published within the last 7 days. Combine with `--frozen-lockfile` to be sure CI never silently bumps to a fresh release.
+
+### Bumping concurrency
+
+`SNPM_REGISTRY_CONCURRENCY` defaults to `128`. Most CI runners can push it higher on fast networks; lower it on memory-constrained runners or when the registry rate-limits.
+
+### Caching the store
+
+| Cache | What to cache |
+|-------|---------------|
+| Shared package store | `~/.local/share/snpm` (Linux), `~/Library/Application Support/io.snpm.snpm` (macOS) — or whatever `snpm config` reports as the data dir |
+| Metadata cache | Already inside the data dir |
+
+Key the cache on `snpm-lock.yaml` so it invalidates when dependencies change. snpm only writes new entries; cache restore is purely additive.
+
+### Workspaces
+
+```bash
+# install everything once
 snpm install --frozen-lockfile
 
-# Build all packages
-snpm run build --recursive
+# build everything
+snpm run build -r
 
-# Test all packages
-snpm run test --recursive
+# only run tests for projects whose files changed since main
+snpm run test --filter "[origin/main]"
 ```
 
-## Docker
+`snpm publish -r --filter ./packages` publishes every project under `packages/` (handy for release pipelines).
 
-```dockerfile
-FROM rust:1.70 as builder
+### Authenticating to a private registry
 
-WORKDIR /app
+GitHub Actions example:
 
-# Install snpm
-RUN cargo install --path snpm-cli
-
-# Copy package files
-COPY package.json snpm-lock.yaml ./
-
-# Install dependencies
-RUN snpm install --production --frozen-lockfile
-
-# Copy source
-COPY . .
-
-# Build
-RUN snpm run build
-
-# Production image
-FROM node:20-slim
-WORKDIR /app
-COPY --from=builder /app/dist ./dist
-CMD ["node", "dist/index.js"]
+```yaml
+- name: Install dependencies
+  env:
+    SNPM_CONFIG_REGISTRY: https://npm.mycompany.com
+    NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  run: snpm install --frozen-lockfile
 ```
 
-## Environment Variables
+Or commit a `.snpmrc` that interpolates env vars:
 
-Configure snpm for CI:
-
-```bash
-# Use custom registry
-export SNPM_REGISTRY=https://npm.mycompany.com
-
-# Set auth token
-export NPM_TOKEN=${{ secrets.NPM_TOKEN }}
-
-# Increase concurrent registry requests
-export SNPM_REGISTRY_CONCURRENCY=128
-
-# Set minimum version age
-export SNPM_MIN_PACKAGE_AGE_DAYS=7
+```ini title=".snpmrc"
+registry=https://npm.mycompany.com/
+//npm.mycompany.com/:_authToken=${NPM_TOKEN}
 ```
 
 ## Troubleshooting
 
-### Lockfile Out of Sync
+### `--frozen-lockfile` fails
 
-If `--frozen-lockfile` fails, the lockfile needs updating:
+The lockfile is out of date. Run `snpm install` locally, commit the resulting `snpm-lock.yaml`, and push.
+
+### Install scripts blocked
+
+snpm blocks dependency lifecycle scripts by default. Add the trusted package to the allow-list:
 
 ```bash
-# Locally, update the lockfile
-snpm install
-
-# Commit the changes
-git add snpm-lock.yaml
-git commit -m "Update lockfile"
+SNPM_ALLOW_SCRIPTS="esbuild,sharp" snpm install --frozen-lockfile
 ```
 
-### Slow Installs
+After widening the allow-list, run `snpm rebuild` to apply it to packages that already extracted.
 
-Enable caching of the global store to speed up subsequent builds.
+### Slow cold installs
 
-### Authentication Issues
+- Make sure the store cache key is correct (`hashFiles('**/snpm-lock.yaml')`).
+- Bump `SNPM_REGISTRY_CONCURRENCY` if the network has headroom.
+- Use `--prefer-frozen-lockfile` on retries to reuse the lockfile but re-resolve only what changed.
 
-For private registries, set the `NPM_TOKEN` environment variable:
+### Authentication failures
 
-```yaml
-env:
-  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-```
+- Verify the auth token is exported in the job's environment.
+- Confirm `snpm config` shows the expected default registry and `default auth` status.
+- For scoped registries, make sure both `@scope:registry=...` and the matching `//host:_authToken=...` are set.

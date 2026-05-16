@@ -1,64 +1,28 @@
 ---
 title: Protocols
-description: Supported dependency protocols in snpm
+description: Dependency protocols supported by snpm
 ---
 
-snpm supports various protocols for defining dependencies in your `package.json`.
+snpm supports the same dependency protocols as npm and pnpm, plus first-class `workspace:` and `catalog:` resolution.
 
-## Supported Protocols
+## npm:
 
-### npm:
-
-The standard protocol for fetching packages from a registry (default or configured).
+The default protocol for registry packages. Either explicit or implicit:
 
 ```json
 {
   "dependencies": {
     "react": "npm:^18.2.0",
-    "lodash": "^4.17.21" // Implicitly uses npm: protocol
+    "lodash": "^4.17.21"
   }
 }
 ```
 
-### file:
+`npm:<name>@<range>` also works to alias a package under a different name (e.g. `"react-19": "npm:react@^19.0.0"`).
 
-Local file system dependencies. Useful for local development or monorepos without workspaces.
+## jsr:
 
-```json
-{
-  "dependencies": {
-    "my-lib": "file:../my-lib",
-    "local-pkg": "file:/absolute/path/to/pkg"
-  }
-}
-```
-
-- Paths can be relative (to `package.json`) or absolute.
-- The target directory must contain a valid `package.json`.
-
-### git:
-
-Dependencies from Git repositories.
-
-```json
-{
-  "dependencies": {
-    "my-lib": "git+https://github.com/my-org/my-lib.git",
-    "another-lib": "git+ssh://git@github.com:my-org/another-lib.git#v1.0.0"
-  }
-}
-```
-
-Supported formats:
-- `git+https://`
-- `git+ssh://`
-- `git://`
-
-You can specify a commit hash, tag, or branch using the `#` fragment.
-
-### jsr:
-
-Support for the [JSR](https://jsr.io) registry.
+Packages from the [JSR](https://jsr.io) registry. snpm maps these onto the npm-compatible JSR distribution endpoint.
 
 ```json
 {
@@ -68,43 +32,91 @@ Support for the [JSR](https://jsr.io) registry.
 }
 ```
 
-snpm natively handles JSR dependencies, mapping them to the appropriate registry requests.
+## file:
 
-### workspace:
-
-Reference local packages within a monorepo.
+Local-filesystem dependencies. Useful for unpublished libraries or fixtures.
 
 ```json
 {
   "dependencies": {
-    "@myorg/utils": "workspace:*",
-    "@myorg/ui": "workspace:^"
+    "my-lib": "file:../my-lib",
+    "fixture": "file:./test/fixtures/pkg"
   }
 }
 ```
 
-**Supported versions:**
-- `workspace:*` - Any version (most common)
-- `workspace:^` - Caret range of the local package version
-- `workspace:~` - Tilde range of the local package version
-- `workspace:1.0.0` - Specific version
+- Paths can be relative (to `package.json`) or absolute.
+- The target directory must contain a valid `package.json`.
+- Directory-backed `file:` deps stay in the project-local virtual store — they are not shared across projects.
 
-See the [Workspaces](/docs/workspaces) documentation for more details.
+## git:
 
-### catalog:
+Dependencies fetched directly from a Git repository.
 
-Reference versions defined in `snpm-catalog.yaml`.
+```json
+{
+  "dependencies": {
+    "my-lib": "git+https://github.com/my-org/my-lib.git",
+    "pinned":  "git+ssh://git@github.com:my-org/another.git#v1.0.0",
+    "branch":  "git+https://github.com/my-org/lib.git#main"
+  }
+}
+```
+
+Supported URL schemes: `git+https://`, `git+ssh://`, `git://`. Use `#<ref>` to pin a commit hash, tag, or branch.
+
+## workspace:
+
+Reference another package inside the same workspace.
+
+```json
+{
+  "dependencies": {
+    "@acme/utils": "workspace:*",
+    "@acme/ui":    "workspace:^"
+  }
+}
+```
+
+| Specifier | Behavior |
+|-----------|----------|
+| `workspace:*` | Any version of the local package |
+| `workspace:^` | Caret range of the local package's current version |
+| `workspace:~` | Tilde range of the local package's current version |
+| `workspace:1.2.3` | Specific local version |
+
+On publish, `workspace:` specifiers are rewritten to concrete semver ranges, so consumers outside the workspace see the resolved version.
+
+See [Workspaces](/docs/workspaces) for more.
+
+## catalog:
+
+Resolve via the workspace catalog.
 
 ```json
 {
   "dependencies": {
     "react": "catalog:",
-    "vite": "catalog:build"
+    "vite":  "catalog:build"
   }
 }
 ```
 
-- `catalog:` - Use the default catalog
-- `catalog:<name>` - Use a named catalog
+| Specifier | Behavior |
+|-----------|----------|
+| `catalog:` | Use the default catalog from `snpm-workspace.yaml` / `snpm-catalog.yaml` |
+| `catalog:<name>` | Use the named catalog (`catalogs.<name>`) |
 
-See the [Catalog](/docs/catalog) documentation for more details.
+See [Catalog](/docs/catalog) for the full reference.
+
+## Auth and protocol routing
+
+Registry packages route through the configured default registry, or a scoped registry when one is set:
+
+```ini title=".snpmrc"
+registry=https://registry.npmjs.org/
+@myorg:registry=https://npm.myorg.com/
+//npm.myorg.com/:_authToken=${NPM_TOKEN}
+```
+
+Tarball URLs that come from a registry response are only authorized against the registry that announced them. Cross-host tarballs fall back to anonymous fetches, so a malicious registry cannot trick snpm into leaking your credentials to a third-party host.

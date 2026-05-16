@@ -1,138 +1,221 @@
 ---
 title: Workspaces
-description: Monorepo support in snpm
+description: Monorepo support, selectors, and workspace configuration
 ---
 
-snpm has first-class support for monorepos through workspaces.
+snpm has first-class workspace support: a single lockfile at the workspace root, fan-out commands, dependency-graph aware selectors, and shared catalogs.
 
-## Setup
+## Discovery
 
-Create `snpm-workspace.yaml` in your repository root:
+snpm discovers a workspace by walking up from the current directory and looking for, in order:
+
+1. `snpm-workspace.yaml`
+2. `pnpm-workspace.yaml`
+3. `package.json` with a `workspaces` field (string array or `{ packages: [...] }` form)
+
+Whichever is found first wins, and its parent directory becomes the workspace root.
+
+## snpm-workspace.yaml
 
 ```yaml title="snpm-workspace.yaml"
 packages:
-  - 'packages/*'
-  - 'apps/*'
+  - "packages/*"
+  - "apps/*"
+
+# Optional shared catalogs
+catalog:
+  react: ^18.2.0
+  typescript: ^5.4.0
+
+catalogs:
+  build:
+    vite: ^5.0.0
+  testing:
+    vitest: ^1.0.0
+
+# Optional: hoisting override for the workspace
+hoisting: single-version
+
+# Optional: dependency script allow/deny lists
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+ignoredBuiltDependencies:
+  - fsevents
+
+# Optional: packages that must stay in the project-local virtual store
+disableGlobalVirtualStoreForPackages:
+  - next
+  - vite
 ```
 
-<Callout type="info">
-  snpm also supports `pnpm-workspace.yaml` for compatibility.
-</Callout>
+`pnpm-workspace.yaml` is parsed with the same shape, plus `catalog` / `catalogs` aliases.
 
-## Example Structure
+## Example layout
 
 ```
 my-monorepo/
 ├── snpm-workspace.yaml
 ├── package.json
-├── snpm-lock.yaml
+├── snpm-lock.yaml           ← one lockfile at the root
 ├── packages/
-│   ├── ui/
-│   │   └── package.json
-│   └── utils/
-│       └── package.json
+│   ├── ui/package.json
+│   └── utils/package.json
 └── apps/
-    └── web/
-        └── package.json
+    └── web/package.json
 ```
 
-## Installing Dependencies
+## workspace: protocol
 
-From the workspace root:
-
-```bash
-snpm install
-```
-
-This installs dependencies for all workspace packages and creates a single `snpm-lock.yaml` at the root.
-
-## Workspace Protocol
-
-Reference local packages using the `workspace:` protocol:
+Local packages can reference each other with `workspace:`:
 
 ```json title="apps/web/package.json"
 {
-  "name": "web",
   "dependencies": {
-    "@myorg/ui": "workspace:*",
-    "@myorg/utils": "workspace:*"
+    "@acme/ui": "workspace:*",
+    "@acme/utils": "workspace:^"
   }
 }
 ```
 
-**Supported versions:**
-- `workspace:*` - Any version
-- `workspace:^` - Caret range
-- `workspace:~` - Tilde range
-- `workspace:1.0.0` - Specific version
+| Version | Meaning |
+|---------|---------|
+| `workspace:*` | Any version of the local package |
+| `workspace:^` | Caret range of the local package's current version |
+| `workspace:~` | Tilde range of the local package's current version |
+| `workspace:1.2.3` | Specific local version |
 
-## Working with Workspaces
+On publish, these specifiers are rewritten to concrete versions.
 
-### Install in Specific Workspace
+## Common commands
 
 ```bash
-# From workspace root
-snpm install -w ui
-
-# Or navigate to the package
-cd packages/ui
+# install everything from the workspace root
 snpm install
+
+# install for a single workspace project
+snpm install -w @acme/api
+
+# run a script in every workspace project
+snpm run build -r
+
+# run a script in a subset (see selector syntax below)
+snpm run test --filter "@acme/*"
+
+# add/remove across workspaces
+snpm add -r -D vitest
+snpm remove -r lodash
+
+# inspect across workspaces
+snpm outdated -r
+snpm why typescript -r
+snpm list -r
 ```
 
-### Add Dependencies
+Every workspace-aware command supports the same selectors: `add`, `remove`, `run`, `exec`, `upgrade`, `outdated`, `list`, `why`, and `publish`.
+
+## Selector syntax
+
+`--filter` and `--filter-prod` accept a dependency-graph-aware selector grammar. Multiple `--filter` values combine — positive selectors union, negative selectors subtract.
+
+| Pattern | Meaning |
+|---------|---------|
+| `pkg-name` | Exact project name |
+| `@scope/*`, `foo-?` | Glob over project names |
+| `./packages/api`, `../lib`, `/abs/path` | Match by project path (relative to the workspace root, or absolute) |
+| `pkg...` | The package and everything it transitively depends on |
+| `...pkg` | The package and everything that transitively depends on it |
+| `^pkg...` / `pkg^...` | Same as above, but exclude the seed itself |
+| `[<git-ref>]` | Projects with files changed since `<git-ref>` (runs `git diff --name-only <ref>` from the workspace root) |
+| `!pkg` | Exclude (must be combined with at least one positive selector) |
+
+`--filter-prod` uses the same grammar but walks only `dependencies` / `optionalDependencies` for graph operators, so it ignores devDependency edges.
+
+**Examples**
 
 ```bash
-# Add to specific workspace
-snpm add react -w ui
+# every project under packages/api
+snpm run test --filter ./packages/api
 
-# Or from within the package
-cd packages/ui
-snpm add react
+# api plus its dependencies
+snpm run build --filter api...
+
+# everything that depends on the shared utils package
+snpm run test --filter ...@acme/utils
+
+# everything affected since the last main commit
+snpm run test --filter "[origin/main]"
+
+# everything in the @acme scope except docs
+snpm run lint --filter "@acme/*" --filter "!@acme/docs"
 ```
 
-### Run Scripts
+## Catalogs
 
-```bash
-# Run in all workspaces
-snpm run build --recursive
+Define dependency versions once at the workspace root and reference them with the `catalog:` protocol:
 
-# Run in specific workspace
-snpm run test --filter ui
+```yaml title="snpm-catalog.yaml"
+catalog:
+  react: ^18.2.0
+  typescript: ^5.4.0
 
-# Run with glob patterns
-snpm run build --filter "app-*"
+catalogs:
+  build:
+    vite: ^5.0.0
+  testing:
+    vitest: ^1.0.0
 ```
 
-## Benefits
-
-**Shared Dependencies** - Common dependencies are hoisted to the root, saving disk space.
-
-**Fast Installs** - All workspace packages install in parallel.
-
-**Single Lockfile** - One `snpm-lock.yaml` ensures consistency across the entire monorepo.
-
-**Local Linking** - Changes to local packages are immediately available to dependent packages.
-
-## Best Practices
-
-**Use Scoped Names** - Prefix workspace packages with a scope:
-
-```json
+```json title="apps/web/package.json"
 {
-  "name": "@myorg/ui",
-  "name": "@myorg/utils"
+  "dependencies": {
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "vite": "catalog:build",
+    "vitest": "catalog:testing"
+  }
 }
 ```
 
-**Shared Scripts** - Define common scripts in the root `package.json`:
+When `snpm-workspace.yaml` and `snpm-catalog.yaml` both define a key, the workspace file wins. See [Catalog](/docs/catalog) for the full reference.
+
+## Overrides
+
+Pin transitive dependency versions for the whole workspace via either `snpm-overrides.yaml` or `package.json`:
+
+```yaml title="snpm-overrides.yaml"
+overrides:
+  lodash: ^4.17.21
+  "@babel/core": ^7.23.0
+```
 
 ```json title="package.json"
 {
-  "scripts": {
-    "build": "snpm run build --recursive",
-    "test": "snpm run test --recursive"
+  "snpm": {
+    "overrides": { "lodash": "^4.17.21" }
+  },
+  "pnpm": {
+    "overrides": { "axios": "^1.6.0" }
   }
 }
 ```
 
-**Use Catalog** - Define shared dependency versions in `snpm-catalog.yaml` (see Catalog documentation).
+Both `snpm.overrides` and `pnpm.overrides` are honored.
+
+## Per-project install
+
+You can also `cd` into a workspace project and run `snpm install` from there. snpm will still discover the workspace root and write a single lockfile at the top.
+
+## Best practices
+
+- **Scope your packages** (`@acme/ui`, `@acme/utils`) so selectors and link names stay tidy.
+- **Use catalogs** for shared deps to eliminate version drift across packages.
+- **Reach for `[git-ref]` selectors** in CI to only build what changed: `snpm run test --filter "[origin/main]"`.
+- **Pin the snpm version** in the workspace root `package.json`:
+
+  ```json
+  { "packageManager": "snpm@2026.5.16" }
+  ```
+
+  Combined with `snpm-switch`, every contributor and CI job will run the same `snpm` build.

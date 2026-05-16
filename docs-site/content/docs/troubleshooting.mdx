@@ -1,154 +1,229 @@
 ---
 title: Troubleshooting
-description: Common issues and how to fix them
+description: Common errors and how to fix them
 ---
 
-Solutions to common problems with snpm.
+A first-aid kit for the most common problems. When something is off, the fastest signal is usually `snpm config` plus `snpm --verbose <cmd>`.
 
-## Installation Issues
-
-### Rust Not Installed
-
-**Problem:** Can't build snpm from source.
-
-**Solution:** Install Rust from [rustup.rs](https://rustup.rs/):
+## Diagnostics
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+snpm config              # resolved paths, registry, install settings, allow-scripts
+snpm --verbose install   # full install trace (also written to .snpm.log when verbose)
+snpm store status        # store size and counts
+snpm why <pkg>           # explain why a transitive package is installed
 ```
 
-Restart your terminal and try again.
+## Installation issues
 
-### Build Fails
+### `snpm: command not found`
 
-**Problem:** Compilation errors when building.
+If you installed via npm: make sure the npm global bin directory is on `PATH`. Try:
 
-**Solution:** Update Rust to the latest version:
+```bash
+npm bin -g
+export PATH="$(npm bin -g):$PATH"
+```
+
+If you installed via `cargo install`, add the cargo bin directory:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+### `cargo install --path snpm-cli` fails
+
+Update the Rust toolchain:
 
 ```bash
 rustup update stable
 ```
 
-Then rebuild:
+Then rebuild from a clean target dir:
 
 ```bash
-cargo install --path snpm-cli
+cargo clean
+cargo install --path snpm-cli --force
 ```
 
-### Binary Not in PATH
+### Pinned `packageManager` version not found
 
-**Problem:** `snpm: command not found` after installation.
-
-**Solution:** Add Cargo's bin directory to your PATH:
+`snpm-switch` downloads the requested version on demand. If you're offline or the version isn't reachable, override the pin for this command:
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
-export PATH="$HOME/.cargo/bin:$PATH"
+snpm --switch-ignore-package-manager install
 ```
 
-Restart your terminal.
-
-## Runtime Issues
-
-### Permission Denied
-
-**Problem:** Permission errors when installing packages.
-
-**Solution:** Check that you have write access to the global store. The location is platform-specific:
-
-- **macOS**: `~/Library/Application Support/io.snpm.snpm`
-- **Linux**: `~/.local/share/snpm`
+Or run with a known good version:
 
 ```bash
-# Linux
-ls -la ~/.local/share/snpm
+snpm --switch-version 2026.5.16 install
 ```
 
-If needed, fix permissions:
+## Install issues
 
-```bash
-# Linux
-sudo chown -R $USER ~/.local/share/snpm
-```
+### `--frozen-lockfile` fails
 
-### Lockfile Out of Sync
-
-**Problem:** `--frozen-lockfile` fails in CI.
-
-**Solution:** The lockfile needs updating. Locally run:
+The lockfile is missing or out of sync with `package.json`. Locally:
 
 ```bash
 snpm install
 git add snpm-lock.yaml
-git commit -m "Update lockfile"
+git commit -m "Refresh lockfile"
 ```
 
-### Package Not Found
-
-**Problem:** snpm can't find a package.
-
-**Solution:** Check the package name and version:
+If you only want to re-resolve drifted entries:
 
 ```bash
-# Verify package exists
-npm view <package-name>
+snpm install --fix-lockfile
 ```
 
-If using a private registry, ensure you're authenticated:
+### Install scripts were blocked
+
+snpm prints which packages had their scripts blocked. Add the trusted ones to the allow-list:
 
 ```bash
-snpm login --registry https://npm.mycompany.com
+export SNPM_ALLOW_SCRIPTS="esbuild,sharp"
+snpm install
+snpm rebuild   # apply policy to already-extracted packages
 ```
 
-### Slow Installs
+Or, more durable, set it in the workspace file:
 
-**Problem:** Installs are slower than expected.
+```yaml title="snpm-workspace.yaml"
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+```
 
-**Solution:** 
+### "package not found" / 404
 
-1. Check your network connection
-2. Increase registry concurrency:
+- Check the package name and version: `snpm dlx npm view <name>`.
+- For private registries, confirm auth is set: `snpm config` should show `default auth: bearer (set)` (or `basic (set)`).
+- For scoped registries, make sure both `@scope:registry=...` and `//host/:_authToken=...` are configured.
+
+### Slow installs
+
+- Increase concurrency on fast networks: `export SNPM_REGISTRY_CONCURRENCY=256`.
+- Make sure the store is on a fast disk (`snpm store path`).
+- In CI, cache the store directory between runs (see [CI/CD](/docs/ci-cd)).
+- Re-check the lockfile mode — `--frozen-lockfile` skips network resolution entirely when the lockfile is valid.
+
+### Recently published packages are skipped
+
+`SNPM_MIN_PACKAGE_AGE_DAYS` is filtering them out. Confirm with:
 
 ```bash
-export SNPM_REGISTRY_CONCURRENCY=128
+snpm config | grep "min package age"
 ```
 
-3. Ensure the global store isn't on a slow disk
+Lower the threshold or unset the variable for the current shell.
 
-### Workspace Not Detected
+## Workspace issues
 
-**Problem:** snpm doesn't recognize your workspace.
+### Workspace not detected
 
-**Solution:** Ensure you have `snpm-workspace.yaml` or `pnpm-workspace.yaml` in the root:
+snpm walks up the directory tree looking for one of these, in order:
+
+1. `snpm-workspace.yaml`
+2. `pnpm-workspace.yaml`
+3. `package.json` with a `workspaces` field
+
+If none of those are present in the current directory or any parent, snpm treats the current directory as a single project. Add a workspace file:
 
 ```yaml title="snpm-workspace.yaml"
 packages:
-  - 'packages/*'
-  - 'apps/*'
+  - "packages/*"
+  - "apps/*"
 ```
 
-### Catalog Not Working
+### `--filter` matches nothing
 
-**Problem:** Catalog versions aren't being used.
+- Selectors are matched against the project's `name` field in `package.json` (or, for path selectors, against the project directory).
+- Glob patterns need quotes in the shell: `--filter "@acme/*"`.
+- For dependency walks (`pkg...` / `...pkg`), make sure the seed name matches a real workspace project.
+- `[git-ref]` runs `git diff --name-only <ref>` from the workspace root; check that the ref is reachable (`git rev-parse <ref>` works).
 
-**Solution:** Ensure `snpm-catalog.yaml` is in the workspace root and you're using the correct syntax:
+### `workspace:` specifier won't resolve
 
-```json title="package.json"
-{
-  "dependencies": {
-    "react": "catalog:"
-  }
-}
+`workspace:*` requires that the named package exists in the same workspace. Confirm with `snpm list -r` or `cat packages/*/package.json | jq -r .name`.
+
+## Registry / auth issues
+
+### Authentication failures
+
+- Run `snpm config` and check `default auth` and `registry auth`.
+- Verify the env var name — snpm reads `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN`, and `NPM_TOKEN` (in that order).
+- For Basic auth, set `NPM_CONFIG__AUTH` (or `SNPM_CONFIG__AUTH`) to base64(`user:password`).
+
+### Token leaking to wrong host
+
+snpm only sends the configured token to the registry that owns it. Tarball URLs hosted on a different origin fetch anonymously by design. If a private package is hosted on a CDN under a different domain, configure auth for that CDN host explicitly:
+
+```ini title=".snpmrc"
+//cdn.mycompany.com/:_authToken=${MYORG_TOKEN}
 ```
 
-## Getting Help
+## Lockfile issues
+
+### Merge conflicts in `snpm-lock.yaml`
+
+1. Resolve conflicts in every affected `package.json` first.
+2. Delete `snpm-lock.yaml`.
+3. Run `snpm install`.
+
+```bash
+rm snpm-lock.yaml
+snpm install
+git add snpm-lock.yaml
+```
+
+Use `snpm install --fix-lockfile` if you want to keep most of the existing resolution.
+
+### Lockfile keeps changing in CI
+
+Drop `--no-frozen-lockfile` from the CI command. The default — `snpm install --frozen-lockfile` — fails fast when the lockfile drifts so the change shows up as a clear CI error instead of being silently committed.
+
+## Patch issues
+
+### A patch didn't apply
+
+Run `snpm patch list` to confirm the patch is registered, and check the patch file actually exists at `patches/<package>@<version>.patch`. If the package was upgraded since the patch was created, re-run:
+
+```bash
+snpm patch edit <package>
+# make your edits in the temp dir
+snpm patch commit <temp dir>
+```
+
+This recreates the patch against the new version.
+
+## Audit issues
+
+### Audit fails because the registry is down
+
+```bash
+snpm audit --ignore-registry-errors
+```
+
+This exits with code `0` when the registry's audit endpoint fails, useful when you have other security tooling already running.
+
+### Too many low-severity findings
+
+```bash
+snpm audit --audit-level high
+```
+
+Only `high` and `critical` advisories will trigger a non-zero exit.
+
+## Reporting bugs
 
 If you're still stuck:
 
-**GitHub Issues** - Report bugs at [github.com/binbandit/snpm/issues](https://github.com/binbandit/snpm/issues)
-
-When reporting issues, include:
-- snpm version (`snpm --version`)
-- Operating system
-- Steps to reproduce
-- Error messages
+1. Reproduce the issue with `snpm --verbose <command>` and grab the `.snpm.log`.
+2. Capture `snpm config` output.
+3. File an issue at [github.com/binbandit/snpm/issues](https://github.com/binbandit/snpm/issues) with:
+   - snpm version (`snpm --version`).
+   - Operating system.
+   - Minimal repro steps and exact command.
+   - Verbose log output.

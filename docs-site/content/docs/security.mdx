@@ -1,207 +1,158 @@
 ---
 title: Security
-description: Security features and best practices
+description: Security features, defaults, and supply-chain hardening
 ---
 
-snpm includes security features to protect your projects from malicious packages and supply chain attacks.
+snpm ships with security-first defaults: install scripts are blocked, registry credentials are scoped to the announcing registry origin, lockfiles record integrity hashes, and `audit` can both surface advisories and attempt to fix them.
 
-## Minimum Version Age
+## Install scripts blocked by default
 
-A unique security feature that protects against zero-day malicious packages.
+Install scripts (`preinstall`, `install`, `postinstall`) for **dependencies** are blocked unless explicitly allowed. This is the single biggest attack vector in the npm ecosystem and snpm closes it by default.
 
-### How It Works
-
-Configure snpm to ignore package versions published within the last N days:
+Allow specific packages via env var:
 
 ```bash
-export SNPM_MIN_PACKAGE_AGE_DAYS=7
-```
-
-With this setting, snpm will only install package versions that are at least 7 days old.
-
-### Why This Matters
-
-**Zero-Day Protection** - Malicious packages are often caught and removed within days of publication. By waiting, you avoid installing them.
-
-**Broken Release Protection** - Hastily published releases with critical bugs are usually fixed quickly. Waiting helps you skip these problematic versions.
-
-**Supply Chain Security** - Compromised maintainer accounts often publish malicious versions immediately. A waiting period gives the community time to detect and report issues.
-
-### Configuration
-
-```bash
-# Wait 7 days (recommended for production)
-export SNPM_MIN_PACKAGE_AGE_DAYS=7
-
-# Wait 3 days (balanced approach)
-export SNPM_MIN_PACKAGE_AGE_DAYS=3
-
-# No waiting (development)
-export SNPM_MIN_PACKAGE_AGE_DAYS=0
-```
-
-### Trade-offs
-
-**Pros:**
-- Protection against zero-day malicious packages
-- Avoid broken releases
-- Time for community review
-
-**Cons:**
-- Can't use brand new packages immediately
-- May delay security patches (though most security patches are for older versions)
-
-## Lockfile Security
-
-The `snpm-lock.yaml` file ensures you install the exact same versions every time:
-
-```bash
-# In CI, use frozen lockfile
-snpm install --frozen-lockfile
-```
-
-This prevents unexpected updates that could introduce vulnerabilities.
-
-## Registry Authentication
-
-### Secure Token Storage
-
-Use `snpm login` to securely store registry credentials:
-
-```bash
-snpm login
-```
-
-Tokens are stored in your system's credential store, not in plain text.
-
-### Private Registries
-
-For private registries, use scoped authentication:
-
-```bash
-snpm login --scope @myorg --registry https://npm.mycompany.com
-```
-
-### Environment Variables
-
-For CI/CD, use environment variables:
-
-```bash
-export NPM_TOKEN=your-token-here
-export SNPM_REGISTRY=https://npm.mycompany.com
-```
-
-## Install Script Security
-
-**Critical Security Feature** - By default, snpm blocks **all** install scripts to protect against malicious packages.
-
-### How It Works
-
-Install scripts (like `postinstall`, `preinstall`) can execute arbitrary code during package installation. This is a common attack vector for supply chain attacks.
-
-snpm takes a security-first approach:
-1. **All install scripts are blocked by default**
-2. **Explicit whitelisting required** - You must specify which packages are allowed to run scripts
-3. **Clear warnings** - snpm shows which packages had their scripts blocked
-
-### Allowing Specific Packages
-
-Whitelist trusted packages that need to run install scripts:
-
-```bash
-# Allow specific packages
-export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild,@swc/core"
+export SNPM_ALLOW_SCRIPTS="esbuild,sharp,@swc/core"
 ```
 
 Or via workspace config:
 
 ```yaml title="snpm-workspace.yaml"
 onlyBuiltDependencies:
-  - puppeteer
   - esbuild
-  - '@swc/core'
+  - sharp
+ignoredBuiltDependencies:
+  - fsevents
 ```
 
-### Why This Matters
+Root project and workspace-member lifecycle scripts (the ones you wrote) **do** run during install — `preinstall` → `install` → `postinstall` → `prepare`.
 
-**Protection Against**:
-- Malicious install scripts that steal credentials
-- Cryptocurrency miners installed via npm packages
-- Backdoors installed during package installation
-- Unaudited third-party code execution
+After changing the allow-list, run `snpm rebuild` to apply it to packages that already extracted.
 
-**Trade-offs**:
-- Some packages require install scripts to function (e.g., `puppeteer` downloads Chrome)
-- You must manually whitelist these trusted packages
-
-<Callout type="warning">
-  Only whitelist packages you trust. Review what install scripts do before allowing them.
+<Callout type="warn">
+  Only allow packages you trust. `puppeteer`, `playwright`, `sharp`, `esbuild`, `@swc/core` are common cases — they download platform binaries during install. When in doubt, look at the package's `install` script before allowing it.
 </Callout>
 
-### Checking Blocked Scripts
+## Minimum package age
 
-When snpm blocks scripts, it shows a summary:
-
-```
-Blocked 3 install scripts. Set SNPM_ALLOW_SCRIPTS to enable.
-  - node-sass
-  - sharp  
-  - canvas
-```
-
-## Best Practices
-
-**Use Minimum Package Age in Production** - Set `SNPM_MIN_PACKAGE_AGE_DAYS=7` for production projects.
-
-**Control Install Scripts** - Be selective about which packages can run install scripts:
+`SNPM_MIN_PACKAGE_AGE_DAYS=N` makes snpm ignore versions published within the last `N` days.
 
 ```bash
-export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild"
-```
-
-**Commit Lockfiles** - Always commit `snpm-lock.yaml` to ensure consistent installs.
-
-**Use Frozen Lockfile in CI** - Prevent unexpected updates:
-
-```bash
-snpm install --frozen-lockfile
-```
-
-**Review Dependency Updates** - When updating dependencies, review the changes in `snpm-lock.yaml`.
-
-**Use Private Registries** - For sensitive projects, use a private registry with authentication.
-
-**Audit Dependencies** - Regularly review your dependencies for known vulnerabilities (external tools can help with this).
-
-## CI/CD Security
-
-### Recommended CI Configuration
-
-```bash
-# Set minimum package age
 export SNPM_MIN_PACKAGE_AGE_DAYS=7
+```
 
-# Control install scripts (whitelist only trusted packages)
-export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild"
+Why this matters:
 
-# Use frozen lockfile
+- **Zero-day publishes** — malicious versions often get yanked within hours; waiting a few days drastically reduces the chance of installing a compromised release.
+- **Broken releases** — hastily published versions with critical bugs get patched quickly; waiting steers you to the patched build.
+- **Compromised maintainer accounts** — gives the community time to detect and report unauthorized publishes.
+
+Recommended values:
+
+- Development: unset.
+- CI/staging: `3`.
+- Production: `7`.
+
+Trade-off: brand-new packages (and brand-new patches) won't be installable until they age. Combine with `--frozen-lockfile` so CI never silently picks up newer versions either.
+
+## Lockfile and integrity
+
+`snpm-lock.yaml` records each package's `tarball` URL and `integrity` hash. The hash is verified against the bytes snpm downloads before the package is unpacked.
+
+`node_modules/.snpm-integrity` holds a lockfile-derived hash of the install plan. On the next install, snpm reads this file first; if it still matches, the install completes in tens of milliseconds without touching the registry or unpacking anything.
+
+In CI, use `--frozen-lockfile` (or `SNPM_FROZEN_LOCKFILE=1`):
+
+```bash
 snpm install --frozen-lockfile
-
-# Run your build/tests
-snpm run build
-snpm run test
 ```
 
-### GitHub Actions Example
+A drifted lockfile becomes a hard failure, not a silent upgrade.
 
-```yaml
-- name: Install dependencies
-  env:
-    SNPM_MIN_PACKAGE_AGE_DAYS: "7"
-    SNPM_ALLOW_SCRIPTS: "puppeteer,esbuild"
-  run: snpm install --frozen-lockfile
+## Registry authentication
+
+`snpm login` runs a web flow by default and stores the resulting Bearer token in `~/.snpmrc`. Tokens never end up in `package.json` or `snpm-lock.yaml`.
+
+```bash
+snpm login
+snpm login --registry https://npm.mycompany.com
+snpm login --scope @myorg --registry https://npm.mycompany.com
 ```
 
-## Reporting Security Issues
+For CI, set a token via environment variable:
 
-If you discover a security vulnerability in snpm itself, please report it to the maintainers via GitHub Security Advisories.
+```bash
+export NODE_AUTH_TOKEN=...
+# or
+export NPM_TOKEN=...
+# or
+export SNPM_AUTH_TOKEN=...
+```
+
+For Basic auth, set `NPM_CONFIG__AUTH=<base64-of-user:pass>`.
+
+To force auth on every request (even for public scopes), enable `always-auth`:
+
+```ini title=".snpmrc"
+always-auth=true
+```
+
+```bash
+export SNPM_ALWAYS_AUTH=1
+```
+
+### Scoped registries
+
+```ini title=".snpmrc"
+@myorg:registry=https://npm.myorg.com/
+//npm.myorg.com/:_authToken=${MYORG_TOKEN}
+```
+
+### Tarball origin scoping
+
+When a registry response includes a tarball URL on a different host, snpm **does not** send the registry's credentials to that other host. Credentials are scoped to the announcing registry origin. This prevents a compromised or malicious registry from steering snpm into leaking your auth token to an attacker-controlled host.
+
+## Audit
+
+```bash
+snpm audit                       # report vulnerabilities
+snpm audit --audit-level high    # critical/high only
+snpm audit --fix                 # try to upgrade to a fixed version
+snpm audit --format sarif > a.sarif
+snpm audit -P                    # production only
+snpm audit --ignore-cve CVE-2024-12345 --ignore-unfixable
+```
+
+`--format sarif` produces SARIF that GitHub and GitLab security dashboards consume directly — see [CI/CD](/docs/ci-cd) for a workflow example.
+
+When the registry's audit endpoint itself fails, add `--ignore-registry-errors` to keep CI green and rely on other security scanners.
+
+## Publishing safely
+
+`snpm pack` (and `snpm publish` before uploading) runs an inspection that surfaces blocking findings — files outside the package root, missing `README`, oversized files, suspicious binaries. Re-run with `--dry-run` and `--list` to see the full tarball:
+
+```bash
+snpm pack --dry-run --list
+```
+
+Override a specific blocking finding for one publish:
+
+```bash
+snpm publish --allow-risk OVERSIZED_FILE
+```
+
+`snpm publish --otp 123456` carries through OTP codes for accounts with two-factor auth.
+
+## Best practices
+
+- **Commit `snpm-lock.yaml`** and use `--frozen-lockfile` in CI.
+- **Set `SNPM_MIN_PACKAGE_AGE_DAYS=7`** for production-bound CI.
+- **Keep the script allow-list minimal** — only the dependencies that actually need to compile native bits.
+- **Run `snpm audit` in CI** with `--format sarif`, gated on `--audit-level high` for hard failures.
+- **Use scoped registries with `always-auth`** for private packages.
+- **Rotate registry tokens periodically** and prefer short-lived CI tokens over long-lived ones.
+- **Use `snpm why <pkg>`** to investigate suspicious transitive dependencies before allowing them.
+
+## Reporting vulnerabilities
+
+If you find a security vulnerability in snpm itself, please report it via [GitHub Security Advisories](https://github.com/binbandit/snpm/security/advisories).

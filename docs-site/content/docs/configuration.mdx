@@ -1,380 +1,247 @@
 ---
 title: Configuration
-description: Configure snpm for your needs
+description: Environment variables, RC files, and runtime configuration
 ---
 
-Configure snpm's behavior through environment variables and configuration files.
+snpm is configured from three sources, merged in this order (later wins):
 
-## Environment Variables
+1. Built-in defaults.
+2. `.snpmrc` / `.npmrc` / `.pnpmrc` from the user's home directory, then each ancestor directory of the current working directory.
+3. Environment variables.
 
-snpm can be configured using environment variables:
+Use `snpm config` to print the resolved configuration at any time.
+
+## Environment variables
+
+### Directories
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SNPM_HOME` | Custom home directory for cache and data | Platform-specific |
-| `SNPM_REGISTRY` | Default registry URL | `https://registry.npmjs.org` |
-| `NPM_CONFIG_REGISTRY`, `npm_config_registry` | Alternative registry URL (npm compatibility) | - |
-| `SNPM_MIN_PACKAGE_AGE_DAYS` | Minimum package age in days (security) | `0` |
-| `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS` | Metadata cache age in days | `7` |
-| `SNPM_HOIST` | Hoisting mode: `none`, `single-version`, `all` | `single-version` |
-| `SNPM_LINK_BACKEND` | Link strategy: `auto`, `hardlink`, `symlink`, `copy` | `auto` |
-| `SNPM_STRICT_PEERS` | Fail on peer dependency conflicts | `false` |
-| `SNPM_FROZEN_LOCKFILE` | Default frozen lockfile mode | `false` |
-| `SNPM_REGISTRY_CONCURRENCY` | Max concurrent registry requests | `64` |
-| `SNPM_ALLOW_SCRIPTS` | Comma-separated list of packages allowed to run install scripts | - |
-| `SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES` | Comma-separated packages to force into the project-local virtual store | `next,nuxt,vite,vitepress,parcel` |
-| `SNPM_VERBOSE` | Enable verbose logging | `false` |
-| `SNPM_LOG_FILE` | Custom log file path | `.snpm.log` |
-| `NPM_TOKEN`, `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` | Registry authentication token (Bearer scheme) | - |
+| `SNPM_HOME` | Sets `cache=$SNPM_HOME/cache` and `data=$SNPM_HOME/data` | Platform default |
 
-**Examples:**
+Platform defaults:
 
-```bash
-# Use custom home directory
-export SNPM_HOME=/custom/snpm
+- **macOS**: cache `~/Library/Caches/snpm`, data `~/Library/Application Support/io.snpm.snpm`
+- **Linux**: cache `~/.cache/snpm`, data `~/.local/share/snpm`
+- **Windows**: cache `%LOCALAPPDATA%\snpm\snpm\cache`, data `%LOCALAPPDATA%\snpm\snpm\data`
 
-# Use custom registry
-export SNPM_REGISTRY=https://npm.mycompany.com
+Derived directories (under the data dir):
+- `packages/` — shared package store
+- `metadata/` — registry metadata cache
+- `virtual-store/` — shared virtual-store entries
+- `global/` — global installs
+- `bin/` — global bin shims
 
-# Set minimum package age (security feature)
-export SNPM_MIN_PACKAGE_AGE_DAYS=7
+### Registry and auth
 
-# Set metadata cache age
-export SNPM_MIN_PACKAGE_CACHE_AGE_DAYS=14
+| Variable | Description |
+|----------|-------------|
+| `SNPM_CONFIG_REGISTRY` / `PNPM_CONFIG_REGISTRY` / `NPM_CONFIG_REGISTRY` | Default registry URL. snpm prefers the snpm prefix, then pnpm, then npm. |
+| `SNPM_AUTH_TOKEN` / `NODE_AUTH_TOKEN` / `NPM_TOKEN` | Bearer token for the default registry. snpm picks the first non-empty in that order. |
+| `SNPM_CONFIG__AUTH` / `PNPM_CONFIG__AUTH` / `NPM_CONFIG__AUTH` | Base64-encoded `user:password` for Basic auth on the default registry. |
+| `SNPM_ALWAYS_AUTH` / `PNPM_CONFIG_ALWAYS_AUTH` / `NPM_CONFIG_ALWAYS_AUTH` | Truthy values force auth on every registry request. |
 
-# Configure hoisting
-export SNPM_HOIST=single-version  # or 'none', 'all'
+When a token is set via `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN`, or `NPM_TOKEN`, the scheme is `Bearer`. When set via the `_auth` variants, it is `Basic`.
 
-# Set link backend
-export SNPM_LINK_BACKEND=hardlink  # or 'symlink', 'copy', 'auto'
+### Install behavior
 
-# Enable strict peer dependencies
-export SNPM_STRICT_PEERS=true
+| Variable | Default | Values |
+|----------|---------|--------|
+| `SNPM_HOIST` | `single-version` | `none`, `single-version`, `all` |
+| `SNPM_LINK_BACKEND` | `auto` | `auto`, `hardlink`, `symlink`, `copy` |
+| `SNPM_STRICT_PEERS` | `false` | truthy |
+| `SNPM_FROZEN_LOCKFILE` | `false` | truthy |
+| `SNPM_REGISTRY_CONCURRENCY` | `128` | integer > 0 |
+| `SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES` | `next,nuxt,vite,vitepress,parcel` | Comma-separated names. Pass `[]` to disable the heuristic entirely. |
 
-# Set default frozen lockfile mode
-export SNPM_FROZEN_LOCKFILE=true
+Truthy values: `1`, `true`, `yes`, `y`, `on`. snpm also accepts `snpm_config_*`, `pnpm_config_*`, and `npm_config_*` forms for `hoist`, `link_backend`, `strict_peer_dependencies`, `frozen_lockfile`, `registry_concurrency`, and `always_auth`.
 
-# Increase registry concurrency
-export SNPM_REGISTRY_CONCURRENCY=128
+### Security
 
-# Allow specific packages to run install scripts
-export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild,@swc/core"
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SNPM_ALLOW_SCRIPTS` | (empty) | Comma-separated packages allowed to run install scripts. |
+| `SNPM_MIN_PACKAGE_AGE_DAYS` | (unset) | Ignore versions published within N days. |
+| `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS` | `7` | Re-fetch registry metadata older than N days. |
 
-# Keep resolver-walk-up-sensitive tools project-local
-export SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES="next,nuxt,vite,vitepress,parcel"
+### Logging
 
-# Enable verbose logging
-export SNPM_VERBOSE=true
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SNPM_VERBOSE` | `false` | Enable verbose output (also `-v/--verbose`). |
+| `SNPM_LOG_FILE` | (unset) | Custom log file path. When unset and verbose is enabled, snpm writes to `.snpm.log` in the project root. |
 
-# Custom log file location
-export SNPM_LOG_FILE=/var/log/snpm/install.log
-```
+## RC files
 
-## Registry Configuration
-
-### Default Registry
-
-```bash
-export SNPM_REGISTRY=https://registry.npmjs.org
-```
-
-### Private Registry
-
-```bash
-export SNPM_REGISTRY=https://npm.mycompany.com  # URL must include protocol; trailing slashes are normalized
-export NPM_TOKEN=your-token-here                # Auth tokens use Bearer scheme
-```
-
-Or use the login command:
-
-```bash
-snpm login --registry https://npm.mycompany.com  # Web/basic credentials are exchanged for a Bearer token; URL normalization applied
-```
-
-### Scoped Registries
-
-```bash
-snpm login --scope @myorg --registry https://npm.mycompany.com
-```
-
-## Store Configuration
-
-The global store caches downloaded packages for reuse across projects.
-
-**Default Location:**
-- macOS/Linux: `~/Library/Caches/snpm` (cache), `~/Library/Application Support/snpm` (data)
-- Linux: `~/.cache/snpm` (cache), `~/.local/share/snpm` (data)
-- Windows: `%LOCALAPPDATA%\snpm\cache` (cache), `%LOCALAPPDATA%\snpm\data` (data)
-
-**Custom Location:**
-
-```bash
-# Set custom home directory (contains both cache and data)
-export SNPM_HOME=/custom/snpm
-# This creates /custom/snpm/cache and /custom/snpm/data
-```
-
-## Security Configuration
-
-### Minimum Version Age
-
-Protect against zero-day malicious packages by ignoring recently published versions:
-
-```bash
-export SNPM_MIN_PACKAGE_AGE_DAYS=7
-```
-
-This makes snpm ignore any package version published within the last 7 days.
-
-<Callout type="info">
-  This is a unique security feature that helps protect against supply chain attacks.
-</Callout>
-
-## Network Configuration
-
-### Registry Concurrency
-
-Control how many concurrent registry requests are made:
-
-```bash
-export SNPM_REGISTRY_CONCURRENCY=128
-```
-
-Higher values speed up installs but use more network bandwidth. Default is 64.
-
-## Common Configurations
-
-### Development
-
-Fast installs, no restrictions:
-
-```bash
-export SNPM_MIN_PACKAGE_AGE_DAYS=0
-export SNPM_REGISTRY_CONCURRENCY=128
-```
-
-### Production
-
-Secure and deterministic:
-
-```bash
-export SNPM_MIN_PACKAGE_AGE_DAYS=7
-```
-
-Use `--frozen-lockfile` in CI:
-
-```bash
-snpm install --frozen-lockfile
-```
-
-### CI/CD
-
-Fast and reproducible:
-
-```bash
-export SNPM_REGISTRY_CONCURRENCY=128
-snpm install --frozen-lockfile
-```
-
-## Hoisting Configuration
-
-Control how packages are hoisted to `node_modules`:
-
-```bash
-# No hoisting - strict isolation (like pnpm default)
-export SNPM_HOIST=none
-
-# Hoist single versions only (safe, default)
-export SNPM_HOIST=single-version
-
-# Hoist all packages (like npm/yarn)
-export SNPM_HOIST=all
-```
-
-Or configure via `.snpmrc`:
+snpm reads `.snpmrc`, `.npmrc`, and `.pnpmrc` in this order — home directory first, then ancestor directories of the current working directory. Later files override earlier ones.
 
 ```ini title=".snpmrc"
+# Comments start with # or ;
+registry=https://registry.npmjs.org/
+
+# Scoped registries
+@myorg:registry=https://npm.myorg.com/
+
+# Auth tokens per host
+//npm.myorg.com/:_authToken=${NPM_TOKEN}
+//npm.myorg.com/:_auth=dXNlcjpwYXNz
+
+# Default registry auth
+_authToken=abc123
+
+# Install behavior
 snpm-hoist=single-version
+link-backend=hardlink
+
+# Force auth
+always-auth=true
+
+# Local virtual store packages
+disable-global-virtual-store-for-packages=next,vite
 ```
 
-## Link Backend Configuration
+`${VAR}` / `$VAR` expansion is supported in `.snpmrc` and `.npmrc` style files.
 
-Choose how packages are linked from the global store:
+`snpm login` writes credentials to `~/.snpmrc` (falling back to a local `.snpmrc` if there is no home directory).
+
+## Hoisting
 
 ```bash
-# Auto-detect best method (default)
-export SNPM_LINK_BACKEND=auto
-
-# Use hardlinks (fastest, saves space)
-export SNPM_LINK_BACKEND=hardlink
-
-# Use symlinks (works across filesystems)
-export SNPM_LINK_BACKEND=symlink
-
-# Copy files (slowest, most compatible)
-export SNPM_LINK_BACKEND=copy
+export SNPM_HOIST=single-version   # default — only hoist when there is a single version
+export SNPM_HOIST=none             # strict isolation, like pnpm's default
+export SNPM_HOIST=all              # hoist aggressively, npm-style
 ```
 
-## Global Virtual Store Compatibility
+Or per workspace:
 
-snpm keeps packages in a shared virtual store for fast warm installs. Shared entries are keyed by package version and resolved dependency closure so two projects can reuse the same bytes without fighting over different transitive dependency links.
+```yaml title="snpm-workspace.yaml"
+hoisting: single-version
+```
 
-Like Bun's isolated linker, snpm keeps entries project-local when they are not safe to share: patched packages, packages allowed to run dependency lifecycle scripts, directory-backed `file:` packages, and any package that depends on a project-local entry. This keeps mutable or project-specific links out of the shared store.
-
-Some tools also resolve their own package through symlinks and then walk up parent directories to find project configuration. snpm keeps known resolver-walk-up-sensitive tools project-local through an explicit compatibility list.
-
-The default list is `next`, `nuxt`, `vite`, `vitepress`, and `parcel`. Override it with:
+## Link backend
 
 ```bash
-export SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES="next,vite"
+export SNPM_LINK_BACKEND=auto       # default — hardlinks on Unix, copies on Windows
+export SNPM_LINK_BACKEND=hardlink   # explicit hardlinks
+export SNPM_LINK_BACKEND=symlink    # symlinks (good across filesystems)
+export SNPM_LINK_BACKEND=copy       # explicit copy (slowest, most compatible)
 ```
 
-Or configure it via `.snpmrc`/`.npmrc`:
+## Global virtual store compatibility
+
+snpm pools entries across projects in `<data_dir>/virtual-store/` so two projects with the same dep closure reuse the same bytes. Some packages must stay project-local — patched packages, packages allowed to run lifecycle scripts, directory-backed `file:` deps, and tools that walk up parent directories to find configuration.
+
+The default project-local list is `next, nuxt, vite, vitepress, parcel`. Override it via env var or RC entry:
+
+```bash
+export SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES=next,vite,vitepress
+```
 
 ```ini title=".snpmrc"
 disable-global-virtual-store-for-packages=next,vite
 ```
 
-Use `[]` to disable the heuristic.
+Set it to `[]` to disable the heuristic.
 
-## Install Scripts Configuration
+## Script policy
 
-Control which packages can run install scripts for security:
-
-```bash
-# Allow specific packages to run install scripts
-export SNPM_ALLOW_SCRIPTS="puppeteer,esbuild,@swc/core,canvas"
-```
-
-By default, all install scripts are blocked. This protects against malicious packages.
-
-## Verbose Logging
-
-Enable detailed logging for debugging:
+Dependency lifecycle scripts (`preinstall`, `install`, `postinstall`) are blocked by default.
 
 ```bash
-# Enable verbose mode
-export SNPM_VERBOSE=true
-
-# Or use CLI flag
-snpm install --verbose
-
-# Custom log file
-export SNPM_LOG_FILE=/path/to/snpm.log
+export SNPM_ALLOW_SCRIPTS="esbuild,sharp,@swc/core"
 ```
 
-Verbose logs include:
-- Resolution details
-- Store operations
-- Linking progress
-- Script execution
-- Performance metrics
-
-## Workspace Configuration
-
-Workspaces are configured via `snpm-workspace.yaml`:
+Or via the workspace file:
 
 ```yaml title="snpm-workspace.yaml"
-packages:
-  - 'packages/*'
-  - 'apps/*'
-
-# Optional: configure hoisting for workspace
-hoisting: 'single-version'
-
-# Optional: control which packages can run install scripts
 onlyBuiltDependencies:
-  - 'puppeteer'
-  - 'esbuild'
-
+  - esbuild
+  - sharp
 ignoredBuiltDependencies:
-  - 'node-sass'
+  - fsevents
 ```
 
-## Bundled Dependencies
+Root project and workspace-member lifecycle scripts still run during install. After changing the allow-list, run `snpm rebuild` to apply the new policy to packages that already extracted.
 
-snpm supports `bundledDependencies` (or `bundleDependencies`) in `package.json`.
+## Minimum package age
 
-```json
-{
-  "bundledDependencies": [
-    "fsevents",
-    "node-gyp"
-  ]
-}
+Ignore versions published within the last N days. Useful for production CI to dodge zero-day malicious publishes.
+
+```bash
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
 ```
 
-Dependencies listed here are bundled with the package when published. When installing a package with bundled dependencies:
-1. snpm respects the bundled versions for that package.
-2. It prevents "store pollution" by ensuring these specific bundled versions don't leak into the global store or other parts of the dependency graph inappropriately.
+See [Security](/docs/security) for more.
 
-## Catalog Configuration
+## Catalogs
 
-Dependency versions are managed via `snpm-catalog.yaml`:
+Workspace-wide dependency versions live in `snpm-catalog.yaml` and/or the `catalog`/`catalogs` blocks in `snpm-workspace.yaml`. See [Catalog](/docs/catalog).
 
-```yaml title="snpm-catalog.yaml"
-# Default catalog
-catalog:
-  react: ^18.2.0
-  typescript: ^5.0.0
+## Overrides
 
-# Named catalogs
-catalogs:
-  build:
-    vite: ^5.0.0
-    rollup: ^4.0.0
-  
-  testing:
-    jest: ^29.0.0
-    vitest: ^1.0.0
-```
-
-Use in `package.json`:
-
-```json
-{
-  "dependencies": {
-    "react": "catalog:",
-    "vite": "catalog:build"
-  }
-}
-```
-
-See the Catalog documentation for details.
-
-## Overrides Configuration
-
-Force specific versions of dependencies:
-
-### Via `snpm-overrides.yaml`
+Force specific transitive dependency versions via `snpm-overrides.yaml` or `package.json`:
 
 ```yaml title="snpm-overrides.yaml"
 overrides:
-  # Simple overrides
   lodash: ^4.17.21
-  
-  # Scope-specific overrides  
   "@babel/core": ^7.23.0
 ```
-
-### Via `package.json`
 
 ```json title="package.json"
 {
   "snpm": {
-    "overrides": {
-      "lodash": "^4.17.21",
-      "@babel/core": "^7.23.0"
-    }
+    "overrides": { "lodash": "^4.17.21" }
   },
   "pnpm": {
-    "overrides": {
-      "axios": "^1.6.0"
-    }
+    "overrides": { "axios": "^1.6.0" }
   }
 }
 ```
 
-<Callout type="info">
-  Both `snpm.overrides` and `pnpm.overrides` are supported for pnpm compatibility.
-</Callout>
+snpm reads both `snpm.overrides` and `pnpm.overrides` for compatibility.
+
+## Bundled dependencies
+
+`bundledDependencies` (or `bundleDependencies`) in `package.json` are honored. snpm respects the bundled versions for that package and prevents store pollution by keeping bundled copies project-local.
+
+```json
+{
+  "bundledDependencies": ["fsevents", "node-gyp"]
+}
+```
+
+## Inspecting the resolved config
+
+Run `snpm config` to print resolved paths, registry/auth, install settings (hoisting, link backend, local virtual store packages, strict peers, frozen lockfile default, min package age, registry concurrency, always-auth), allow-scripts list, and logging configuration.
+
+## Common configurations
+
+### Development
+
+```bash
+export SNPM_REGISTRY_CONCURRENCY=128
+unset SNPM_MIN_PACKAGE_AGE_DAYS
+```
+
+### Production / CI
+
+```bash
+export SNPM_MIN_PACKAGE_AGE_DAYS=7
+export SNPM_FROZEN_LOCKFILE=1
+export SNPM_ALLOW_SCRIPTS="esbuild,sharp"
+snpm install --frozen-lockfile
+```
+
+### Private registry
+
+```bash
+export SNPM_CONFIG_REGISTRY=https://npm.mycompany.com
+export NODE_AUTH_TOKEN=$MY_TOKEN
+```
+
+Or via login:
+
+```bash
+snpm login --registry https://npm.mycompany.com
+snpm login --scope @myorg --registry https://npm.mycompany.com
+```

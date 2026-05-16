@@ -1,113 +1,132 @@
 ---
 title: Lockfile
-description: Understanding snpm-lock.yaml
+description: snpm-lock.yaml schema, integrity markers, and lockfile imports
 ---
 
-The `snpm-lock.yaml` file ensures deterministic installs across all environments.
+`snpm-lock.yaml` is snpm's native lockfile. It pins the exact resolved version, tarball, and integrity hash for every package in the dependency graph, making installs deterministic across machines and CI runners.
 
-## What is a Lockfile?
+## Schema
 
-A lockfile records the exact versions of all dependencies installed in your project. This guarantees that everyone on your team, and your CI/CD system, installs the exact same dependency tree.
-
-## Format
-
-snpm uses YAML format for readability:
+The lockfile is YAML and currently uses schema version `1`.
 
 ```yaml title="snpm-lock.yaml"
-lockfileVersion: 1
+version: 1
+
+root:
+  dependencies:
+    express:
+      requested: "^4.18.0"
+      version: 4.18.2
+    typescript:
+      requested: ^5.4.0
+      version: 5.4.5
+      optional: false
 
 packages:
-  react@18.2.0:
-    version: 18.2.0
-    resolved: https://registry.npmjs.org/react/-/react-18.2.0.tgz
+  express@4.18.2:
+    name: express
+    version: 4.18.2
+    tarball: https://registry.npmjs.org/express/-/express-4.18.2.tgz
     integrity: sha512-...
     dependencies:
-      loose-envify: ^1.1.0
+      body-parser: body-parser@1.20.1
+      cookie: cookie@0.5.0
+    hasBin: false
 
-  loose-envify@1.4.0:
-    version: 1.4.0
-    resolved: https://registry.npmjs.org/loose-envify/-/loose-envify-1.4.0.tgz
+  body-parser@1.20.1:
+    name: body-parser
+    version: 1.20.1
+    tarball: https://registry.npmjs.org/body-parser/-/body-parser-1.20.1.tgz
     integrity: sha512-...
+    dependencies: {}
 ```
 
-## Why YAML?
+Key fields:
 
-- **Readable** - Easy to review in pull requests
-- **Simple** - No complex nesting or cryptic syntax
-- **Git-friendly** - Clean diffs when dependencies change
+- **`root.dependencies`** — direct dependencies declared in `package.json`. Each entry records the originally `requested` range plus the resolved `version` (and `optional` if the dep is optional).
+- **`packages.<name>@<version>`** — the resolved package. Stores `name`, `version`, `tarball`, `integrity`, transitive `dependencies` (map name → `name@version` of the resolved entry), `bundledDependencies` (if any), and `hasBin` / `bin` for packages that ship binaries.
 
-## Lockfile Behavior
+Workspaces share a single `snpm-lock.yaml` at the workspace root.
 
-### Automatic Updates
+## When the lockfile is written
 
-The lockfile is automatically updated when you:
-- Add packages with `snpm add`
-- Remove packages with `snpm remove`
-- Upgrade packages with `snpm upgrade`
-- Run `snpm install` with new dependencies in `package.json`
+The lockfile updates whenever the install plan changes — `snpm add`, `snpm remove`, `snpm upgrade`, or `snpm install` with new packages.
 
-### Frozen Lockfile
+snpm only writes a dev-inclusive lockfile when `include_dev = true`. With `--production` (or running an install path that skips dev), the existing lockfile is reused but not rewritten, so dev resolution does not get clobbered.
 
-Use `--frozen-lockfile` to prevent lockfile updates:
+## Frozen, prefer, fix
 
-```bash
-snpm install --frozen-lockfile
-```
+| Mode | CLI flag | Behavior |
+|------|----------|----------|
+| Frozen | `--frozen-lockfile` (alias `--immutable`), or `SNPM_FROZEN_LOCKFILE=1` | Fail if the lockfile is missing or does not match the manifest. |
+| No frozen | `--no-frozen-lockfile` | Ignore lockfile data and re-resolve. |
+| Prefer | `--prefer-frozen-lockfile` | Reuse lockfile entries that are still valid, re-resolve the rest. |
+| Fix | `--fix-lockfile` (install only) | Re-resolve drifted entries while keeping unchanged ones pinned. |
 
-This is useful in CI to ensure the lockfile is up to date. The command will fail if the lockfile needs changes.
+Pass these flags globally (`snpm --frozen-lockfile install`) and they propagate to every install-like subcommand, or pass them directly to the subcommand.
+
+## Integrity marker
+
+After a successful install, snpm writes `node_modules/.snpm-integrity` containing a lockfile-derived hash. The next install reads this marker first and short-circuits if the hash still matches — that is the "hot install" path that completes in tens of milliseconds.
+
+In workspaces, the integrity marker is written per project so changes to one project's deps don't invalidate the others.
+
+## Importing other lockfiles
+
+When `snpm-lock.yaml` is missing, snpm can seed the first install from a compatible lockfile and then take over with its own format:
+
+| Source | Files |
+|--------|-------|
+| pnpm | `pnpm-lock.yaml`, branch lockfiles like `pnpm-lock.feature!name.yaml` |
+| Bun | `bun.lock` |
+| Yarn | `yarn.lock` |
+| npm | `npm-shrinkwrap.json`, `package-lock.json` |
+
+Imported data is used only as compatibility input. Once the install completes, `snpm-lock.yaml` is the source of truth. Subsequent installs read snpm's lockfile.
 
 ## Workspaces
 
-In a monorepo, there's a single `snpm-lock.yaml` at the workspace root that covers all packages:
+A workspace has exactly one `snpm-lock.yaml` at the root — it covers every workspace project:
 
 ```
 my-monorepo/
 ├── snpm-workspace.yaml
-├── snpm-lock.yaml          ← Single lockfile
+├── snpm-lock.yaml           ← single lockfile
 ├── packages/
-│   ├── ui/
-│   │   └── package.json
-│   └── utils/
-│       └── package.json
+│   ├── ui/package.json
+│   └── utils/package.json
 └── apps/
-    └── web/
-        └── package.json
+    └── web/package.json
 ```
 
-## Version Control
+## Version control
 
-**Always commit `snpm-lock.yaml` to version control.**
+**Always commit `snpm-lock.yaml`.**
 
-This ensures:
-- Consistent installs across all environments
-- Same versions in development and production
-- Reproducible builds in CI/CD
+It is small, human-readable, and the only guarantee that local builds match CI and production.
 
-## Merge Conflicts
+## Merge conflicts
 
-If you get merge conflicts in `snpm-lock.yaml`:
+When you hit a conflict in `snpm-lock.yaml`:
 
-1. Resolve conflicts in `package.json` first
-2. Delete `snpm-lock.yaml`
-3. Run `snpm install` to regenerate it
+1. Resolve conflicts in every affected `package.json` first.
+2. Delete `snpm-lock.yaml`.
+3. Run `snpm install`.
 
 ```bash
-# After resolving package.json conflicts
+git checkout --theirs package.json apps/*/package.json
+# resolve manually if needed
 rm snpm-lock.yaml
 snpm install
 git add snpm-lock.yaml
 ```
 
-## Best Practices
+If you want to keep the existing resolution where possible, run `snpm install --fix-lockfile` instead — it only re-resolves entries that drifted.
 
-**Commit the Lockfile** - Always commit `snpm-lock.yaml` to version control.
+## Best practices
 
-**Use Frozen Lockfile in CI** - Prevent unexpected updates:
-
-```bash
-snpm install --frozen-lockfile
-```
-
-**Review Lockfile Changes** - When reviewing PRs, check lockfile changes to understand what dependencies were added or updated.
-
-**Regenerate When Needed** - If the lockfile gets corrupted or has conflicts, delete it and run `snpm install` to regenerate.
+- **Always commit the lockfile.**
+- **Use `--frozen-lockfile` in CI** — it catches missed commits and prevents quiet upgrades.
+- **Review the diff in PRs** — the YAML format makes it readable; new tarball URLs or integrity changes show up cleanly.
+- **Prefer `--fix-lockfile` over deleting it** when only a small subset of deps needs to be re-resolved.
+- **Use `snpm why <pkg>`** to trace why an unexpected package landed in the lockfile.

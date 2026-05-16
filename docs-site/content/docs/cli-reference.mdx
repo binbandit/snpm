@@ -1,310 +1,230 @@
 ---
 title: CLI Reference
-description: Complete command-line reference for snpm
+description: Terse flag, env-var, and exit-code matrix
 ---
 
-Complete reference for all snpm commands and options.
+A condensed reference card. For prose, examples, and discussion see [Commands](/docs/commands).
 
-## Global Flags
+## Global flags
 
-These flags can be used with any command:
-
-- `-v, --verbose` - Enable verbose logging output
-
-**Example:**
-
-```bash
-snpm install --verbose
-snpm add react --verbose
-```
+| Flag | Description |
+|------|-------------|
+| `-v, --verbose` | Enable verbose logging (also `SNPM_VERBOSE=1`) |
+| `--frozen-lockfile` | Fail if lockfile is missing/out of date (propagates to install-like subcommands) |
+| `--no-frozen-lockfile` | Ignore lockfile, re-resolve |
+| `--prefer-frozen-lockfile` | Use lockfile when valid, otherwise re-resolve |
 
 ## Commands
 
 ### install
+`snpm install [packages...]`
 
-```bash
-snpm install [packages...]
-```
-
-Install dependencies from `package.json` or add specific packages.
-
-**Options:**
-- `--production` - Skip dev dependencies
-- `--frozen-lockfile`, `--immutable` - Fail if lockfile needs updates
-- `-f, --force` - Force re-download all packages
-- `-w, --workspace <name>` - Target specific workspace project
+`--production`, `--frozen-lockfile`/`--immutable`, `--no-frozen-lockfile`, `--prefer-frozen-lockfile`, `--fix-lockfile`, `-f/--force`, `-w/--workspace <name>`.
 
 ### add
+`snpm add <packages...>`
 
-```bash
-snpm add <packages...>
-```
-
-Add packages to dependencies.
-
-**Options:**
-- `-D, --dev` - Add as dev dependency
-- `-g, --global` - Install globally
-- `-f, --force` - Force re-download
-- `-w, --workspace <name>` - Target specific workspace project
+`-D/--dev`, `-g/--global`, `-f/--force`, `-w/--workspace <name>`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`.
 
 ### remove
+`snpm remove <packages...>`
 
-```bash
-snpm remove <packages...>
-```
-
-Remove packages from the project.
+`-g/--global`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`.
 
 ### run
+`snpm run <script> [-- args...]`
 
-```bash
-snpm run <script> [-- <args>]
-```
-
-Run a script from `package.json`.
-
-**Options:**
-- `-r, --recursive` - Run in all workspace projects
-- `--filter <pattern>` - Run in filtered workspace projects (supports globs)
-- `--skip-install` - Skip automatic install check
-
-### upgrade
-
-```bash
-snpm upgrade [packages...]
-```
-
-Update packages to their latest versions within semver constraints.
-
-**Options:**
-- `--production` - Only upgrade production dependencies
-- `-f, --force` - Force re-download
-
-### outdated
-
-```bash
-snpm outdated
-```
-
-Check for outdated packages.
-
-**Options:**
-- `--production` - Only check production dependencies
-
-### dlx
-
-```bash
-snpm dlx <package> [args...]
-```
-
-Download and execute a package binary. Alias: `spx`.
+`-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`, `--skip-install`. Unknown subcommands fall through to `run`.
 
 ### exec
+`snpm exec <command> [args...]`
 
-```bash
-snpm exec <command> [args...]
-```
+`-c/--shell-mode`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`, `--skip-install`.
 
-Execute a command with `node_modules/.bin` in PATH.
+### dlx
+`snpm dlx <package> [args...]`
 
-**Options:**
-- `-c, --shell-mode` - Run through shell (pipes, redirects)
-- `-r, --recursive` - Run in all workspace projects
-- `--filter <pattern>` - Filter workspace projects
-- `--skip-install` - Skip automatic install check
+`--offline`, `--prefer-offline`. Aliases when invoked as `spx`, `snpx`, `pnpx`.
+
+### upgrade
+`snpm upgrade [packages...]`
+
+`--production`, `-f/--force`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`. With no packages, deletes the lockfile and re-resolves.
+
+### outdated
+`snpm outdated`
+
+`--production`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`.
+
+### licenses
+`snpm licenses`
+
+`--json`.
+
+### why
+`snpm why <package>`
+
+`--depth <N>`, `--json`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`. Supports glob patterns.
 
 ### list
+`snpm list`
 
-```bash
-snpm list
-```
+`-g/--global`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`.
 
-List installed packages.
+### link / unlink
+`snpm link [package]` · `snpm unlink [package]`
 
-**Options:**
-- `-g, --global` - List globally installed packages
+No flags. Without a package name, operates on the current project against the global link store.
+
+### pack
+`snpm pack`
+
+`--dry-run`, `--list`, `--json`.
+
+### publish
+`snpm publish`
+
+`--tag <tag>` (default `latest`), `--access <public|restricted>`, `--otp <code>`, `--dry-run`, `--allow-risk <code>`, `-r/--recursive`, `--filter <selector>`, `--filter-prod <selector>`.
+
+### rebuild
+`snpm rebuild`
+
+No flags.
+
+### audit
+`snpm audit [packages...]`
+
+`--audit-level <level>`, `-P/--prod`, `-D/--dev`, `--format <table|json|sarif>`, `--fix`, `--ignore-cve <id>` (repeatable), `--ignore-ghsa <id>` (repeatable), `--ignore-unfixable`, `--ignore-registry-errors`.
 
 ### patch
-
-```bash
-snpm patch <subcommand>
-```
-
-Modify installed packages. Subcommands: `edit`, `commit`, `remove`, `list`.
+`snpm patch edit <pkg[@version]>` (alias `patch start`) · `snpm patch commit <path>` · `snpm patch remove <pkg>` · `snpm patch list`.
 
 ### clean
+`snpm clean`
 
-```bash
-snpm clean
-```
+`-y/--yes`, `--dry-run`, `--packages`, `--metadata`, `--global`, `--all`.
 
-Remove cached packages and metadata.
-
-**Options:**
-- `-y, --yes` - Skip confirmation
-- `--dry-run` - Preview without deleting
-- `--packages` - Only clean packages
-- `--metadata` - Only clean metadata
-- `--global` - Also clean global installs
-- `--all` - Clean everything
-
-### init
-
-```bash
-snpm init
-```
-
-Initialize a new `package.json`.
-
-The generated file includes a normalized package name, `1.0.0` version, `packageManager` pinned to the running `snpm` version, and well-known package.json field ordering.
+### store
+`snpm store status` · `snpm store path` · `snpm store prune [--dry-run]`.
 
 ### login
+`snpm login`
 
-```bash
-snpm login
-```
-
-Authenticate with an npm registry.
-
-Supports both Bearer and Basic authentication schemes:
-- Bearer: use an auth token via `--token` or environment variables
-- Basic: typically provided via web-based login (`--web`) where username/password are exchanged for a session token
-
-**Options:**
-- `--registry <url>` - Registry URL (scheme required, e.g. https://; trailing slashes are normalized)
-- `--token <token>` - Auth token (Bearer scheme)
-- `--scope <scope>` - Associate scope with registry
-- `--web` - Use web-based authentication (Basic credentials exchanged for a token)
+`--registry <url>`, `--scope <scope>`. Default flow is web-based; the resulting Bearer token is saved to `~/.snpmrc`.
 
 ### logout
+`snpm logout`
 
-```bash
-snpm logout
-```
+`--registry <url>`, `--scope <scope>`.
 
-Remove registry credentials.
+### init
+`snpm init`
 
-**Options:**
-- `--registry <url>` - Registry URL
-- `--scope <scope>` - Remove credentials for specific scope
+No flags. Generates `package.json` with `packageManager` pinned to the running `snpm` version.
 
 ### config
+`snpm config`
 
-```bash
-snpm config
-```
+No flags. Prints resolved configuration.
 
-Show the resolved configuration and runtime paths.
+### node
+`snpm node <subcommand>` — full nvm-style version manager.
 
-## Environment Variables
+Subcommands: `install [version] [--lts] [--default]`, `uninstall <version>`, `use [version] [--lts] [--default] [--install] [--silent]`, `list` (alias `ls`), `ls-remote` (aliases `list-remote`, `remote`), `current`, `which <version>`, `alias <name> [version]`, `unalias <name>`, `default <version>`, `exec <version> -- <cmd>`, `run <version> <script>`, `env [--shell <name>]`.
+
+### completions
+`snpm completions <shell>`
+
+Hidden helper. Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
+
+## Multicall aliases
+
+snpm rewrites argv0 when invoked as a known alias:
+
+| argv0 | Behaves as |
+|-------|-----------|
+| `spx`, `snpx`, `pnpx` | `snpm dlx` |
+| `snpr` | `snpm run` |
+
+## Workspace selectors (`--filter` / `--filter-prod`)
+
+`--filter` selects projects against the workspace dependency graph. The same grammar is used by every workspace-aware command (`add`, `remove`, `run`, `exec`, `upgrade`, `outdated`, `list`, `why`, `publish`).
+
+| Pattern | Effect |
+|---------|--------|
+| `pkg-name` | Exact project name |
+| `@scope/*`, `foo-?` | Glob over project names |
+| `./packages/api`, `../lib`, `/abs/path` | Path-based match (project rooted at this path) |
+| `pkg...` | The package and everything it depends on |
+| `...pkg` | The package and everything that depends on it |
+| `^pkg...` / `pkg^...` | Same as above, but exclude the seed (graph operators only) |
+| `[<git-ref>]` | Projects with files changed since `<git-ref>` (uses `git diff`) |
+| `!pkg` | Exclude (combine with positive selectors) |
+
+`--filter-prod` accepts the same grammar but restricts dependency/dependent walks to production dependencies only.
+
+## Environment variables
+
+### Directories
+
+| Variable | Purpose |
+|----------|---------|
+| `SNPM_HOME` | Sets `cache=$SNPM_HOME/cache`, `data=$SNPM_HOME/data` |
+
+Without `SNPM_HOME`, platform defaults are used:
+- macOS: cache `~/Library/Caches/snpm`, data `~/Library/Application Support/io.snpm.snpm`
+- Linux: cache `~/.cache/snpm`, data `~/.local/share/snpm`
+- Windows: cache `%LOCALAPPDATA%\snpm\snpm\cache`, data `%LOCALAPPDATA%\snpm\snpm\data`
+
+### Install behavior
+
+| Variable | Default | Values |
+|----------|---------|--------|
+| `SNPM_HOIST` | `single-version` | `none`, `single-version`, `all` |
+| `SNPM_LINK_BACKEND` | `auto` | `auto`, `hardlink`, `symlink`, `copy` |
+| `SNPM_STRICT_PEERS` | `false` | truthy |
+| `SNPM_FROZEN_LOCKFILE` | `false` | truthy |
+| `SNPM_REGISTRY_CONCURRENCY` | `128` | integer > 0 |
+| `SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES` | `next,nuxt,vite,vitepress,parcel` | Comma-separated names; `[]` disables the list |
+
+Truthy values: `1`, `true`, `yes`, `y`, `on`.
+
+### Registry & auth
 
 | Variable | Description |
 |----------|-------------|
-| `SNPM_HOME` | Custom home directory for cache and data |
-| `SNPM_REGISTRY` | Default registry URL |
-| `NPM_CONFIG_REGISTRY`, `npm_config_registry` | Alternative registry URL (npm compatibility) |
-| `SNPM_MIN_PACKAGE_AGE_DAYS` | Minimum package age in days |
-| `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS` | Metadata cache age in days |
-| `SNPM_HOIST` | Hoisting mode: `none`, `single-version`, `all` |
-| `SNPM_LINK_BACKEND` | Link strategy: `auto`, `hardlink`, `symlink`, `copy` |
-| `SNPM_STRICT_PEERS` | Fail on peer dependency conflicts |
-| `SNPM_FROZEN_LOCKFILE` | Default frozen lockfile mode |
-| `SNPM_REGISTRY_CONCURRENCY` | Max concurrent registry requests |
-| `SNPM_ALLOW_SCRIPTS` | Comma-separated list of packages allowed to run install scripts |
-| `SNPM_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES` | Comma-separated packages to force into the project-local virtual store |
-| `SNPM_VERBOSE` | Enable verbose logging |
-| `SNPM_LOG_FILE` | Custom log file path |
-| `NPM_TOKEN`, `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` | Registry authentication token (Bearer) |
+| `NPM_CONFIG_REGISTRY` / `npm_config_registry` | Default registry URL |
+| `PNPM_CONFIG_REGISTRY` / `pnpm_config_registry` | Same, pnpm prefix |
+| `SNPM_CONFIG_REGISTRY` / `snpm_config_registry` | Same, snpm prefix (highest precedence) |
+| `SNPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN`, `NPM_TOKEN` | Bearer token for default registry |
+| `NPM_CONFIG__AUTH` / `PNPM_CONFIG__AUTH` / `SNPM_CONFIG__AUTH` | Base64 Basic credentials for default registry |
+| `NPM_CONFIG_ALWAYS_AUTH` / `SNPM_ALWAYS_AUTH` | Force auth on every request (truthy) |
 
-## Examples
+snpm prefers `SNPM_*`, then `PNPM_*`, then `NPM_*` for the registry/auth variables that have all three forms.
 
-### Basic Usage
+### Security
 
-```bash
-# Install dependencies
-snpm install
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SNPM_ALLOW_SCRIPTS` | (empty) | Comma-separated packages allowed to run install scripts |
+| `SNPM_MIN_PACKAGE_AGE_DAYS` | (none) | Ignore versions published within N days |
+| `SNPM_MIN_PACKAGE_CACHE_AGE_DAYS` | `7` | Re-fetch metadata older than N days |
 
-# Add packages
-snpm add react react-dom
-snpm add -D typescript
+### Logging
 
-# Remove packages
-snpm remove lodash
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SNPM_VERBOSE` | `false` | Enable verbose output (also `-v/--verbose`) |
+| `SNPM_LOG_FILE` | (unset) | Custom log file path (defaults to `.snpm.log` in cwd when verbose) |
 
-# Run scripts
-snpm run build
-snpm run test -- --watch
-
-# Upgrade packages
-snpm upgrade
-snpm upgrade react
-
-# Check for updates
-snpm outdated
-```
-
-### Workspaces
-
-```bash
-# Install all workspace packages
-snpm install
-
-# Install in specific workspace
-snpm install -w ui
-
-# Add to specific workspace
-snpm add react -w ui
-
-# Run in all workspaces
-snpm run build --recursive
-
-# Run in filtered workspaces
-snpm run test --filter "ui"
-snpm run build --filter "app-*"
-```
-
-### CI/CD
-
-```bash
-# Frozen lockfile (fail if out of sync)
-snpm install --frozen-lockfile
-
-# Production install
-snpm install --production --frozen-lockfile
-
-# With security settings
-SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install --frozen-lockfile
-```
-
-### Authentication
-
-```bash
-# Login to default registry
-snpm login
-
-# Login with token (Bearer)
-snpm login --token npm_xxxxxxxxxxxxx
-
-# Login to private registry (URL must include protocol)
-snpm login --registry https://npm.mycompany.com
-
-# Login with scope
-snpm login --scope @myorg --registry https://npm.mycompany.com
-
-# Web-based login (Basic credentials exchanged for token)
-snpm login --web
-
-# Logout
-snpm logout
-```
-
-## Exit Codes
+## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Error |
+| `1` | Any error: install failure, lockfile drift in frozen mode, audit found vulnerabilities, publish refused, etc. |
+
+`snpm audit` exits `1` when vulnerabilities are present unless `--ignore-registry-errors` was set and the registry itself failed.
 
 ## Comparison with npm
 
@@ -312,10 +232,19 @@ snpm logout
 |-----|------|
 | `npm install` | `snpm install` |
 | `npm install <pkg>` | `snpm add <pkg>` |
+| `npm install <pkg> --save-dev` | `snpm add -D <pkg>` |
+| `npm install -g <pkg>` | `snpm add -g <pkg>` |
 | `npm uninstall <pkg>` | `snpm remove <pkg>` |
 | `npm update` | `snpm upgrade` |
 | `npm outdated` | `snpm outdated` |
-| `npm run <script>` | `snpm run <script>` |
+| `npm run <script>` | `snpm run <script>` (or `snpm <script>`) |
+| `npx <pkg>` | `snpm dlx <pkg>` (or `spx <pkg>`) |
 | `npm init` | `snpm init` |
-| `npm login` | `snpm login` |
-| `npm logout` | `snpm logout` |
+| `npm login` / `npm logout` | `snpm login` / `snpm logout` |
+| `npm pack` / `npm publish` | `snpm pack` / `snpm publish` |
+| `npm audit` / `npm audit fix` | `snpm audit` / `snpm audit --fix` |
+| `npm explain <pkg>` | `snpm why <pkg>` |
+| `npm ls -g` | `snpm list -g` |
+| `npm link` / `npm unlink` | `snpm link` / `snpm unlink` |
+| `npm rebuild` | `snpm rebuild` |
+| `npm cache clean --force` | `snpm clean` (interactive) or `snpm clean -y` |

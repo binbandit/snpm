@@ -1,78 +1,69 @@
 ---
 title: Roadmap
-description: The future of snpm, tracked.
+description: What works today and what is still in flight
 ---
 
-# Roadmap
+snpm is under active development. Most day-to-day workflows are covered; the rough edges are ecosystem-specific compatibility, performance tuning on very large repos, and a handful of diagnostics polish items.
 
-This page tracks snpm's feature development. We're building a fast, secure, and user-friendly package manager that matches and exceeds pnpm's feature set.
-
-## Implemented
-
-Features that are already available in the current version of snpm.
+## Shipped
 
 ### Core CLI
-- [x] **Full command suite** (`install`, `add`, `remove`, `run`, `init`, `upgrade`, `outdated`)
-- [x] **Production installs** (`--production` flag)
-- [x] **Global package support** (`snpm add -g`, `snpm list -g`)
-- [x] **Script execution** (`run`, `exec`, `dlx`)
-- [x] **Package patching** (`snpm patch edit/commit/remove/list`)
-- [x] **Cache management** (`snpm clean`)
-- [x] **Configuration display** (`snpm config`)
-- [x] **Authentication** (`snpm login`, `snpm logout`)
+- Full command surface: `install`, `add`, `remove`, `upgrade`, `outdated`, `list`, `run`, `exec`, `dlx`, `init`, `licenses`, `link`, `unlink`, `pack`, `publish`, `rebuild`, `patch`, `clean`, `audit`, `why`, `store`, `login`, `logout`, `config`, `node`, plus a `<script-name>` fallback.
+- Global flags propagated into subcommands: `--frozen-lockfile`, `--no-frozen-lockfile`, `--prefer-frozen-lockfile`, `--verbose`.
+- Multicall aliases: `spx`, `snpx`, `pnpx` (→ `snpm dlx`) and `snpr` (→ `snpm run`).
+- Shell completions: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 
-### Package Resolution
-- [x] **Global Store** with parallel downloads
-- [x] **Lockfile** (`snpm-lock.yaml`) read/write and reuse
-- [x] **Semver support** (including `latest`, `||` ranges, complex expressions)
-- [x] **Virtual store layout** (`.snpm/` directory)
-- [x] **Multiple link backends** (auto, hardlink, symlink, copy)
-- [x] **Configurable hoisting** (none, single-version, all)
+### Resolution and install
+- Lockfile-driven installs with `snpm-lock.yaml` (schema `v1`).
+- Hot-path detection via `node_modules/.snpm-integrity` (sub-100 ms warm installs).
+- Shared package store with `auto` / `hardlink` / `symlink` / `copy` link backends.
+- Shared virtual-store entries keyed by version + dependency closure; project-local fallbacks for patched, script-allowed, directory-backed `file:`, and resolver-walk-up-sensitive packages.
+- Configurable hoisting (`none`, `single-version`, `all`).
+- Peer dependency resolution with optional strict mode.
 
 ### Workspaces
-- [x] **First-class workspace support** (`snpm-workspace.yaml`, `pnpm-workspace.yaml`)
-- [x] **Local package resolution** (workspace protocol `workspace:*`)
-- [x] **Single lockfile** for the entire workspace
-- [x] **Targeted commands** (`snpm add -w <project>`, `snpm install -w <project>`)
-- [x] **Recursive scripts** (`snpm run build --recursive`, `--filter`)
-- [x] **Catalog protocol** (`snpm-catalog.yaml`)
+- Discovery from `snpm-workspace.yaml`, `pnpm-workspace.yaml`, and `package.json` `workspaces`.
+- `-w <name>`, `-r/--recursive`, `--filter`, `--filter-prod` across `add`, `remove`, `run`, `exec`, `upgrade`, `outdated`, `list`, `why`, `publish`.
+- Graph-aware filters: `pkg...`, `...pkg`, `^pkg...`, `[git-ref]`, glob, path, exact name, `!exclude`.
+- Catalogs in `snpm-workspace.yaml` and standalone `snpm-catalog.yaml`.
+- Overrides via `snpm-overrides.yaml`, `snpm.overrides`, and `pnpm.overrides`.
 
-### CI/CD & Security
-- [x] **Frozen lockfile mode** (`--frozen-lockfile` / `--immutable`)
-- [x] **Minimum version age** protection against zero-day attacks
-- [x] **Install script blocking** with explicit whitelist
-- [x] **Registry authentication** (Bearer/Basic, scoped registries)
+### Lockfile interop
+- Imports from `pnpm-lock.yaml` (including branch lockfiles like `pnpm-lock.feature!name.yaml`), `bun.lock`, `yarn.lock`, `npm-shrinkwrap.json`, and `package-lock.json` when `snpm-lock.yaml` is missing.
 
-### Protocols
-- [x] **npm:** registry packages
-- [x] **file:** local filesystem dependencies
-- [x] **git:** git repository dependencies
-- [x] **jsr:** JSR registry support
-- [x] **catalog:** version catalog references
-
-### Quality of Life
-- [x] **Lazy install** on `run`/`exec` if deps are stale
-- [x] **Verbose logging** (`--verbose`, `SNPM_VERBOSE`)
-- [x] **Overrides support** (`snpm-overrides.yaml`, `package.json`)
-- [x] **Peer dependency handling** with configurable strictness
-
-## Planned
-
-Upcoming features and improvements.
-
-### Performance
-- [ ] Smarter reuse of resolution graphs within a workspace
-- [ ] Incremental lockfile updates for faster `add`/`remove`
-
-### Developer Experience
-- [ ] `snpm why <package>` to explain dependency paths
-- [ ] `snpm prune` to remove extraneous packages
-- [ ] Interactive upgrade mode
+### Security
+- Install scripts blocked by default; allow-list via `SNPM_ALLOW_SCRIPTS` or workspace `onlyBuiltDependencies` / `ignoredBuiltDependencies`.
+- `SNPM_MIN_PACKAGE_AGE_DAYS` zero-day protection.
+- Tarball auth scoped to the announcing registry origin.
+- `audit` with `--audit-level`, `--fix`, SARIF output, CVE/GHSA exclusions, unfixable suppression.
 
 ### Publishing
-- [ ] `snpm publish` with workspace support
-- [ ] `snpm pack` to create tarballs
+- `pack` with `--dry-run`, `--list`, `--json`, and inspection findings.
+- `publish` with `--tag`, `--access`, `--otp`, `--dry-run`, `--allow-risk`, plus workspace fan-out.
 
-### Advanced Features
-- [ ] Side effects cache for install scripts
-- [ ] Pluggable lifecycle hooks
+### Local development
+- `link` / `unlink` for global and project-local link flows.
+- `patch edit` / `commit` / `remove` / `list`, compatible with `pnpm.patched_dependencies`.
+- `rebuild` to apply script-policy changes to already-extracted packages.
+
+### Tooling
+- `dlx` with `--offline` and `--prefer-offline`.
+- `snpm node ...`: built-in nvm-style version manager with `.node-version`/`.nvmrc`/`engines.node` discovery and shell init script.
+- `snpm-switch` launcher reads `packageManager` from `package.json` and pins per-project snpm versions.
+- `snpm clean` interactive cache cleanup; `snpm store status/path/prune` for store maintenance.
+
+## In progress
+
+- Tighter performance on very large monorepos (5k+ projects, 100k+ resolved packages).
+- Broader compatibility with unusual package layouts and lifecycle expectations.
+- Improved diagnostics and migration messaging.
+- More `compat-lab` coverage of real-world JavaScript/TypeScript repositories.
+
+## Future considerations
+
+- Side-effect caches for install scripts.
+- Pluggable lifecycle hooks.
+- Interactive `upgrade` and `outdated` modes.
+- First-class support for additional registries beyond npm/JSR.
+
+The [GitHub issues](https://github.com/binbandit/snpm/issues) tracker is the most up-to-date source for in-flight work.

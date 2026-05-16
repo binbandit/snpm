@@ -1,55 +1,71 @@
 ---
 title: Introduction
-description: Welcome to snpm - the Speedy Node Package Manager
+description: A Rust-native package manager for JavaScript workspaces
 ---
 
-**snpm** is a fast, simple, and deterministic package manager written in Rust. It's designed to be a drop-in replacement for npm, yarn, and pnpm.
+**snpm** is a Rust-native package manager for Node.js projects, shaped around pnpm-style workflows: a shared package store, a `node_modules/.snpm` virtual store, workspace-aware installs, and a lockfile-first install path.
 
 <Callout type="info">
-  **Status:** snpm is production-ready for most workflows. Fast, secure, and feature-complete for day-to-day package management. Publishing features coming soon.
+  The core install, workspace, registry, cache, script-policy, and package workflow surfaces are in place. snpm reads pnpm/Bun/Yarn/npm lockfiles when its own is missing, then continues with `snpm-lock.yaml` as the source of truth.
 </Callout>
 
-## Why snpm?
+## What you get
 
-Built with a strict "no cleverness" rule, snpm focuses on making the existing npm workflow **faster**, **simpler**, and **easier to maintain**.
+- **Drop-in workflow** — `snpm install`, `snpm add`, `snpm run`, `snpm exec`, `snpm dlx`, plus a script-name fallback (`snpm build` runs `build`).
+- **Shared package store** with hardlinks/symlinks/copies, and a project-local `node_modules/.snpm` virtual store keyed by version + dependency closure.
+- **Workspaces** discovered from `snpm-workspace.yaml`, `pnpm-workspace.yaml`, or `package.json` `workspaces`, with rich `--filter`/`--filter-prod` selectors (name, glob, path, `pkg...`, `...pkg`, `[git-ref]`, `!exclude`).
+- **Catalogs and overrides** through `snpm-catalog.yaml`, `snpm-overrides.yaml`, and `package.json` `snpm` / `pnpm` blocks.
+- **Lockfile imports** — `pnpm-lock.yaml`, `bun.lock`, `yarn.lock`, `npm-shrinkwrap.json`, and `package-lock.json` seed the first install if `snpm-lock.yaml` is missing.
+- **Registry auth** with Bearer/Basic schemes, scoped registries, and `.snpmrc` / `.npmrc` / `.pnpmrc` parsing.
+- **Security defaults** — dependency lifecycle scripts blocked unless explicitly allowed, `SNPM_MIN_PACKAGE_AGE_DAYS` to skip recent publishes, tarball auth scoped to the announcing registry origin.
+- **First-party publishing** — `pack`, `publish`, `pack --dry-run`, distribution tags, OTP support.
+- **Inspection** — `audit` (table/json/SARIF, `--fix`), `why`, `licenses`, `store status`, `outdated`, `list`.
+- **Local development** — `link`, `unlink`, `patch edit/commit/remove/list`, `rebuild`.
+- **Node version manager** — `snpm node install`, `node use`, `.node-version` / `.nvmrc` / `engines.node` discovery, shell hooks.
 
-### Core Features
-
-- **Familiar Commands** - `snpm install`, `snpm add`, `snpm run` work exactly like npm
-- **Global Store** - Download packages once, reuse them across all projects
-- **Parallel Operations** - Network and disk operations run in parallel for speed
-- **Workspace Support** - First-class monorepo support with `snpm-workspace.yaml`
-- **Catalog Protocol** - Define dependency versions once in `snpm-catalog.yaml`
-- **Clean Lockfile** - Simple, readable `snpm-lock.yaml` format
-- **Minimum Version Age** - Protect against zero-day malicious packages
-- **Install Script Security** - All install scripts blocked by default, explicit whitelisting required
-- **Flexible Hoisting** - Choose from none, single-version, or all hoisting modes
-- **Link Backend Options** - Auto, hardlink, symlink, or copy strategies
-- **Overrides Support** - Force specific versions via `snpm-overrides.yaml` or `package.json`
-- **Verbose Logging** - Detailed debugging output with `--verbose` flag
-
-## Quick Start
+## Quick start
 
 ```bash
 # Install snpm
 npm install -g snpm
 
-# Use it like npm
+# Work in a project
 snpm install
 snpm add react
+snpm add -D typescript
+snpm remove left-pad
 snpm run build
+snpm exec eslint .
+snpm dlx cowsay "hello"
 ```
 
-## How It Works
+In a workspace:
 
-**Global Store** - Packages are downloaded once and stored in platform-specific directories (e.g., `~/Library/Caches/snpm` on macOS) and linked into your projects. This saves disk space and speeds up subsequent installs.
+```bash
+snpm install
+snpm install -w @acme/api
+snpm run build -r
+snpm run test --filter "@acme/*"
+snpm run test --filter api...
+snpm add -r -D vitest
+```
 
-**Parallelism** - Multiple packages download simultaneously, and disk operations are optimized for speed.
+In CI:
 
-**Workspaces** - Detects `snpm-workspace.yaml` or `pnpm-workspace.yaml` and efficiently manages dependencies across multiple packages in a monorepo.
+```bash
+snpm install --frozen-lockfile
+snpm install --production --frozen-lockfile
+SNPM_MIN_PACKAGE_AGE_DAYS=7 snpm install --frozen-lockfile
+```
 
-**Catalog Protocol** - Define versions in `snpm-catalog.yaml` and reference them with `catalog:` in your `package.json` to eliminate version drift.
+## How it works
 
-**Security** - Install scripts are blocked by default. Packages must be explicitly whitelisted via `SNPM_ALLOW_SCRIPTS` to run install scripts.
+**Shared store** — Packages are downloaded once into `<data_dir>/packages/<name>/<version>/` and linked into each project's `node_modules/.snpm` virtual store. The default linker is `auto` (hardlinks on Unix, copies on Windows), with `hardlink`, `symlink`, and `copy` backends available.
 
+**Virtual store** — Each project gets a `node_modules/.snpm` directory keyed by package version and resolved dependency closure. Shared entries are pooled across projects when safe; patched, script-enabled, directory-backed `file:`, and resolver-walk-up-sensitive packages stay project-local automatically.
 
+**Lockfile** — `snpm-lock.yaml` (schema version `1`) is the source of truth. Installs validate cached state against a lockfile-derived hash stored in `node_modules/.snpm-integrity`; if it matches, install completes in milliseconds.
+
+**Script policy** — Dependency lifecycle scripts are blocked by default. Root project scripts (`preinstall`, `install`, `postinstall`, `prepare`) still run during install. Allow specific dependency packages via `SNPM_ALLOW_SCRIPTS=...` or workspace `onlyBuiltDependencies`.
+
+**Registry compatibility** — `npm`, `jsr`, `file:`, `git:`, `workspace:`, and `catalog:` protocols are supported. Auth is read from `.snpmrc` / `.npmrc` / `.pnpmrc`, environment variables, and the credentials saved by `snpm login`.

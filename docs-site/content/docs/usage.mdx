@@ -1,164 +1,159 @@
 ---
 title: Basic Usage
-description: Learn the core snpm commands
+description: The day-to-day snpm workflow
 ---
 
-snpm works just like npm. If you know npm, you already know snpm.
+snpm is shaped like pnpm with familiar npm-style ergonomics. The same `package.json` works as-is.
 
-## Installing Dependencies
+## Install dependencies
 
 ```bash
 snpm install
 ```
 
-Reads `package.json`, resolves dependencies, downloads packages to the global store, and links them to `node_modules`.
+Reads `package.json`, resolves the dependency graph, materializes packages into the shared store, and links them into `node_modules/.snpm` plus the root `node_modules` tree.
 
-**Options:**
-- `--production` - Skip dev dependencies
-- `--frozen-lockfile` - Fail if lockfile needs updates (useful for CI)
-- `--force` - Force re-download all packages
+Useful flags:
+
+- `--production` — skip `devDependencies`.
+- `--frozen-lockfile` (alias `--immutable`) — fail if the lockfile is missing or out of date.
+- `--no-frozen-lockfile` — ignore the lockfile and re-resolve.
+- `--prefer-frozen-lockfile` — reuse the lockfile when valid, otherwise re-resolve.
+- `--fix-lockfile` — re-resolve drifted entries while preserving the rest.
+- `-f, --force` — ignore cached state and force a full install.
+- `-w, --workspace <name>` — target a single workspace project from the workspace root.
 
 ```bash
-# Production install
-snpm install --production
-
-# CI install (fail if lockfile is out of sync)
-snpm install --frozen-lockfile
+snpm install --production --frozen-lockfile   # CI / production
+snpm install --fix-lockfile                   # repair lockfile drift
+snpm install -w @acme/api                     # workspace-scoped install
 ```
 
-## Adding Packages
+The `--frozen-lockfile`, `--no-frozen-lockfile`, and `--prefer-frozen-lockfile` flags can also be set globally before the subcommand (`snpm --frozen-lockfile install`) and they propagate to any install-like command (`add`, `remove`, `upgrade`, `run`, `exec`).
+
+## Add and remove
 
 ```bash
-snpm add <package>
-```
+snpm add react                  # latest matching version
+snpm add react@18.2.0           # exact version
+snpm add -D typescript          # devDependency
+snpm add react react-dom        # multiple packages
 
-Adds a package to `dependencies` and installs it.
-
-```bash
-# Add a package
-snpm add react
-
-# Add specific version
-snpm add react@18.2.0
-
-# Add as dev dependency
-snpm add -D typescript
-
-# Add multiple packages
-snpm add react react-dom
-```
-
-## Removing Packages
-
-```bash
-snpm remove <package>
-```
-
-Removes a package from `package.json` and `node_modules`.
-
-```bash
 snpm remove react
-snpm remove react react-dom
+snpm remove -g create-react-app
 ```
 
-## Running Scripts
+`add` and `remove` accept the same workspace selectors as the rest of the CLI: `-w <name>`, `-r/--recursive`, `--filter <selector>`, and `--filter-prod <selector>`.
+
+## Run scripts
 
 ```bash
-snpm run <script>
+snpm run build              # one-off
+snpm run test -- --watch    # pass args after --
+snpm build                  # script-name fallback (unknown subcommands)
 ```
 
-Runs a script defined in `package.json`.
+Scripts auto-trigger a lazy install if `package.json` or `snpm-lock.yaml` has drifted from `node_modules`. Pass `--skip-install` to bypass that check.
+
+Workspace selectors:
 
 ```bash
-# Run build script
-snpm run build
-
-# Pass arguments (use -- to separate)
-snpm run test -- --watch
+snpm run build -r                          # every project
+snpm run test --filter "@acme/*"           # name glob
+snpm run test --filter ./packages/api      # path
+snpm run test --filter api...              # api and its dependencies
+snpm run test --filter ...api              # api and its dependents
+snpm run test --filter "[origin/main]"     # projects changed since origin/main
+snpm run test --filter "!@acme/docs"       # exclude a project
 ```
 
-## Lifecycle Scripts
+`--filter-prod` accepts the same selector grammar but restricts dependency/dependent walks to production dependencies only.
 
-snpm supports standard lifecycle scripts that run during installation.
+## Execute binaries
+
+```bash
+snpm exec eslint .              # run a binary from node_modules/.bin
+snpm exec -c "eslint . | head"  # shell mode for pipes/redirects
+snpm exec --recursive tsc --build
+```
+
+## One-off packages
+
+```bash
+snpm dlx cowsay "moo"             # download, run, discard
+snpm dlx create-vite my-app -- --template react-ts
+snpm dlx --offline tsc --version   # fail if not cached
+spx cowsay "moo"                   # multicall alias for snpm dlx
+```
+
+`snpx` and `pnpx` are also recognized as aliases for `snpm dlx`, and `snpr` is an alias for `snpm run`.
+
+## Lifecycle scripts
+
+snpm supports the standard lifecycle stages for the **root project** (and workspace members), running them in order during install:
+
+- `preinstall`
+- `install`
+- `postinstall`
+- `prepare` (after install and before publish)
 
 ```json
 {
   "scripts": {
-    "preinstall": "echo 'Running before install'",
+    "preinstall": "node scripts/check-env.js",
     "install": "node-gyp rebuild",
-    "postinstall": "echo 'Running after install'",
+    "postinstall": "node scripts/postinstall.js",
     "prepare": "npm run build"
   }
 }
 ```
 
-- **preinstall**: Runs before dependencies are installed.
-- **install** / **postinstall**: Runs after dependencies are installed.
-- **prepare**: Runs after install and before publish (also runs on local `snpm install` without arguments).
-
 <Callout type="warn">
-  By default, snpm blocks install scripts for security. You must explicitly allow packages to run scripts via `SNPM_ALLOW_SCRIPTS="pkg1,pkg2"` or by configuring `onlyBuiltDependencies` in `snpm-workspace.yaml`.
+  Dependency lifecycle scripts are **blocked by default**. To allow specific dependencies to run `preinstall`/`install`/`postinstall`, list them in `SNPM_ALLOW_SCRIPTS=name1,name2` or the workspace `onlyBuiltDependencies` array. After changing the allow-list, run `snpm rebuild` to apply it to packages that already extracted.
 </Callout>
+
+## Upgrade and outdated
+
+```bash
+snpm upgrade                # delete the lockfile and re-resolve to latest in range
+snpm upgrade react react-dom
+snpm upgrade --production
+snpm upgrade -r --filter "@acme/*"
+
+snpm outdated               # show pending updates
+snpm outdated -r            # across all workspace projects
+```
+
+## Inspection
+
+```bash
+snpm list                   # show project dependencies
+snpm list -g                # show global installs
+snpm licenses               # license per installed package
+snpm licenses --json
+snpm why typescript         # show dependency paths into typescript
+snpm why "babel-*" --json   # glob support
+snpm store status           # store size / package count
+```
 
 ## Performance
 
-snpm is designed for speed.
+**Hot install** — when `package.json` and `snpm-lock.yaml` agree with `node_modules/.snpm-integrity`, install finishes in tens of milliseconds.
 
-### Warm Path Optimization
-If your `node_modules` is up to date with `package.json` and `snpm-lock.yaml`, `snpm install` finishes in milliseconds (50-100ms typ.). It performs an "early exit" check to avoid unnecessary work.
+**Warm install** — when the lockfile is valid and all tarballs are in the shared store, links and integrity markers refresh in a few seconds.
 
-### Lockfile-less Install
-Even without a lockfile, snpm uses aggressive caching and parallelization to resolve and install dependencies rapidly.
+**Cold install** — fetches go in parallel (default concurrency `128`, tunable with `SNPM_REGISTRY_CONCURRENCY`).
 
-## Upgrading Packages
+## Where things live
 
-```bash
-snpm upgrade
-```
+| Path | Purpose |
+| --- | --- |
+| `<data_dir>/packages/<name>/<version>/` | Shared package store |
+| `<data_dir>/virtual-store/` | Shared `.snpm` entries pooled across projects |
+| `<data_dir>/global/` | Global installs (`snpm add -g`) |
+| `<data_dir>/bin/` | Global bin shims |
+| `<cache_dir>/metadata/` | Registry metadata cache |
+| `node_modules/.snpm/` | Project virtual store |
+| `node_modules/.snpm-integrity` | Lockfile-derived hash for fast install detection |
 
-Updates all packages to their latest versions within semver constraints.
-
-```bash
-# Upgrade all packages
-snpm upgrade
-
-# Upgrade specific packages
-snpm upgrade react react-dom
-
-# Upgrade production dependencies only
-snpm upgrade --production
-```
-
-## Checking for Updates
-
-```bash
-snpm outdated
-```
-
-Shows which packages have newer versions available.
-
-```bash
-# Check all dependencies
-snpm outdated
-
-# Check production dependencies only
-snpm outdated --production
-```
-
-## Global Store
-
-Packages are downloaded once to a global store and reused across all projects. The store location is platform-specific:
-
-- **macOS**: `~/Library/Application Support/io.snpm.snpm/packages`
-- **Linux**: `~/.local/share/snpm/packages`
-- **Windows**: `%LOCALAPPDATA%\snpm\snpm\data\packages`
-
-Override with the `SNPM_HOME` environment variable (packages stored in `$SNPM_HOME/data/packages`).
-
-This saves disk space and makes subsequent installs much faster.
-
-## Lockfile
-
-`snpm-lock.yaml` ensures deterministic installs. Always commit it to version control.
-
-
+On macOS, `cache_dir` and `data_dir` are platform-default (`~/Library/Caches/snpm`, `~/Library/Application Support/io.snpm.snpm`). Override with `SNPM_HOME=/path/to/snpm` to get `cache=$SNPM_HOME/cache`, `data=$SNPM_HOME/data`.

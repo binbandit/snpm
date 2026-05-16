@@ -1,79 +1,96 @@
 ---
 title: Comparison
-description: How snpm compares to npm, yarn, and pnpm
+description: How snpm compares to npm, yarn, pnpm, and Bun
 ---
 
-See how snpm compares to other package managers.
+snpm aims for pnpm-style ergonomics with npm-compatible commands, plus first-class workspace tooling and a security-conscious default.
 
-## Feature Comparison
+## Feature matrix
 
-| Feature | snpm | npm | yarn | pnpm |
-|---------|------|-----|------|------|
-| **Global Cache** | ✅ | ❌ | ✅ | ✅ |
-| **Lockfile Format** | YAML | JSON | YAML | YAML |
-| **Workspaces** | ✅ | ✅ | ✅ | ✅ |
-| **Catalog Protocol** | ✅ | ❌ | ❌ | ✅ |
-| **Minimum Version Age** | ✅ | ❌ | ❌ | ❌ |
-| **Written In** | Rust | JavaScript | JavaScript | JavaScript |
-| **Parallel Downloads** | ✅ | Limited | ✅ | ✅ |
+| Feature | snpm | npm | yarn | pnpm | bun |
+|---------|:----:|:---:|:----:|:----:|:---:|
+| Shared package store | yes | no | yes | yes | yes |
+| `node_modules/.snpm` virtual store | yes | no | linker-dependent | yes | linker-dependent |
+| Lockfile format | YAML | JSON | YAML (custom) | YAML | text |
+| Lockfile imports (pnpm / Bun / yarn / npm) | yes | — | partial | partial | partial |
+| Workspaces | yes | yes | yes | yes | yes |
+| Catalog protocol (`catalog:`) | yes | no | no | yes | no |
+| Graph-aware filters (`pkg...`, `[git-ref]`) | yes | no | partial | yes | partial |
+| Install scripts blocked by default | yes | no | no | optional | no |
+| Minimum package age (`SNPM_MIN_PACKAGE_AGE_DAYS`) | yes | no | no | no | no |
+| Tarball auth scoped to registry origin | yes | partial | partial | partial | partial |
+| Audit (`audit`, `audit --fix`, SARIF) | yes | yes | yes | yes | partial |
+| Built-in patching (`patch edit/commit`) | yes | no | yes | yes | yes |
+| Publish (`pack`, `publish`, OTP, dry-run) | yes | yes | yes | yes | yes |
+| Built-in Node version manager (`snpm node ...`) | yes | no | no | no | no |
+| `dlx` / `npx` shortcut | yes (`dlx`, `spx`, `snpx`, `pnpx`) | yes (`npx`) | yes (`dlx`) | yes (`dlx`, `pnpx`) | yes (`bunx`) |
+| Implementation language | Rust | JavaScript | JavaScript | JavaScript | Zig |
 
-## Key Differences
-
-### Global Store
-
-Like pnpm, snpm uses a global store to cache packages. Download once, reuse everywhere.
-
-**Location:** Platform-specific (e.g., `~/Library/Application Support/io.snpm.snpm/packages` on macOS). Override with `SNPM_HOME`.
-
-### Lockfile
-
-snpm uses YAML for its lockfile (`snpm-lock.yaml`), making it easy to read and review in pull requests.
-
-### Catalog Protocol
-
-Define dependency versions once in `snpm-catalog.yaml` and reference them across your workspace. Eliminates version drift in monorepos.
-
-### Minimum Version Age
-
-Unique to snpm: configure it to ignore recently published package versions. This protects against zero-day malicious packages and broken releases.
-
-```bash
-export SNPM_MIN_PACKAGE_AGE_DAYS=7
-```
-
-### Written in Rust
-
-Fast, memory-efficient, and reliable. The codebase is designed to be readable and maintainable.
-
-## Command Comparison
+## Command crosswalk
 
 | Task | npm | snpm |
 |------|-----|------|
-| Install dependencies | `npm install` | `snpm install` |
-| Add package | `npm install <pkg>` | `snpm add <pkg>` |
-| Remove package | `npm uninstall <pkg>` | `snpm remove <pkg>` |
-| Update packages | `npm update` | `snpm upgrade` |
-| Run script | `npm run <script>` | `snpm run <script>` |
+| Install everything from lockfile | `npm ci` | `snpm install --frozen-lockfile` |
+| Install / refresh | `npm install` | `snpm install` |
+| Add a package | `npm install react` | `snpm add react` |
+| Add a dev dependency | `npm install --save-dev typescript` | `snpm add -D typescript` |
+| Add a global | `npm install -g pnpm` | `snpm add -g pnpm` |
+| Remove a package | `npm uninstall react` | `snpm remove react` |
+| Update within range | `npm update` | `snpm upgrade` |
 | Check outdated | `npm outdated` | `snpm outdated` |
+| Run a script | `npm run build` | `snpm run build` or `snpm build` |
+| Run a binary | `npx eslint .` | `snpm exec eslint .` or `snpm dlx eslint` |
+| Explain a dep | `npm explain react` | `snpm why react` |
+| Audit | `npm audit` | `snpm audit` |
+| Auto-fix audit | `npm audit fix` | `snpm audit --fix` |
+| Pack | `npm pack` | `snpm pack` |
+| Publish | `npm publish` | `snpm publish` |
+| Link | `npm link` | `snpm link` |
+| Rebuild | `npm rebuild` | `snpm rebuild` |
+| Login / Logout | `npm login` / `npm logout` | `snpm login` / `snpm logout` |
+| Init | `npm init -y` | `snpm init` |
+| Clean cache | `npm cache clean --force` | `snpm clean -y` |
 
-## Why Choose snpm?
+## What snpm adds on top
 
-**Speed** - Global caching and parallel operations make installs fast.
+**Lockfile imports.** Switching from pnpm/Bun/yarn/npm doesn't require deleting anything. snpm reads `pnpm-lock.yaml`, `bun.lock`, `yarn.lock`, `npm-shrinkwrap.json`, or `package-lock.json` to seed the first install, then writes `snpm-lock.yaml` as the source of truth.
 
-**Security** - Minimum version age protects against supply chain attacks.
+**Graph-aware workspace filters.** `--filter "[origin/main]"` selects every project whose files changed since `origin/main`. `--filter api...` selects `api` and everything it depends on; `--filter ...api` selects everything that depends on `api`. The same grammar applies to every workspace-aware command.
 
-**Simplicity** - Readable lockfile, familiar commands, no surprises.
+**Catalog + overrides built in.** Define versions once in `snpm-catalog.yaml` (or inline in `snpm-workspace.yaml`) and reference them with `catalog:`. Pin transitive versions with `snpm-overrides.yaml` or `snpm.overrides` / `pnpm.overrides` in `package.json`.
 
-**Workspaces** - First-class monorepo support with catalog protocol.
+**Security-first defaults.** Install scripts blocked unless allow-listed, minimum-package-age protection, tarball auth scoped to the announcing registry origin, integrity-hashed lockfile.
 
-**Reliability** - Written in Rust for performance and stability.
+**Built-in Node version manager.** `snpm node install 20 --default`, `snpm node use`, automatic `.node-version` / `.nvmrc` / `engines.node` discovery, and `snpm node env --shell zsh` for shell hooks. No separate `nvm`/`fnm`/`volta` install required.
+
+**Multicall aliases.** Invoking the binary as `spx`, `snpx`, `pnpx`, or `snpr` rewrites argv to call `snpm dlx` / `snpm run` — handy for shells where you already aliased `npx` to something else.
 
 ## Migration
 
-Switching from npm/yarn/pnpm is straightforward:
+```bash
+# from npm
+rm -rf node_modules
+snpm install        # reads package-lock.json once
 
-1. Install snpm
-2. Delete `node_modules` and old lockfiles
-3. Run `snpm install`
+# from pnpm
+rm -rf node_modules
+snpm install        # reads pnpm-lock.yaml once
 
-Your `package.json` works as-is. No changes needed.
+# from yarn
+rm -rf node_modules
+snpm install        # reads yarn.lock once
+
+# from bun
+rm -rf node_modules
+snpm install        # reads bun.lock once
+```
+
+After the first successful install, commit the new `snpm-lock.yaml` and (optionally) delete the old lockfile. Your `package.json` is unchanged.
+
+Pin the version in `package.json` so everyone on the team is on the same build:
+
+```json
+{ "packageManager": "snpm@2026.5.16" }
+```
+
+Combined with `snpm-switch`, every contributor and CI job picks up the same `snpm` build automatically.

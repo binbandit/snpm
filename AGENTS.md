@@ -50,6 +50,7 @@ Top-level commands in `snpm-cli/src/cli.rs`:
 - `why`
 - `store` (`status`, `prune`, `path`)
 - `unlink`
+- `node` (`install`, `uninstall`, `use`, `list`, `ls-remote`, `current`, `which`, `alias`, `unalias`, `default`, `exec`, `run`, `env`) — nvm-style Node version manager
 - Hidden internal: `completions` (for shell completion generation)
 
 CLI compatibility behavior:
@@ -65,6 +66,7 @@ Public module exports in `snpm-core/src/lib.rs`:
 - `project`, `workspace`
 - `resolve`, `lockfile`, `store`, `linker`
 - `operations` (install, run, dlx, add/remove/rebuild logic, auth, audit, patch, publish, etc.)
+- `node` (Node.js download/install, alias and current-version pointers, project pin discovery, shell init, and the bin-dir helper used by run/exec/lifecycle to auto-switch)
 - `lifecycle`, `console`, `http`
 - Re-exported types: `SnpmConfig`, `HoistingMode`, `LinkBackend`, `OfflineMode`, `SnpmError`, `Project`, `Workspace`
 
@@ -126,6 +128,10 @@ Derived data directories from `SnpmConfig`:
 - global installs: `<data_dir>/global`
 - global bins: `<data_dir>/bin`
 - package cache layout: `<packages>/<name_with_/__sanitized>/<version>`
+- Node.js versions: `<data_dir>/node/versions/<vX.Y.Z>/`
+- Node aliases: `<data_dir>/node/aliases/<name>` (plain-text alias → version)
+- Node current pointer: `<data_dir>/node/current` (plain-text active version)
+- Node release-index cache: `<cache_dir>/node/index.json` (6h TTL)
 
 Global install storage is managed via `snpm add -g` and `snpm remove -g` and symlinked into `<data_dir>/bin`.
 
@@ -144,6 +150,11 @@ Environment keys currently in use:
 - `SNPM_REGISTRY_CONCURRENCY`
 - `SNPM_VERBOSE`
 - `SNPM_LOG_FILE`
+- `SNPM_NODE_AUTO` (set to `0`/`false`/`off` to disable Node auto-switch in `run`/`exec`/lifecycle scripts)
+- `SNPM_NODE_AUTO_INSTALL` (set to `0` to fail rather than download a missing pinned Node version)
+- `SNPM_NODE_BIN_OVERRIDE` (explicit Node `bin/` dir to prepend; used by `snpm node run` and exposed for callers)
+- `SNPM_NODE_DISTRO_URL` (override the default `https://nodejs.org/dist` source)
+- `SNPM_NODE_SKIP_CHECKSUM` (skip SHASUMS256.txt verification when installing Node — for diagnostics only)
 - `NPM_CONFIG_REGISTRY` / `npm_config_registry`
 - `NPM_CONFIG__AUTH` / `npm_config__auth`
 - `NODE_AUTH_TOKEN` / `NPM_TOKEN` / `SNPM_AUTH_TOKEN`
@@ -170,6 +181,7 @@ Auth persistence is written to:
 - `link` supports local/project linking and global symlink flows.
 - `store status/path/prune` expose cache health and cleanup hooks.
 - `snpm-switch` is a separate binary intended for pin-aware launcher behavior and is not the primary CLI path for package operations.
+- `snpm node` manages Node.js versions (downloads from `nodejs.org/dist`, verifies SHASUMS256.txt) and pins via `.node-version`, `.nvmrc`, or `engines.node`. `snpm run`/`snpm exec`/lifecycle scripts prepend the matching Node `bin/` directory to `PATH` automatically; missing pinned versions are downloaded on demand unless `SNPM_NODE_AUTO_INSTALL=0`. `snpm node env --shell <sh>` emits a hook for interactive `cd` auto-switching.
 
 ## Code Style / Operating Notes
 

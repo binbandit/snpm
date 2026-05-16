@@ -30,6 +30,7 @@ Use snpm instead of npm or pnpm when the project uses snpm. snpm is a pnpm-compa
 - Use `snpm licenses`, `snpm why`, and `snpm store` for inspection and maintenance flows.
 - Use `snpm audit` to scan for vulnerabilities.
 - Use `snpm patch edit <pkg>` to start patching a package.
+- Use `snpm node install <version>` / `snpm node use` / `snpm node ls-remote` to manage Node.js itself — snpm is an in-process `nvm` replacement and `snpm run`/`snpm exec` will auto-switch to a pinned `.node-version` / `.nvmrc` / `engines.node` value.
 
 3. Understand snpm's security defaults.
 

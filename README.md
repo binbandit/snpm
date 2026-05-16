@@ -135,6 +135,7 @@ Imported lockfiles are used as compatibility input; `snpm-lock.yaml` is the nati
 | Inspection and security | `audit`, `why`, `licenses` |
 | Maintenance | `store status`, `store prune`, `store path`, `clean`, `rebuild` |
 | Local development | `link`, `unlink`, `patch edit`, `patch commit`, `patch remove`, `patch list`, `init` |
+| Node.js version management | `node install`, `node uninstall`, `node use`, `node ls`, `node ls-remote`, `node current`, `node which`, `node alias`, `node unalias`, `node default`, `node exec`, `node run`, `node env` |
 
 Useful global flags:
 
@@ -211,6 +212,8 @@ snpm config
 
 ## Version Switching
 
+### snpm itself
+
 The npm shim prefers `snpm-switch` when it is installed. `snpm-switch` can read a project's `packageManager` field, download/cache the requested `snpm` version, and run the matching binary.
 
 ```json
@@ -230,6 +233,42 @@ snpm --switch-ignore-package-manager install
 ```
 
 When using the standalone launcher binary directly, use `snpm-switch` in place of the npm-shimmed `snpm`.
+
+### Node.js (`snpm node`)
+
+`snpm` ships a built-in Node.js version manager that replaces `nvm` for day-to-day development. Versions live under `<data_dir>/node/versions/<vX.Y.Z>`, with aliases and the active pointer kept beside them.
+
+```bash
+snpm node install --lts             # newest LTS
+snpm node install 20.10.0 --default # exact version, also set as default
+snpm node ls                        # list installed versions
+snpm node ls-remote --lts --limit 5 # browse nodejs.org
+snpm node use                       # honor .node-version / .nvmrc / engines.node
+snpm node alias work lts/iron       # alias name → version selector
+snpm node default 20.10.0           # default alias + current pointer
+snpm node which --active            # the bin dir snpm would prepend to PATH
+snpm node exec 18 -- node -v        # one-off run with a specific version
+snpm node run 22 build              # run a package.json script under v22
+snpm node env --shell zsh           # eval-able shell hook for cd auto-switch
+```
+
+`snpm run`, `snpm exec`, and lifecycle scripts automatically prepend the matching Node `bin/` directory to `PATH` when the project pins a version (via `.node-version`, `.nvmrc`, or `engines.node`) and that version is installed. Missing pinned versions are downloaded on demand. Override the version explicitly with the `SNPM_NODE_BIN_OVERRIDE` env var, or disable auto-switch with `SNPM_NODE_AUTO=0`.
+
+Add the shell hook so interactive `cd` also switches your `node` binary:
+
+```bash
+# zsh
+echo 'eval "$(snpm node env --shell zsh)"' >> ~/.zshrc
+
+# bash
+echo 'eval "$(snpm node env --shell bash)"' >> ~/.bashrc
+
+# fish
+snpm node env --shell fish | source
+
+# powershell
+snpm node env --shell powershell | Out-String | Invoke-Expression
+```
 
 ## Repository Layout
 

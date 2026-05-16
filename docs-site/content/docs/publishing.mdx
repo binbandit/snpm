@@ -1,0 +1,170 @@
+---
+title: Publishing
+description: Pack, inspect, and publish packages with snpm
+---
+
+snpm has first-party publishing. `snpm pack` produces a publish tarball with inspection findings, and `snpm publish` uploads it to the configured registry — with workspace fan-out, distribution tags, OTP support, and dry-run mode.
+
+## Quick start
+
+```bash
+# inspect what would be packed
+snpm pack --dry-run --list
+
+# create the tarball
+snpm pack
+
+# login and publish
+snpm login
+snpm publish
+```
+
+In a workspace:
+
+```bash
+snpm publish -r                        # every project
+snpm publish -r --filter "./packages"  # subset
+```
+
+## pack
+
+```bash
+snpm pack [--dry-run] [--list] [--json]
+```
+
+`snpm pack` reads the manifest's `files`, `main`, `bin`, and other fields, applies `.npmignore` / `package.json` `files` rules, and writes `<name>-<version>.tgz` in the current directory.
+
+Useful combinations:
+
+- `snpm pack --dry-run` — run inspection and print findings but do not write the tarball.
+- `snpm pack --dry-run --list` — print every file that would be packed plus the reason it was included (`manifest`, `files`, `default`, `mandatory`, `main`, `bin`).
+- `snpm pack --json` — emit the full inspection (files, sizes, findings) as JSON for machine consumption.
+
+Pack findings include things like missing `README`, oversized files, files outside the package root, and unexpected binaries. Findings come in two severities: **warnings** (logged) and **blocking** (fail the pack/publish unless explicitly allowed).
+
+## publish
+
+```bash
+snpm publish [flags]
+```
+
+Pack and upload the current package. Reads auth from `.snpmrc` / `.npmrc` / `.pnpmrc` and the credentials saved by `snpm login`.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--tag <tag>` | Distribution tag (default `latest`). Use `next`, `beta`, `canary`, etc. |
+| `--access <public\|restricted>` | Package access for scoped packages. |
+| `--otp <code>` | One-time password for two-factor auth. |
+| `--dry-run` | Pack and validate but skip the upload. |
+| `--allow-risk <code>` | Override a specific blocking pack finding for this publish only. |
+| `-r, --recursive` | Publish every workspace project. |
+| `--filter <selector>` / `--filter-prod <selector>` | Workspace filters. |
+
+After a successful publish, the local tarball is removed. With `--dry-run`, the tarball is kept for inspection.
+
+### Distribution tags
+
+```bash
+snpm publish --tag latest        # default
+snpm publish --tag next          # opt-in pre-release
+snpm publish --tag canary
+```
+
+To pin a version after publish:
+
+```bash
+snpm dlx npm dist-tag add my-package@1.2.3 latest
+```
+
+### Scoped packages
+
+For a new scoped package, npm requires `--access public` on first publish:
+
+```bash
+snpm publish --access public
+```
+
+For a private-by-default package, use `--access restricted`.
+
+### Two-factor authentication
+
+```bash
+snpm publish --otp 123456
+```
+
+If your account has `auth-and-writes` 2FA, snpm will surface the registry's `EOTP` response — re-run with `--otp`.
+
+### Risk overrides
+
+Pack inspection may report blocking findings (oversized files, files outside the package root, missing `LICENSE`, etc.). You can allow specific findings for a single publish:
+
+```bash
+snpm publish --allow-risk OVERSIZED_FILE
+snpm publish --allow-risk MISSING_LICENSE --allow-risk OVERSIZED_FILE
+```
+
+Codes appear in the pack output. Prefer fixing the underlying issue when possible.
+
+### Workspace publish
+
+Use `-r` to publish every project in the workspace, or `--filter` to publish a subset.
+
+```bash
+snpm publish -r
+snpm publish -r --filter "./packages"
+snpm publish -r --filter "@acme/*" --filter "!@acme/internal"
+```
+
+`workspace:` specifiers in published packages are rewritten to concrete semver ranges so consumers outside the workspace see the resolved version.
+
+## Authentication
+
+Most registries require an authenticated session before publishing. The default `snpm login` flow opens a browser and saves a Bearer token to `~/.snpmrc`:
+
+```bash
+snpm login
+snpm login --registry https://npm.mycompany.com
+snpm login --scope @myorg --registry https://npm.mycompany.com
+```
+
+For CI:
+
+```bash
+export NODE_AUTH_TOKEN=$NPM_TOKEN
+snpm publish --tag latest
+```
+
+If you need Basic auth, set `NPM_CONFIG__AUTH=<base64-user:pass>`.
+
+## Common recipes
+
+### Pre-release a workspace
+
+```bash
+snpm publish -r --tag next --dry-run
+snpm publish -r --tag next
+```
+
+### Verify before publishing
+
+```bash
+snpm pack --dry-run --list
+snpm pack --json | jq '.unpacked_size, .file_count'
+```
+
+### Publish from CI
+
+```yaml title=".github/workflows/release.yml"
+- uses: actions/setup-node@v4
+  with:
+    node-version: 20
+- run: npm install -g snpm
+- name: Publish
+  env:
+    NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  run: snpm publish --tag latest
+```
+
+For 2FA-enabled accounts, exchange `NPM_TOKEN` for an automation token (`npm token create --read-and-publish --auto`) which skips OTP prompts.

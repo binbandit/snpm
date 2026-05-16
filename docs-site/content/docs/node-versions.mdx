@@ -1,0 +1,115 @@
+---
+title: Node Version Manager
+description: Install and switch Node.js versions with snpm node
+---
+
+`snpm node` is a built-in, nvm-style Node.js version manager. It downloads official Node releases from nodejs.org, persists them under snpm's data directory, and switches between them — including auto-switching based on `.node-version` / `.nvmrc` / `engines.node` in the project tree.
+
+## Install a version
+
+```bash
+snpm node install 20            # latest 20.x
+snpm node install 20.10.0       # exact version
+snpm node install ^20           # range
+snpm node install lts           # newest LTS
+snpm node install lts/iron      # named LTS line
+snpm node install latest        # latest current
+
+snpm node install --lts         # newest LTS
+snpm node install 20 --default  # install and persist as default
+```
+
+## Activate a version
+
+```bash
+snpm node use 20                # this shell
+snpm node use --lts             # newest LTS
+snpm node use                   # read .node-version / .nvmrc / engines.node
+snpm node use 20 --default      # also persist as default
+snpm node use 20 --install      # install on demand if missing
+snpm node use 20 --silent       # suppress info output (good for shell hooks)
+```
+
+`snpm node use` (no version) walks the directory tree looking for, in order: `.node-version`, `.nvmrc`, then `engines.node` in `package.json`. If none are present, it falls back to the persisted default.
+
+## Discover
+
+```bash
+snpm node list             # installed versions (alias: ls)
+snpm node ls-remote        # available from nodejs.org (alias: remote / list-remote)
+snpm node current          # the currently active version
+snpm node which 20         # absolute path to the node binary for 20.x
+```
+
+## Aliases
+
+```bash
+snpm node alias work 20            # define an alias
+snpm node alias                    # list aliases
+snpm node unalias work             # remove an alias
+snpm node default 20               # shortcut for `node alias default 20`
+```
+
+## One-off commands
+
+```bash
+snpm node exec 20 -- node --version       # run any command with a specific Node
+snpm node run 20 test                     # run a package.json script with a specific Node
+```
+
+`snpm node exec <ver> --` runs the command in a shell with `PATH` updated to put the requested Node first. `snpm node run` re-uses the regular `snpm run` script invocation with the requested version active.
+
+## Remove
+
+```bash
+snpm node uninstall 20            # alias: rm
+snpm node uninstall 20.10.0
+```
+
+## Shell integration
+
+`snpm node env --shell <bash|zsh|fish|powershell>` prints a snippet that auto-switches the active Node when you `cd` into a directory with a pinned version.
+
+```bash
+# zsh
+snpm node env --shell zsh >> ~/.zshrc
+
+# bash
+snpm node env --shell bash >> ~/.bashrc
+
+# fish
+snpm node env --shell fish > ~/.config/fish/conf.d/snpm-node.fish
+
+# powershell
+snpm node env --shell powershell >> $PROFILE
+```
+
+When the shell omits `--shell`, snpm detects the flavor from `$SHELL`.
+
+After installing the snippet, opening a project with `.node-version` automatically switches Node.
+
+## How it works
+
+- Installed Node versions live under `<data_dir>/node/versions/<version>/`.
+- The "active" version is recorded in `<data_dir>/node/current`.
+- Aliases live in `<data_dir>/node/aliases/`.
+- Downloads come from `https://nodejs.org/dist/` and are verified against the official `SHASUMS256.txt`.
+
+## Project pinning
+
+Three formats are recognized, walked from the current directory up to the workspace root:
+
+| File | Example |
+|------|---------|
+| `.node-version` | `20.10.0` |
+| `.nvmrc` | `20` or `lts/iron` |
+| `package.json` `engines.node` | `"engines": { "node": ">=20" }` |
+
+Add one of these alongside `package.json` so every contributor gets the same Node automatically.
+
+## Compatibility tips
+
+- `lts/<name>` selectors work the same as in nvm (`lts/argon`, `lts/iron`, etc.).
+- `snpm node` writes to its own data directory and does not conflict with an existing `nvm`/`fnm`/`volta` install.
+- For CI, prefer `actions/setup-node` (or its equivalent) and skip `snpm node` — those actions pre-warm the GitHub-hosted Node cache.
+- For local dev across multiple repos with different Node pins, `snpm node env` is the lightest-weight option that ships with snpm itself.

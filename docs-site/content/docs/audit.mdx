@@ -1,0 +1,129 @@
+---
+title: Audit
+description: Scan dependencies for security vulnerabilities
+---
+
+`snpm audit` queries the registry's audit endpoint for advisories on every package in the install graph, then reports anything it finds. Combine it with `--fix` to upgrade and SARIF output for CI security dashboards.
+
+## Quick start
+
+```bash
+snpm audit                       # show every advisory
+snpm audit --audit-level high    # fail only on high/critical
+snpm audit --fix                 # try to upgrade vulnerable packages
+snpm audit --format sarif > a.sarif
+```
+
+Exit code `1` if vulnerabilities are present (unless ignored). Exit code `0` if everything is clean.
+
+## Flags
+
+| Flag | Description |
+|------|-------------|
+| `--audit-level <level>` | Minimum severity to report. One of `critical`, `high`, `moderate`, `low`, `info`. |
+| `-P, --prod` | Only audit production dependencies (skip `devDependencies`). |
+| `-D, --dev` | Only audit `devDependencies`. |
+| `--format <table\|json\|sarif>` | Output format. SARIF integrates with GitHub Security and GitLab security tabs. |
+| `--fix` | Attempt to auto-upgrade packages to a non-vulnerable version. |
+| `--ignore-cve <id>` (repeatable) | Suppress advisories by CVE. |
+| `--ignore-ghsa <id>` (repeatable) | Suppress advisories by GHSA. |
+| `--ignore-unfixable` | Skip advisories that don't have a fix available. |
+| `--ignore-registry-errors` | Exit `0` if the registry's audit endpoint itself fails. |
+| `<packages...>` | Restrict the scan to the named packages and their transitive deps. |
+
+`-P` and `-D` are mutually exclusive.
+
+## Output formats
+
+### Table
+
+Human-readable, the default. Each row shows the package, severity, advisory id, current installed version, the patched version (if any), and the dependency path.
+
+### JSON
+
+```bash
+snpm audit --format json
+```
+
+Stable JSON shape suitable for piping into `jq` or a custom CI step.
+
+### SARIF
+
+```bash
+snpm audit --format sarif > snpm-audit.sarif
+```
+
+SARIF 2.1.0 output. Upload to GitHub Code Scanning or GitLab Security & Compliance to surface advisories on PRs and in the security tab.
+
+```yaml title=".github/workflows/audit.yml"
+- name: Audit
+  run: snpm audit --format sarif > snpm-audit.sarif
+  continue-on-error: true
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: snpm-audit.sarif
+```
+
+## Auto-fix
+
+```bash
+snpm audit --fix
+```
+
+`--fix` re-resolves vulnerable packages to a non-vulnerable version inside the existing semver range, updates `snpm-lock.yaml`, and reinstalls. If the only fix is a breaking version, `--fix` reports the advisory and skips it — promote the major manually with `snpm upgrade <pkg>` or by editing `package.json`.
+
+After `--fix`, re-run `snpm audit` to confirm the result.
+
+## Filtering noise
+
+### Ignore a known issue
+
+```bash
+snpm audit --ignore-cve CVE-2025-12345
+snpm audit --ignore-ghsa GHSA-xxxx-yyyy-zzzz
+```
+
+Both flags are repeatable. Document the reason in your `.snpmrc` or CI config alongside the ignore so future maintainers know why.
+
+### Skip unfixable advisories
+
+```bash
+snpm audit --ignore-unfixable
+```
+
+Useful when you've reviewed the unfixable findings and explicitly accepted the risk.
+
+### Don't fail when the registry is down
+
+```bash
+snpm audit --ignore-registry-errors
+```
+
+Pairs well with workflows that already have other security tooling — registry hiccups shouldn't block deploys.
+
+## Workspaces
+
+`snpm audit` walks every workspace project automatically. There is no separate `-r` flag because every project shares the same lockfile. To restrict the scan to a subset, pass explicit package names:
+
+```bash
+snpm audit @acme/api @acme/web
+```
+
+## CI gating
+
+Recommended starting point:
+
+```bash
+snpm audit --audit-level high --format sarif > audit.sarif
+```
+
+- `--audit-level high` keeps low/moderate noise out of PRs while still blocking on high/critical.
+- SARIF lets the platform render findings as PR annotations.
+- Pair with `snpm audit --fix` on a scheduled job (or via a bot) to keep dependencies current.
+
+## Tips
+
+- Use `snpm why <pkg>` to understand where a vulnerable package is coming from. The dependency path the advisory reports may be one of several.
+- Combine `audit` with `SNPM_MIN_PACKAGE_AGE_DAYS=7` so CI doesn't pick up a brand-new compromised version between audit runs.
+- Re-run `audit` after `snpm rebuild` or after changing the `onlyBuiltDependencies` allow-list — script policy changes can affect which packages end up extracted.

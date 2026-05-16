@@ -1,0 +1,118 @@
+---
+title: Package Store
+description: How the shared store works and how to maintain it
+---
+
+snpm keeps every downloaded package in a single shared store on disk, and links each project against it. Hardlinks (or copies on Windows) mean every project's `node_modules` looks like a normal tree, while disk space is shared across every project on the machine.
+
+## Layout
+
+The store lives under snpm's data directory:
+
+```
+<data_dir>/
+├── packages/                       # extracted tarballs
+│   ├── react/
+│   │   └── 18.2.0/
+│   │       ├── package.json
+│   │       └── …
+│   └── @babel_core/                # `@scope/name` → `@scope_name`
+│       └── 7.23.0/…
+├── metadata/                       # registry metadata cache
+├── virtual-store/                  # shared .snpm entries (keyed by version + closure)
+├── global/                         # global installs (snpm add -g)
+└── bin/                            # global bin shims
+```
+
+A `.snpm_complete` marker is written when extraction finishes successfully. The next install reads it as a "trust me, this is intact" signal and skips a re-extract.
+
+## How a project uses the store
+
+1. `snpm install` resolves the dependency graph and writes `snpm-lock.yaml`.
+2. For each `name@version`, snpm ensures `<data_dir>/packages/<name>/<version>/` is fully extracted.
+3. Each project gets a `node_modules/.snpm/` virtual store. Entries inside `.snpm` either:
+   - Point at a shared virtual-store entry under `<data_dir>/virtual-store/` (most packages).
+   - Stay project-local (patched packages, script-allowed packages, directory-backed `file:` deps, packages on the resolver-walk-up compat list).
+4. The top-level `node_modules/` symlinks point at the appropriate entry in `.snpm`.
+
+## Inspect
+
+```bash
+snpm store status
+```
+
+Sample output:
+
+```
+Store path: /Users/you/Library/Application Support/io.snpm.snpm
+
+Packages:  4128 (1.42 GiB)
+Metadata:  872  (38.2 MiB)
+Total:     1.46 GiB
+```
+
+```bash
+snpm store path        # print just the store path (good for scripts)
+```
+
+Want the runtime config too?
+
+```bash
+snpm config
+```
+
+`snpm config` prints all paths plus install settings, registry, auth, allow-scripts, etc.
+
+## Maintain
+
+### prune
+
+```bash
+snpm store prune              # remove incomplete or orphaned packages
+snpm store prune --dry-run    # show what would be removed
+```
+
+Incomplete packages are those whose extraction never finished (no `.snpm_complete` marker). Orphans are versions no project references; `prune` is conservative — it only removes packages that no longer have valid metadata.
+
+### clean
+
+```bash
+snpm clean              # interactive: pick what to clean
+snpm clean -y           # skip confirmation
+snpm clean --dry-run    # preview
+snpm clean --packages   # only the package store
+snpm clean --metadata   # only registry metadata
+snpm clean --global     # also global installs and bins
+snpm clean --all        # everything
+```
+
+`store prune` is the safer day-to-day choice. `clean` is the big hammer — useful when you want to reclaim disk space and don't mind re-downloading.
+
+## Custom location
+
+Set `SNPM_HOME` to point cache and data anywhere you want:
+
+```bash
+export SNPM_HOME=/data/snpm
+```
+
+This gives you `/data/snpm/cache` and `/data/snpm/data`. Useful when your home directory is on a small SSD and you want the store on a larger drive.
+
+## Local virtual store
+
+Some packages must stay project-local (not pooled across projects). snpm handles this automatically for:
+
+- Patched packages.
+- Packages allowed to run lifecycle scripts (`onlyBuiltDependencies`, `SNPM_ALLOW_SCRIPTS`).
+- Directory-backed `file:` dependencies.
+- Tools that walk up parent directories to find configuration. The default list is `next, nuxt, vite, vitepress, parcel`. Override via env var or RC entry — see [Configuration](/docs/configuration#global-virtual-store-compatibility).
+
+Everything else pools across projects, so disk usage stays low even on machines with dozens of projects.
+
+## Hot-path detection
+
+`node_modules/.snpm-integrity` is a lockfile-derived hash. On the next install, snpm reads it first; if it still matches, the install completes in tens of milliseconds. The same hash is computed per workspace project so changes in one project don't invalidate the others.
+
+## Backups and migration
+
+Moving to a new machine? You can copy `<data_dir>/packages` and `<data_dir>/metadata` directly — the store is content-addressed and snpm only ever adds entries. Or skip the copy and let `snpm install` re-warm it from the registry; cold installs are still parallel and fast.

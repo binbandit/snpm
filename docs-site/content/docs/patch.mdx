@@ -1,0 +1,105 @@
+---
+title: Patches
+description: Modify installed packages with persistent diffs
+---
+
+`snpm patch` lets you edit an installed dependency and persist the changes as a unified diff that is automatically re-applied on every install. The workflow is the same shape as pnpm's `patch` command, with full compatibility for `pnpm.patched_dependencies`.
+
+## Workflow
+
+```bash
+# 1. open a working copy of the package
+snpm patch edit lodash
+
+# 2. edit files in the printed temp directory
+$EDITOR /tmp/.snpm-patch-xxx/lodash/index.js
+
+# 3. snapshot the changes
+snpm patch commit /tmp/.snpm-patch-xxx/lodash
+```
+
+Subsequent installs replay the patch automatically. The patch file lives at `patches/<package>@<version>.patch` and is referenced from `package.json`:
+
+```json title="package.json"
+{
+  "snpm": {
+    "patched_dependencies": {
+      "lodash@4.17.21": "patches/lodash@4.17.21.patch"
+    }
+  }
+}
+```
+
+`pnpm.patched_dependencies` is also recognized for compatibility.
+
+## Subcommands
+
+### patch edit
+
+```bash
+snpm patch edit <package[@version]>
+```
+
+Aliased as `snpm patch start`.
+
+Copies the installed package to a temp directory and writes a `.snpm_patch_session` marker so `commit` knows the original. snpm prints the path; open it in your editor and make changes.
+
+If you omit the version, snpm picks the version currently installed in the project. Pass `@<version>` to disambiguate when multiple versions are installed.
+
+### patch commit
+
+```bash
+snpm patch commit <path>
+```
+
+Diffs the edited directory against the original, writes `patches/<package>@<version>.patch`, and updates `package.json` with the patch entry. snpm then applies the patch immediately so subsequent installs are consistent.
+
+Scoped names use `+` in the patch filename: `@babel/core` → `patches/+babel+core@7.0.0.patch`.
+
+### patch remove
+
+```bash
+snpm patch remove <package>
+```
+
+Removes the patch entry from `package.json` and deletes the patch file. The next install reinstalls the unpatched package.
+
+### patch list
+
+```bash
+snpm patch list
+```
+
+Lists every patch declared in the current project.
+
+## How patches are applied
+
+- Patched packages always live in the **project-local** virtual store, never the shared one. Two projects can patch the same package differently without colliding.
+- Patches apply during install **after** extraction and **before** lifecycle scripts.
+- If a patch fails to apply (because the upstream package changed), snpm reports the failure and exits with code `1`. Re-run `snpm patch edit <pkg>` to regenerate the patch against the new version.
+
+## Common recipes
+
+### Upgrade a patched package
+
+```bash
+snpm patch remove lodash
+snpm upgrade lodash
+snpm patch edit lodash
+# repeat your edits
+snpm patch commit /tmp/.snpm-patch-xxx/lodash
+```
+
+### Maintain patches in a monorepo
+
+Workspace projects share the same lockfile. Place patches in a per-workspace `patches/` directory referenced from the root `package.json`, or keep them per-project alongside each `package.json` — both layouts are supported as long as the `patched_dependencies` map points at the right files.
+
+### Share patches with pnpm users
+
+Because snpm reads `pnpm.patched_dependencies`, a project's patch files Just Work for contributors who run `pnpm install`. Likewise, patches authored by `pnpm patch` work for `snpm` users without modification.
+
+## Tips
+
+- Keep patches small. Large patches break easily on upgrade.
+- Open an upstream PR alongside the patch when possible; track it with a comment at the top of the patch file.
+- Patches are project-local on disk. They never leak into the shared package store, so unpatched users of the same dependency are unaffected.

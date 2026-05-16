@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.5.16-r.3] - 2026-05-16
+## [2026.5.16-r.4] - 2026-05-16
 
 ### <!-- 0 -->🚀 Features
 
@@ -163,6 +163,7 @@ All notable changes to this project will be documented in this file.
 - *(site)* Rewrite content pages for current CLI surface ([376be34](https://github.com/binbandit/snpm/commit/376be3456ba0916f55e2f39e23c1940d9a005404))
 - *(site)* Add pages for publishing, patch, audit, store, and node ([f6357e2](https://github.com/binbandit/snpm/commit/f6357e221263ed7bb40070834eaf6354d1b38128))
 - *(site)* Refresh landing page UI and bump version chips ([9775d4f](https://github.com/binbandit/snpm/commit/9775d4fb8c0948175e8330fdeb94691af18aa32d))
+- Point package metadata at snpm.io ([9b70931](https://github.com/binbandit/snpm/commit/9b70931b52a4bc8d5aa2b26efc49949fa2b9cb69))
 
 ### <!-- 4 -->⚡ Performance
 
@@ -420,7 +421,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Bump version to 2026.5.16-r.2 [skip ci] ([0fee702](https://github.com/binbandit/snpm/commit/0fee702267b66d0d47a8b1834c084a7277760bdf))
 - *(release)* Merge 2026.5.16-r.2 release [skip ci] ([5f27e12](https://github.com/binbandit/snpm/commit/5f27e12575d7b17ec71d44fed77522d15781299c))
 - *(docs)* Publish docs on snpm.io ([cebaf7a](https://github.com/binbandit/snpm/commit/cebaf7a380a2910e7f16d6bc890d1ba7292446c1))
-- *(release)* Bump version to 2026.5.16-r.3 [skip ci] ([6f8cd22](https://github.com/binbandit/snpm/commit/6f8cd2251cbfe0da1f2cb3405abe54adcebde7ff))
+- *(release)* Bump version to 2026.5.16-r.3 [skip ci] ([68cb5a3](https://github.com/binbandit/snpm/commit/68cb5a3db7ceeee00d9cbc4b527e12b472c81891))
+- *(release)* Merge 2026.5.16-r.3 release [skip ci] ([736f17b](https://github.com/binbandit/snpm/commit/736f17bb56fa52769c0e3a005cb2c0ddfe44e23c))
+- *(release)* Bump version to 2026.5.16-r.4 [skip ci] ([7191474](https://github.com/binbandit/snpm/commit/71914742d7fb069dbb856910bb72831667fa15ff))
 
 ## [2025.12.24] - 2025-12-24
 

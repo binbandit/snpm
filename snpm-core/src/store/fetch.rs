@@ -38,6 +38,7 @@ impl DownloadedTarball {
 
 pub(super) async fn download_and_verify_tarball(
     config: &SnpmConfig,
+    package_name: &str,
     url: &str,
     integrity: Option<&str>,
     client: &reqwest::Client,
@@ -83,7 +84,7 @@ pub(super) async fn download_and_verify_tarball(
     let mut verifier = integrity_spec.as_ref().map(IntegritySpec::verifier);
     let mut request = client.get(url);
 
-    if let Some(header_value) = config.authorization_header_for_url(url) {
+    if let Some(header_value) = config.authorization_header_for_tarball(package_name, url) {
         request = request.header("authorization", header_value);
     }
 
@@ -295,9 +296,24 @@ mod tests {
         body: Vec<u8>,
         request_count: Arc<AtomicUsize>,
     ) -> (String, tokio::task::JoinHandle<()>) {
+        let (url, _captured, handle) = spawn_capturing_tarball_server(body, request_count).await;
+        (url, handle)
+    }
+
+    async fn spawn_capturing_tarball_server(
+        body: Vec<u8>,
+        request_count: Arc<AtomicUsize>,
+    ) -> (
+        String,
+        Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let url = format!("http://{addr}/pkg.tgz");
+        let captured: Arc<std::sync::Mutex<Vec<Vec<u8>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_for_task = captured.clone();
 
         let handle = tokio::spawn(async move {
             while let Ok((mut socket, _)) = listener.accept().await {
@@ -316,6 +332,8 @@ mod tests {
                     }
                 }
 
+                captured_for_task.lock().unwrap().push(request);
+
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     body.len()
@@ -325,7 +343,13 @@ mod tests {
             }
         });
 
-        (url, handle)
+        (url, captured, handle)
+    }
+
+    fn request_has_authorization_header(request: &[u8]) -> bool {
+        let text = std::str::from_utf8(request).unwrap_or_default();
+        text.lines()
+            .any(|line| line.to_ascii_lowercase().starts_with("authorization:"))
     }
 
     #[tokio::test]
@@ -341,7 +365,7 @@ mod tests {
         let (url, server) = spawn_tarball_server(tarball.clone(), request_count.clone()).await;
         let client = reqwest::Client::new();
 
-        let first = download_and_verify_tarball(&config, &url, Some(&integrity), &client)
+        let first = download_and_verify_tarball(&config, "pkg", &url, Some(&integrity), &client)
             .await
             .unwrap();
         let expected_path = config
@@ -354,12 +378,74 @@ mod tests {
         assert_eq!(first.size_bytes(), tarball.len() as u64);
         assert!(expected_path.is_file());
 
-        let second = download_and_verify_tarball(&config, &url, Some(&integrity), &client)
+        let second = download_and_verify_tarball(&config, "pkg", &url, Some(&integrity), &client)
             .await
             .unwrap();
         assert_eq!(second.source(), TarballSource::BlobCache);
         assert_eq!(second.path(), expected_path.as_path());
         assert_eq!(request_count.load(Ordering::SeqCst), 1);
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn auth_header_not_sent_when_tarball_host_differs_from_registry() {
+        let dir = tempdir().unwrap();
+        let mut config = make_config(dir.path().to_path_buf());
+        // Registry stays on its real host; tarball server is on 127.0.0.1.
+        config.default_registry = "https://registry.example.invalid".to_string();
+        config.default_registry_auth_token = Some("leaked-token".to_string());
+
+        let tarball = build_tarball();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (url, captured, server) =
+            spawn_capturing_tarball_server(tarball, request_count).await;
+        let client = reqwest::Client::new();
+
+        let _result = download_and_verify_tarball(&config, "pkg", &url, None, &client)
+            .await
+            .unwrap();
+
+        let captured = captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(
+            !request_has_authorization_header(&captured[0]),
+            "tarball request to {url} (different host than registry) must not include Authorization header"
+        );
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn auth_header_sent_when_tarball_host_matches_registry() {
+        let dir = tempdir().unwrap();
+        let tarball = build_tarball();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (url, captured, server) =
+            spawn_capturing_tarball_server(tarball, request_count).await;
+
+        let host = url
+            .strip_prefix("http://")
+            .and_then(|rest| rest.split('/').next())
+            .unwrap()
+            .to_string();
+        let mut config = make_config(dir.path().to_path_buf());
+        // Point the default registry at the same host as the tarball server so
+        // the origin-match check passes and the token is sent.
+        config.default_registry = format!("http://{host}");
+        config.default_registry_auth_token = Some("legit-token".to_string());
+
+        let client = reqwest::Client::new();
+        let _result = download_and_verify_tarball(&config, "pkg", &url, None, &client)
+            .await
+            .unwrap();
+
+        let captured = captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(
+            request_has_authorization_header(&captured[0]),
+            "tarball request on matching host must include Authorization header"
+        );
 
         server.abort();
     }
@@ -373,9 +459,10 @@ mod tests {
         let (url, server) = spawn_tarball_server(tarball, request_count).await;
         let client = reqwest::Client::new();
 
-        let error = download_and_verify_tarball(&config, &url, Some("sha512-invalid"), &client)
-            .await
-            .unwrap_err();
+        let error =
+            download_and_verify_tarball(&config, "pkg", &url, Some("sha512-invalid"), &client)
+                .await
+                .unwrap_err();
 
         assert!(matches!(error, SnpmError::Tarball { .. }));
         assert!(!config.tarball_blob_cache_dir().join("sha512").exists());
@@ -392,8 +479,13 @@ mod tests {
             .await
             .unwrap();
         let client = reqwest::Client::new();
-        let download =
-            download_and_verify_tarball(&config, "http://127.0.0.1:9/pkg.tgz", None, &client);
+        let download = download_and_verify_tarball(
+            &config,
+            "pkg",
+            "http://127.0.0.1:9/pkg.tgz",
+            None,
+            &client,
+        );
         tokio::pin!(download);
 
         tokio::select! {

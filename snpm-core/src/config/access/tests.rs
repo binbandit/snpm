@@ -146,6 +146,94 @@ fn authorization_header_returns_none_without_token() {
 }
 
 #[test]
+fn registry_url_for_package_name_uses_scoped_registry_when_present() {
+    let mut config = make_config();
+    config.scoped_registries.insert(
+        "@acme".to_string(),
+        "https://npm.acme.com".to_string(),
+    );
+
+    assert_eq!(
+        config.registry_url_for_package_name("@acme/widget"),
+        "https://npm.acme.com"
+    );
+    assert_eq!(
+        config.registry_url_for_package_name("react"),
+        "https://registry.npmjs.org"
+    );
+}
+
+#[test]
+fn authorization_header_for_tarball_attaches_auth_when_origins_match() {
+    let mut config = make_config();
+    config.default_registry_auth_token = Some("my-token".to_string());
+
+    let header = config
+        .authorization_header_for_tarball(
+            "react",
+            "https://registry.npmjs.org/react/-/react-18.0.0.tgz",
+        )
+        .expect("header");
+    assert_eq!(header, "Bearer my-token");
+}
+
+#[test]
+fn authorization_header_for_tarball_omits_auth_when_origins_differ() {
+    let mut config = make_config();
+    config
+        .registry_auth
+        .insert("npm.acme.com".to_string(), "acme-secret".to_string());
+    // Reachable token for npm.acme.com exists, but the package is announced by
+    // the public registry. Sending the acme token to a malicious or untrusted
+    // host would leak credentials, so the helper must return None.
+    config.scoped_registries.clear();
+
+    let unscoped_attack = config.authorization_header_for_tarball(
+        "react",
+        "https://npm.acme.com/react/-/react-18.0.0.tgz",
+    );
+    assert!(unscoped_attack.is_none());
+}
+
+#[test]
+fn authorization_header_for_tarball_attaches_auth_for_matching_scoped_registry() {
+    let mut config = make_config();
+    config
+        .scoped_registries
+        .insert("@acme".to_string(), "https://npm.acme.com".to_string());
+    config
+        .registry_auth
+        .insert("npm.acme.com".to_string(), "acme-secret".to_string());
+
+    let header = config
+        .authorization_header_for_tarball(
+            "@acme/widget",
+            "https://npm.acme.com/@acme/widget/-/widget-1.0.0.tgz",
+        )
+        .expect("header");
+    assert_eq!(header, "Bearer acme-secret");
+}
+
+#[test]
+fn authorization_header_for_tarball_omits_auth_when_scoped_registry_redirects_to_other_host() {
+    let mut config = make_config();
+    config
+        .scoped_registries
+        .insert("@acme".to_string(), "https://npm.acme.com".to_string());
+    config
+        .registry_auth
+        .insert("cdn.attacker.example".to_string(), "leaked".to_string());
+
+    // A poisoned packument from npm.acme.com cannot trick snpm into sending the
+    // user's cdn.attacker.example token to that CDN.
+    let header = config.authorization_header_for_tarball(
+        "@acme/widget",
+        "https://cdn.attacker.example/@acme/widget/-/widget-1.0.0.tgz",
+    );
+    assert!(header.is_none());
+}
+
+#[test]
 fn derived_directories() {
     let config = make_config();
     assert_eq!(

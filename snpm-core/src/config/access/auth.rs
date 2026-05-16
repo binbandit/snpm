@@ -2,6 +2,30 @@ use crate::config::rc::host_from_url;
 use crate::config::{AuthScheme, SnpmConfig};
 
 impl SnpmConfig {
+    pub fn registry_url_for_package_name(&self, name: &str) -> String {
+        if let Some((scope, _)) = name.split_once('/')
+            && scope.starts_with('@')
+            && let Some(registry) = self.scoped_registries.get(scope)
+        {
+            return registry.clone();
+        }
+        self.default_registry.clone()
+    }
+
+    pub fn authorization_header_for_tarball(
+        &self,
+        package_name: &str,
+        tarball_url: &str,
+    ) -> Option<String> {
+        let registry_url = self.registry_url_for_package_name(package_name);
+        let registry_host = host_from_url(&registry_url)?;
+        let tarball_host = host_from_url(tarball_url)?;
+        if registry_host != tarball_host {
+            return None;
+        }
+        self.authorization_header_for_url(tarball_url)
+    }
+
     pub fn auth_token_for_url(&self, url: &str) -> Option<&str> {
         let host = host_from_url(url)?;
 

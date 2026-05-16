@@ -19,6 +19,7 @@ pub(super) async fn materialize_remote_package(
     let download_started = Instant::now();
     let tarball = download_and_verify_tarball(
         config,
+        &package.id.name,
         &package.tarball,
         package.integrity.as_deref(),
         client,

@@ -4,11 +4,31 @@ use crate::registry::BundledDependencies;
 use crate::{Result, SnpmError};
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 pub(crate) const PACKAGE_METADATA_FILE: &str = ".snpm-package-metadata.json";
+
+/// Process-wide cache for parsed package metadata files.
+///
+/// Each `.snpm-package-metadata.json` is small (~1 KB for typical packages,
+/// up to a few KB for large ones), but it's read AND parsed multiple times
+/// per install — once by the bin-shim manifest reader, once by the bundled-
+/// deps walker, sometimes by `link_dir`'s slow path. Caching the parsed
+/// `PackageStoreMetadata` by canonical path eliminates the repeated JSON
+/// decode for the same package.
+///
+/// Safety: store packages are immutable after extraction, so the cached
+/// value is always correct for the path it's keyed by. Different paths get
+/// independent entries. The cache is per-process and dies with the CLI.
+static METADATA_CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<PackageStoreMetadata>>>> =
+    OnceLock::new();
+
+fn metadata_cache() -> &'static Mutex<HashMap<PathBuf, Option<PackageStoreMetadata>>> {
+    METADATA_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,7 +100,7 @@ struct ManifestFacts {
 }
 
 pub(crate) fn read_package_metadata_lossy(package_root: &Path) -> Option<PackageStoreMetadata> {
-    read_metadata_lossy(&package_root.join(PACKAGE_METADATA_FILE))
+    cached_metadata_lookup(package_root)
 }
 
 pub(crate) fn read_package_filesystem_shape_lossy(
@@ -93,7 +113,34 @@ pub(crate) fn read_package_filesystem_shape_lossy(
 pub(in crate::store) fn read_store_package_metadata_lossy(
     package_dir: &Path,
 ) -> Option<PackageStoreMetadata> {
-    read_metadata_lossy(&package_dir.join(PACKAGE_METADATA_FILE))
+    cached_metadata_lookup(package_dir)
+}
+
+fn cached_metadata_lookup(package_root: &Path) -> Option<PackageStoreMetadata> {
+    let cache = metadata_cache();
+    {
+        let guard = cache.lock().unwrap_or_else(|err| err.into_inner());
+        if let Some(cached) = guard.get(package_root) {
+            return cached.clone();
+        }
+    }
+
+    let parsed = read_metadata_lossy(&package_root.join(PACKAGE_METADATA_FILE));
+    let mut guard = cache.lock().unwrap_or_else(|err| err.into_inner());
+    guard
+        .entry(package_root.to_path_buf())
+        .or_insert_with(|| parsed.clone());
+    parsed
+}
+
+/// Invalidate the cached metadata for a package whose contents may have
+/// changed (e.g., after re-extracting). Tests rely on this between fixture
+/// rewrites; the install path doesn't hit it because store packages are
+/// immutable after they finish materializing.
+pub(crate) fn invalidate_cached_metadata(package_root: &Path) {
+    let cache = metadata_cache();
+    let mut guard = cache.lock().unwrap_or_else(|err| err.into_inner());
+    guard.remove(package_root);
 }
 
 pub(in crate::store) fn persist_package_metadata(
@@ -104,6 +151,7 @@ pub(in crate::store) fn persist_package_metadata(
     let mut root_metadata = collect_manifest_facts(package_root);
     root_metadata.filesystem = tree_index.filesystem.clone();
     write_metadata(&package_root.join(PACKAGE_METADATA_FILE), &root_metadata)?;
+    invalidate_cached_metadata(package_root);
 
     for nested_root in &tree_index.nested_package_roots {
         let nested_package_root = package_root.join(nested_root);
@@ -112,6 +160,7 @@ pub(in crate::store) fn persist_package_metadata(
             &nested_package_root.join(PACKAGE_METADATA_FILE),
             &nested_metadata,
         )?;
+        invalidate_cached_metadata(&nested_package_root);
     }
 
     let Some(relative_root) = root_relative_path(package_dir, package_root) else {
@@ -124,7 +173,9 @@ pub(in crate::store) fn persist_package_metadata(
 
     root_metadata.root_relative_path = Some(relative_root);
     root_metadata.filesystem = PackageFilesystemShape::default();
-    write_metadata(&package_dir.join(PACKAGE_METADATA_FILE), &root_metadata)
+    write_metadata(&package_dir.join(PACKAGE_METADATA_FILE), &root_metadata)?;
+    invalidate_cached_metadata(package_dir);
+    Ok(())
 }
 
 #[derive(Default)]

@@ -30,42 +30,11 @@ pub(super) async fn materialize_local_package(
                 ),
             })?;
 
-    let parent_dir = package_dir.parent().ok_or_else(|| SnpmError::Internal {
-        reason: format!(
-            "package directory has no parent: {}",
-            package_dir.display()
-        ),
-    })?;
-    let parent_for_blocking = parent_dir.to_path_buf();
-    let staged_dir = tokio::task::spawn_blocking(move || stage_dir(&parent_for_blocking))
-        .await
-        .map_err(|error| SnpmError::StoreTask {
-            reason: error.to_string(),
-        })??;
-
-    let result: Result<()> = (|| {
-        if source_path.is_dir() {
-            let destination = staged_dir.join("package");
-            copy_dir_all(&source_path, &destination).map_err(|source| SnpmError::Io {
-                path: destination.clone(),
-                source,
-            })?;
-        } else {
-            verify_integrity_file(&package.tarball, package.integrity.as_deref(), &source_path)?;
-            unpack_tarball_file(&staged_dir, &source_path)?;
-        }
-        Ok(())
-    })();
-
-    if let Err(error) = result {
-        let _ = std::fs::remove_dir_all(&staged_dir);
-        return Err(error);
-    }
-
     let final_dir = package_dir.to_path_buf();
-    let staged_for_finalize = staged_dir.clone();
+    let tarball_url = package.tarball.clone();
+    let integrity = package.integrity.clone();
     tokio::task::spawn_blocking(move || {
-        atomic_finalize_extracted_dir(&staged_for_finalize, &final_dir)
+        stage_unpack_finalize(&source_path, &final_dir, &tarball_url, integrity.as_deref())
     })
     .await
     .map_err(|error| SnpmError::StoreTask {
@@ -75,7 +44,15 @@ pub(super) async fn materialize_local_package(
     Ok(())
 }
 
-fn stage_dir(parent: &Path) -> Result<PathBuf> {
+fn stage_unpack_finalize(
+    source_path: &Path,
+    final_dir: &Path,
+    tarball_url: &str,
+    integrity: Option<&str>,
+) -> Result<()> {
+    let parent = final_dir.parent().ok_or_else(|| SnpmError::Internal {
+        reason: format!("package directory has no parent: {}", final_dir.display()),
+    })?;
     std::fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
         path: parent.to_path_buf(),
         source,
@@ -87,7 +64,28 @@ fn stage_dir(parent: &Path) -> Result<PathBuf> {
             path: parent.to_path_buf(),
             source,
         })?;
-    Ok(staging.keep())
+    let staged_path = staging.keep();
+
+    let result: Result<()> = (|| {
+        if source_path.is_dir() {
+            let destination = staged_path.join("package");
+            copy_dir_all(source_path, &destination).map_err(|source| SnpmError::Io {
+                path: destination.clone(),
+                source,
+            })?;
+        } else {
+            verify_integrity_file(tarball_url, integrity, source_path)?;
+            unpack_tarball_file(&staged_path, source_path)?;
+        }
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        let _ = std::fs::remove_dir_all(&staged_path);
+        return Err(error);
+    }
+
+    atomic_finalize_extracted_dir(&staged_path, final_dir)
 }
 
 fn local_tarball_path(package: &ResolvedPackage) -> Result<PathBuf> {

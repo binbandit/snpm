@@ -6,6 +6,7 @@ use tempfile::{Builder, TempPath};
 use tokio::io::AsyncWriteExt;
 
 use super::archive::unpack_tarball_file;
+use super::filesystem::atomic_finalize_extracted_dir;
 use super::integrity::{IntegrityCacheKey, IntegritySpec};
 use super::limits::{download_semaphore, extraction_semaphore};
 
@@ -37,26 +38,21 @@ impl DownloadedTarball {
     }
 }
 
-/// Materialize a tarball into `target_dir`.
+/// Materialize a tarball into `final_dir` (the canonical package directory).
 ///
-/// On cache hit, reads the cached blob from disk and extracts it. On cache
-/// miss, downloads the body to a temp file (single-pass integrity hash on the
-/// network stream, server's Content-Length used to pre-size the file), then
-/// extracts to `target_dir` from that file. `target_dir` must already be
-/// prepared (empty).
-///
-/// The download holds the download-semaphore permit so up to N tarballs can
-/// be in flight network-side; the extract acquires the extraction-semaphore
-/// permit separately so the CPU/disk-bound decompress doesn't oversubscribe.
-/// Holding both at once would cap aggregate concurrency at the (much smaller)
-/// extract budget.
+/// The implementation uses a single blocking task to: create a sibling
+/// staging dir, unpack into it, and atomically rename it onto `final_dir`.
+/// On cache hit this collapses to one syscall path; on cache miss the
+/// network download runs async and only the extract+finalize step is
+/// blocking. Holding the extract permit only over the blocking work keeps
+/// download concurrency separate from extract concurrency.
 pub(super) async fn download_and_extract(
     config: &SnpmConfig,
     package_name: &str,
     url: &str,
     integrity: Option<&str>,
     client: &reqwest::Client,
-    target_dir: &Path,
+    final_dir: &Path,
 ) -> Result<DownloadedTarball> {
     let integrity_spec = IntegritySpec::parse(integrity);
     let blob_cache_paths = cached_blob_paths(config, url, integrity_spec.as_ref())?;
@@ -69,7 +65,7 @@ pub(super) async fn download_and_extract(
             })?
             .len();
         let cached = cached_path.clone();
-        let target = target_dir.to_path_buf();
+        let final_dir_owned = final_dir.to_path_buf();
         let _extract_permit =
             extraction_semaphore()
                 .acquire()
@@ -79,7 +75,7 @@ pub(super) async fn download_and_extract(
                         "extraction semaphore closed while unpacking cached tarball: {error}"
                     ),
                 })?;
-        tokio::task::spawn_blocking(move || unpack_tarball_file(&target, &cached))
+        tokio::task::spawn_blocking(move || stage_unpack_finalize(&cached, &final_dir_owned))
             .await
             .map_err(|error| SnpmError::StoreTask {
                 reason: error.to_string(),
@@ -95,8 +91,8 @@ pub(super) async fn download_and_extract(
     let (cached_path, source, size_bytes, retained_temp) =
         download_blob(config, package_name, url, integrity_spec.as_ref(), client).await?;
 
-    let target = target_dir.to_path_buf();
     let cached_for_extract = cached_path.clone();
+    let final_dir_owned = final_dir.to_path_buf();
     let _extract_permit =
         extraction_semaphore()
             .acquire()
@@ -106,11 +102,14 @@ pub(super) async fn download_and_extract(
                     "extraction semaphore closed while unpacking downloaded tarball: {error}"
                 ),
             })?;
-    tokio::task::spawn_blocking(move || unpack_tarball_file(&target, &cached_for_extract))
-        .await
-        .map_err(|error| SnpmError::StoreTask {
-            reason: error.to_string(),
-        })??;
+
+    tokio::task::spawn_blocking(move || {
+        stage_unpack_finalize(&cached_for_extract, &final_dir_owned)
+    })
+    .await
+    .map_err(|error| SnpmError::StoreTask {
+        reason: error.to_string(),
+    })??;
 
     Ok(DownloadedTarball {
         path: cached_path,
@@ -118,6 +117,35 @@ pub(super) async fn download_and_extract(
         source,
         _temp_path: retained_temp,
     })
+}
+
+/// Run staging dir creation, tarball unpack, and atomic finalize as one
+/// blocking unit. Splitting these into separate `spawn_blocking` tasks
+/// (which the previous version did) cost 2 extra tokio task handoffs per
+/// package; here they share a single blocking thread for the whole
+/// per-package extraction.
+fn stage_unpack_finalize(cached: &Path, final_dir: &Path) -> Result<()> {
+    let parent = final_dir.parent().ok_or_else(|| SnpmError::Internal {
+        reason: format!("package directory has no parent: {}", final_dir.display()),
+    })?;
+    fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    let staging = tempfile::Builder::new()
+        .prefix(".snpm-extract-")
+        .tempdir_in(parent)
+        .map_err(|source| SnpmError::WriteFile {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    let staged_path = staging.keep();
+    let extract_result = unpack_tarball_file(&staged_path, cached);
+    if let Err(error) = extract_result {
+        let _ = fs::remove_dir_all(&staged_path);
+        return Err(error);
+    }
+    atomic_finalize_extracted_dir(&staged_path, final_dir)
 }
 
 async fn download_blob(

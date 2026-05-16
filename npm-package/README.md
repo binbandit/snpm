@@ -42,7 +42,7 @@ snpm run build
 
 ## Documentation
 
-For more information, visit the [snpm repository](https://github.com/binbandit/snpm).
+For usage guides and command reference, visit the [snpm documentation](https://snpm.io). Source, releases, and issues live in the [snpm repository](https://github.com/binbandit/snpm).
 
 ## License
 

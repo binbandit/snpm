@@ -1,6 +1,25 @@
 use crate::config::rc::host_from_url;
 use crate::config::{AuthScheme, SnpmConfig};
 
+fn scheme_of(url: &str) -> Option<&str> {
+    let trimmed = url.trim();
+    if let Some(rest) = trimmed.strip_prefix("https://") {
+        // Accept anything that looks like a URL (must have at least a host
+        // before the first slash).
+        if rest.is_empty() {
+            return None;
+        }
+        return Some("https");
+    }
+    if let Some(rest) = trimmed.strip_prefix("http://") {
+        if rest.is_empty() {
+            return None;
+        }
+        return Some("http");
+    }
+    None
+}
+
 impl SnpmConfig {
     pub fn registry_url_for_package_name(&self, name: &str) -> String {
         if let Some((scope, _)) = name.split_once('/')
@@ -21,6 +40,13 @@ impl SnpmConfig {
         let registry_host = host_from_url(&registry_url)?;
         let tarball_host = host_from_url(tarball_url)?;
         if registry_host != tarball_host {
+            return None;
+        }
+        // Refuse to attach the auth header on a scheme downgrade (https
+        // registry, http tarball). Without this, a poisoned packument could
+        // advertise dist.tarball at http:// on the registry host and snmp
+        // would happily send the bearer token in plaintext.
+        if scheme_of(&registry_url) != scheme_of(tarball_url) {
             return None;
         }
         self.authorization_header_for_url(tarball_url)

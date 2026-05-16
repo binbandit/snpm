@@ -148,10 +148,9 @@ fn authorization_header_returns_none_without_token() {
 #[test]
 fn registry_url_for_package_name_uses_scoped_registry_when_present() {
     let mut config = make_config();
-    config.scoped_registries.insert(
-        "@acme".to_string(),
-        "https://npm.acme.com".to_string(),
-    );
+    config
+        .scoped_registries
+        .insert("@acme".to_string(), "https://npm.acme.com".to_string());
 
     assert_eq!(
         config.registry_url_for_package_name("@acme/widget"),
@@ -188,10 +187,8 @@ fn authorization_header_for_tarball_omits_auth_when_origins_differ() {
     // host would leak credentials, so the helper must return None.
     config.scoped_registries.clear();
 
-    let unscoped_attack = config.authorization_header_for_tarball(
-        "react",
-        "https://npm.acme.com/react/-/react-18.0.0.tgz",
-    );
+    let unscoped_attack = config
+        .authorization_header_for_tarball("react", "https://npm.acme.com/react/-/react-18.0.0.tgz");
     assert!(unscoped_attack.is_none());
 }
 
@@ -231,6 +228,104 @@ fn authorization_header_for_tarball_omits_auth_when_scoped_registry_redirects_to
         "https://cdn.attacker.example/@acme/widget/-/widget-1.0.0.tgz",
     );
     assert!(header.is_none());
+}
+
+#[test]
+fn authorization_header_for_tarball_treats_default_port_as_canonical_host() {
+    let mut config = make_config();
+    config.default_registry_auth_token = Some("ok".to_string());
+
+    // Same host, but tarball URL spells the default 443 port explicitly. Origin
+    // match must still succeed once host_from_url normalizes.
+    let header = config
+        .authorization_header_for_tarball(
+            "react",
+            "https://registry.npmjs.org:443/react/-/react-18.0.0.tgz",
+        )
+        .expect("header");
+    assert_eq!(header, "Bearer ok");
+}
+
+#[test]
+fn authorization_header_for_tarball_is_case_insensitive_for_host() {
+    let mut config = make_config();
+    config.default_registry_auth_token = Some("ok".to_string());
+
+    let header = config
+        .authorization_header_for_tarball(
+            "react",
+            "https://Registry.NpmJS.Org/react/-/react-18.0.0.tgz",
+        )
+        .expect("header");
+    assert_eq!(header, "Bearer ok");
+}
+
+#[test]
+fn authorization_header_for_tarball_omits_auth_on_scheme_mismatch() {
+    let mut config = make_config();
+    config.default_registry_auth_token = Some("ok".to_string());
+    // Host matches by name but registry is https, tarball is http on the
+    // same port — host_from_url drops default-443 only for https, so http
+    // with default-80 ends up with a different normalized host. Either way,
+    // a downgrade to http with the same host name implies an MITM-able
+    // hop; safer to send no token.
+    let header = config.authorization_header_for_tarball(
+        "react",
+        "http://registry.npmjs.org/react/-/react-18.0.0.tgz",
+    );
+    // We don't assert a specific outcome here (depends on how host_from_url
+    // normalizes), but it must not silently send "Bearer ok" over http when
+    // the configured registry is https.
+    if let Some(header) = header {
+        // If for some reason the helper accepts it, the test fails loudly.
+        panic!("auth header should not be attached on scheme downgrade, got {header}");
+    }
+}
+
+#[test]
+fn authorization_header_for_tarball_omits_auth_for_malformed_urls() {
+    let mut config = make_config();
+    config.default_registry_auth_token = Some("ok".to_string());
+
+    assert!(
+        config
+            .authorization_header_for_tarball("react", "not a url")
+            .is_none()
+    );
+    assert!(
+        config
+            .authorization_header_for_tarball("react", "")
+            .is_none()
+    );
+}
+
+#[test]
+fn authorization_header_for_tarball_falls_back_to_default_when_scope_unknown() {
+    let mut config = make_config();
+    // The package is in the @acme scope but no scoped registry is configured
+    // for that scope, so registry_url_for_package_name returns the default.
+    // A tarball on the default registry's host should be authed with the
+    // default token.
+    config.default_registry_auth_token = Some("ok".to_string());
+
+    let header = config
+        .authorization_header_for_tarball(
+            "@acme/widget",
+            "https://registry.npmjs.org/@acme/widget/-/widget-1.0.0.tgz",
+        )
+        .expect("header");
+    assert_eq!(header, "Bearer ok");
+}
+
+#[test]
+fn authorization_header_for_tarball_empty_package_name_uses_default_registry() {
+    let mut config = make_config();
+    config.default_registry_auth_token = Some("ok".to_string());
+
+    let header = config
+        .authorization_header_for_tarball("", "https://registry.npmjs.org/foo.tgz")
+        .expect("header");
+    assert_eq!(header, "Bearer ok");
 }
 
 #[test]

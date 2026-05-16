@@ -83,6 +83,8 @@ pub enum Command {
     Store(commands::store::StoreArgs),
     /// Remove a linked package
     Unlink(commands::unlink::UnlinkArgs),
+    /// Install, switch, and manage Node.js versions (nvm-style)
+    Node(commands::node::NodeArgs),
 
     /// Generate shell completions
     #[command(hide = true)]
@@ -131,6 +133,63 @@ mod tests {
                 assert!(args.fix_lockfile);
             }
             other => panic!("expected install command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_node_install_with_default_flag() {
+        let cli = Cli::try_parse_from(["snpm", "node", "install", "20.10.0", "--default"]).unwrap();
+        match cli.command {
+            Command::Node(args) => match args.command {
+                crate::commands::node::NodeCommand::Install(install) => {
+                    assert_eq!(install.version.as_deref(), Some("20.10.0"));
+                    assert!(install.set_default);
+                    assert!(!install.lts);
+                }
+                other => panic!("expected install subcommand, got {other:?}"),
+            },
+            other => panic!("expected node command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn node_exec_keeps_hyphenated_trailing_args() {
+        let cli = Cli::try_parse_from([
+            "snpm",
+            "node",
+            "exec",
+            "lts",
+            "node",
+            "-e",
+            "console.log(1)",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Node(args) => match args.command {
+                crate::commands::node::NodeCommand::Exec(exec) => {
+                    assert_eq!(exec.version, "lts");
+                    assert_eq!(exec.command.as_deref(), Some("node"));
+                    assert_eq!(exec.args, vec!["-e".to_string(), "console.log(1)".into()]);
+                }
+                other => panic!("expected exec subcommand, got {other:?}"),
+            },
+            other => panic!("expected node command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn node_ls_remote_alias_is_accepted() {
+        let cli =
+            Cli::try_parse_from(["snpm", "node", "ls-remote", "--lts", "--limit", "5"]).unwrap();
+        match cli.command {
+            Command::Node(args) => match args.command {
+                crate::commands::node::NodeCommand::ListRemote(args) => {
+                    assert!(args.lts);
+                    assert_eq!(args.limit, 5);
+                }
+                other => panic!("expected list-remote subcommand, got {other:?}"),
+            },
+            other => panic!("expected node command, got {other:?}"),
         }
     }
 }

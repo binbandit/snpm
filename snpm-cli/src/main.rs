@@ -83,6 +83,7 @@ async fn run() -> Result<()> {
         Command::Why(args) => commands::why::run(args).await?,
         Command::Store(args) => commands::store::run(args, &config).await?,
         Command::Unlink(args) => commands::unlink::run(args, &config).await?,
+        Command::Node(args) => commands::node::run(args, &config).await?,
         Command::Completions(args) => commands::completions::run(args).await?,
         Command::Script(args) => {
             let mut iter = args.into_iter();

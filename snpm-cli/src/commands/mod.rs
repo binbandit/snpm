@@ -13,6 +13,7 @@ pub mod link;
 pub mod list;
 pub mod login;
 pub mod logout;
+pub mod node;
 pub mod outdated;
 pub mod pack;
 pub mod patch;

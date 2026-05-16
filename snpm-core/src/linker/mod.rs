@@ -42,6 +42,15 @@ pub fn link(
         source,
     })?;
 
+    // `populate_virtual_store` now folds the per-package dep-linking step
+    // inside its par_iter (for shared packages this is done inside
+    // `populate_shared_virtual_store_for_packages`; for locally-materialized
+    // packages it happens in the outer par_iter). The standalone
+    // `link_virtual_dependencies` call this used to make was redundant for
+    // shared packages (their deps were already wired inside the shared
+    // store entry) and the project-view symlinks it created in their
+    // node_modules were never consulted by Node since it follows the
+    // project-view symlink straight into the shared store.
     let virtual_store_paths = populate_virtual_store(
         &virtual_store_dir,
         graph,
@@ -50,8 +59,6 @@ pub fn link(
         workspace,
         project,
     )?;
-
-    link_virtual_dependencies(virtual_store_paths.as_ref(), graph)?;
 
     let root_deps_to_link = filter_root_dependencies(project, graph, include_dev);
 

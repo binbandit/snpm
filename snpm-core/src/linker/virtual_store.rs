@@ -41,16 +41,154 @@ pub(crate) fn populate_shared_virtual_store_for_packages(
     })?;
 
     let entry_hashes = global_virtual_store_entry_hashes(graph);
-    let shared_paths = materialize_virtual_store(
-        &shared_virtual_store_dir,
-        store_paths,
-        config,
-        shared_package_ids,
-        Some(&entry_hashes),
-    )?;
-    link_selected_virtual_dependencies(shared_paths.as_ref(), graph, shared_package_ids)?;
+
+    // Pre-compute every shared package's final path. Locations are
+    // deterministic from (id, entry_hash); doing this once up front lets
+    // each per-package task look up its own + every dep's location without
+    // waiting for other tasks.
+    let shared_paths: BTreeMap<PackageId, PathBuf> = shared_package_ids
+        .iter()
+        .map(|id| {
+            (
+                id.clone(),
+                hashed_virtual_package_location(&shared_virtual_store_dir, id, Some(&entry_hashes)),
+            )
+        })
+        .collect();
+
+    let shared_paths = Arc::new(shared_paths);
+
+    // One par_iter per shared package: materialize the package directory
+    // (reflink/link from store) AND wire up its dep symlinks inside the
+    // same node_modules. Previously this was two passes (materialize, then
+    // link_selected_virtual_dependencies); folding them halves the per-
+    // package task-spawn overhead and keeps the package's data hot in
+    // cache across the two related fs operations.
+    let packages: Vec<&PackageId> = shared_package_ids.iter().collect();
+    let materialize_results: Vec<Result<()>> = packages
+        .par_iter()
+        .map(|id| -> Result<()> {
+            let package_location = &shared_paths[*id];
+            let marker_file =
+                hashed_virtual_marker_path(&shared_virtual_store_dir, id, Some(&entry_hashes));
+            materialize_one_package(config, store_paths, id, package_location, &marker_file)?;
+
+            let package = graph
+                .packages
+                .get(*id)
+                .ok_or_else(|| SnpmError::GraphMissing {
+                    name: id.name.clone(),
+                    version: id.version.clone(),
+                })?;
+            wire_dep_symlinks_into(package_location, id, package, &shared_paths)
+        })
+        .collect();
+
+    for result in materialize_results {
+        result?;
+    }
 
     Ok(shared_paths)
+}
+
+/// Reflink/link a single package from the store into `package_location` if
+/// the slot is missing or stale. Idempotent: returns early on a warm hit.
+fn materialize_one_package(
+    config: &SnpmConfig,
+    store_paths: &BTreeMap<PackageId, PathBuf>,
+    id: &PackageId,
+    package_location: &Path,
+    marker_file: &Path,
+) -> Result<()> {
+    let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
+        name: id.name.clone(),
+        version: id.version.clone(),
+    })?;
+
+    let location_metadata = package_location.symlink_metadata().ok();
+    let marker_present = marker_file.is_file();
+
+    if marker_present && virtual_package_ready(package_location) {
+        return Ok(());
+    }
+
+    if marker_present {
+        fs::remove_file(marker_file).ok();
+    }
+
+    if let Some(metadata) = location_metadata {
+        if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+            fs::remove_dir_all(package_location).ok();
+        } else {
+            fs::remove_file(package_location).ok();
+        }
+    }
+
+    link_dir(config, store_path, package_location)?;
+    fs::write(marker_file, []).map_err(|source| SnpmError::WriteFile {
+        path: marker_file.to_path_buf(),
+        source,
+    })
+}
+
+/// Create one symlink per dep inside `package_location`'s sibling
+/// `node_modules`, pointing at each dep's location resolved from
+/// `dep_locations`. Reuses the dependency-state file as a warm-hit gate so
+/// subsequent installs do nothing when nothing changed.
+fn wire_dep_symlinks_into(
+    package_location: &Path,
+    id: &PackageId,
+    package: &crate::resolve::ResolvedPackage,
+    dep_locations: &BTreeMap<PackageId, PathBuf>,
+) -> Result<()> {
+    if package.dependencies.is_empty() {
+        remove_dependency_state(package_location, &id.name);
+        return Ok(());
+    }
+
+    let dependency_hash = dependency_state_hash(package, dep_locations)?;
+    if dependency_state_matches(package_location, &id.name, &dependency_hash) {
+        return Ok(());
+    }
+
+    let package_node_modules =
+        package_node_modules(package_location, &id.name).ok_or_else(|| {
+            SnpmError::GraphMissing {
+                name: id.name.clone(),
+                version: id.version.clone(),
+            }
+        })?;
+
+    for (dep_name, dep_id) in &package.dependencies {
+        let dep_target = dep_locations
+            .get(dep_id)
+            .ok_or_else(|| SnpmError::GraphMissing {
+                name: dep_id.name.clone(),
+                version: dep_id.version.clone(),
+            })?;
+        let dep_link = package_node_modules.join(dep_name);
+
+        let dep_metadata = dep_link.symlink_metadata().ok();
+        if let Some(metadata) = dep_metadata.as_ref()
+            && metadata.file_type().is_symlink()
+            && symlink_is_correct(&dep_link, dep_target)
+        {
+            continue;
+        }
+
+        if let Some(metadata) = dep_metadata {
+            if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+                fs::remove_dir_all(&dep_link).ok();
+            } else {
+                fs::remove_file(&dep_link).ok();
+            }
+        }
+
+        ensure_parent_dir(&dep_link)?;
+        symlink_dir_entry(dep_target, &dep_link).or_else(|_| copy_dir(dep_target, &dep_link))?;
+    }
+
+    write_dependency_state(package_location, &id.name, &dependency_hash)
 }
 
 pub(super) fn populate_virtual_store(
@@ -72,22 +210,31 @@ pub(super) fn populate_virtual_store(
         store_paths,
         &shared_package_ids,
     )?;
-    let packages: Vec<_> = graph.packages.keys().collect();
-    let results: Vec<Result<(PackageId, PathBuf)>> = packages
+
+    // Pre-compute every project-view path so each task in the par_iter can
+    // resolve its own *and* every dep's location without waiting on other
+    // tasks. Same trick as the shared-store par_iter above.
+    let project_paths: Arc<BTreeMap<PackageId, PathBuf>> = Arc::new(
+        graph
+            .packages
+            .keys()
+            .map(|id| (id.clone(), virtual_package_location(virtual_store_dir, id)))
+            .collect(),
+    );
+
+    let packages: Vec<&PackageId> = graph.packages.keys().collect();
+    let results: Vec<Result<()>> = packages
         .par_iter()
-        .map(|id| -> Result<(PackageId, PathBuf)> {
-            let package_location = virtual_package_location(virtual_store_dir, id);
+        .map(|id| -> Result<()> {
+            let package_location = &project_paths[*id];
             let marker_file = virtual_marker_path(virtual_store_dir, id);
             let should_materialize_locally = locally_materialized_ids.contains(*id);
 
-            // Check if we can short-circuit before doing any cleanup.
             let location_metadata = package_location.symlink_metadata().ok();
             let marker_present = marker_file.is_file();
 
-            if should_materialize_locally {
-                if marker_present && virtual_package_ready(&package_location) {
-                    return Ok(((*id).clone(), package_location));
-                }
+            let already_ready = if should_materialize_locally {
+                marker_present && virtual_package_ready(package_location)
             } else {
                 let shared_target =
                     shared_paths
@@ -96,75 +243,91 @@ pub(super) fn populate_virtual_store(
                             name: id.name.clone(),
                             version: id.version.clone(),
                         })?;
-
-                if location_metadata
+                location_metadata
                     .as_ref()
                     .map(|metadata| metadata.file_type().is_symlink())
                     .unwrap_or(false)
-                    && symlink_is_correct(&package_location, shared_target)
-                {
-                    return Ok(((*id).clone(), package_location));
+                    && symlink_is_correct(package_location, shared_target)
+            };
+
+            if !already_ready {
+                if marker_present {
+                    fs::remove_file(&marker_file).ok();
                 }
-            }
 
-            if marker_present {
-                fs::remove_file(&marker_file).ok();
-            }
-
-            let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
-                name: id.name.clone(),
-                version: id.version.clone(),
-            })?;
-
-            // Only attempt removal if there's actually something at the path.
-            // On cold installs this skips two wasted ENOENT syscalls per
-            // package; on warm installs it's a single targeted unlink.
-            if let Some(metadata) = location_metadata {
-                if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
-                    fs::remove_dir_all(&package_location).ok();
-                } else {
-                    fs::remove_file(&package_location).ok();
+                if let Some(metadata) = location_metadata {
+                    if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+                        fs::remove_dir_all(package_location).ok();
+                    } else {
+                        fs::remove_file(package_location).ok();
+                    }
                 }
-            }
 
-            if should_materialize_locally {
-                // link_dir already calls ensure_parent_dir internally for the
-                // reflink fast-path; the slow path's create_dir_all also
-                // produces the parent. No need for a redundant call here.
-                link_dir(config, store_path, &package_location)?;
-                fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
-                    path: marker_file,
-                    source,
-                })?;
-            } else {
-                let shared_target =
-                    shared_paths
-                        .get(*id)
-                        .ok_or_else(|| SnpmError::StoreMissing {
-                            name: id.name.clone(),
-                            version: id.version.clone(),
-                        })?;
-                ensure_parent_dir(&package_location)?;
-                if symlink_dir_entry(shared_target, &package_location).is_err() {
-                    link_dir(config, store_path, &package_location)?;
+                if should_materialize_locally {
+                    let store_path =
+                        store_paths
+                            .get(*id)
+                            .ok_or_else(|| SnpmError::StoreMissing {
+                                name: id.name.clone(),
+                                version: id.version.clone(),
+                            })?;
+                    link_dir(config, store_path, package_location)?;
                     fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
-                        path: marker_file,
+                        path: marker_file.clone(),
                         source,
                     })?;
+                } else {
+                    let shared_target =
+                        shared_paths
+                            .get(*id)
+                            .ok_or_else(|| SnpmError::StoreMissing {
+                                name: id.name.clone(),
+                                version: id.version.clone(),
+                            })?;
+                    ensure_parent_dir(package_location)?;
+                    if symlink_dir_entry(shared_target, package_location).is_err() {
+                        let store_path =
+                            store_paths
+                                .get(*id)
+                                .ok_or_else(|| SnpmError::StoreMissing {
+                                    name: id.name.clone(),
+                                    version: id.version.clone(),
+                                })?;
+                        link_dir(config, store_path, package_location)?;
+                        fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
+                            path: marker_file.clone(),
+                            source,
+                        })?;
+                    }
                 }
             }
 
-            Ok(((*id).clone(), package_location))
+            // Wire dep symlinks for project-locally-materialized packages.
+            // Shared packages don't need this step: their deps were already
+            // linked inside the shared store entry by
+            // `populate_shared_virtual_store_for_packages`, and Node finds
+            // them by following the project-view symlink into the shared
+            // store.
+            if should_materialize_locally {
+                let package = graph
+                    .packages
+                    .get(*id)
+                    .ok_or_else(|| SnpmError::GraphMissing {
+                        name: id.name.clone(),
+                        version: id.version.clone(),
+                    })?;
+                wire_dep_symlinks_into(package_location, id, package, &project_paths)?;
+            }
+
+            Ok(())
         })
         .collect();
 
-    let mut map = BTreeMap::new();
     for result in results {
-        let (id, path) = result?;
-        map.insert(id, path);
+        result?;
     }
 
-    Ok(Arc::new(map))
+    Ok(project_paths)
 }
 
 pub(crate) fn local_global_virtual_store_package_ids(
@@ -280,69 +443,6 @@ fn shared_package_ids(
         .collect()
 }
 
-fn materialize_virtual_store(
-    virtual_store_dir: &Path,
-    store_paths: &BTreeMap<PackageId, PathBuf>,
-    config: &SnpmConfig,
-    package_ids: &BTreeSet<PackageId>,
-    entry_hashes: Option<&BTreeMap<PackageId, String>>,
-) -> Result<Arc<BTreeMap<PackageId, PathBuf>>> {
-    let packages: Vec<_> = package_ids.iter().collect();
-    let results: Vec<Result<(PackageId, PathBuf)>> = packages
-        .par_iter()
-        .map(|id| -> Result<(PackageId, PathBuf)> {
-            let package_location =
-                hashed_virtual_package_location(virtual_store_dir, id, entry_hashes);
-            let marker_file = hashed_virtual_marker_path(virtual_store_dir, id, entry_hashes);
-
-            let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
-                name: id.name.clone(),
-                version: id.version.clone(),
-            })?;
-
-            // Pre-checked stat lets us skip the marker-remove and the two
-            // path-remove calls when the slot is virgin (cold install).
-            let location_metadata = package_location.symlink_metadata().ok();
-            let marker_present = marker_file.is_file();
-
-            if marker_present && virtual_package_ready(&package_location) {
-                return Ok(((*id).clone(), package_location));
-            }
-
-            if marker_present {
-                fs::remove_file(&marker_file).ok();
-            }
-
-            if let Some(metadata) = location_metadata {
-                if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
-                    fs::remove_dir_all(&package_location).ok();
-                } else {
-                    fs::remove_file(&package_location).ok();
-                }
-            }
-
-            // link_dir's reflink path calls ensure_parent_dir itself; its
-            // slow path's create_dir_all covers the parent too. The outer
-            // ensure_parent_dir was always redundant.
-            link_dir(config, store_path, &package_location)?;
-            fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
-                path: marker_file,
-                source,
-            })?;
-
-            Ok(((*id).clone(), package_location))
-        })
-        .collect();
-
-    let mut map = BTreeMap::new();
-    for result in results {
-        let (id, path) = result?;
-        map.insert(id, path);
-    }
-
-    Ok(Arc::new(map))
-}
-
 pub(crate) fn link_virtual_dependencies(
     virtual_store_paths: &BTreeMap<PackageId, PathBuf>,
     graph: &ResolutionGraph,
@@ -351,7 +451,12 @@ pub(crate) fn link_virtual_dependencies(
     link_selected_virtual_dependencies(virtual_store_paths, graph, &package_ids)
 }
 
-fn link_selected_virtual_dependencies(
+/// Like `link_virtual_dependencies` but scoped to a subset of packages.
+/// Used by the linker entry point to skip shared packages whose dep
+/// symlinks were already created inside the shared store — for them, the
+/// project-view symlink in `<project>/.snpm` is what Node follows, and it
+/// lands directly in the shared store where the deps already are.
+pub(crate) fn link_selected_virtual_dependencies(
     virtual_store_paths: &BTreeMap<PackageId, PathBuf>,
     graph: &ResolutionGraph,
     package_ids: &BTreeSet<PackageId>,
@@ -379,59 +484,7 @@ fn link_selected_virtual_dependencies(
                         name: id.name.clone(),
                         version: id.version.clone(),
                     })?;
-            let package_node_modules = package_node_modules(package_location, &id.name)
-                .ok_or_else(|| SnpmError::GraphMissing {
-                    name: id.name.clone(),
-                    version: id.version.clone(),
-                })?;
-
-            if package.dependencies.is_empty() {
-                remove_dependency_state(package_location, &id.name);
-                return Ok(());
-            }
-
-            let dependency_hash = dependency_state_hash(package, virtual_store_paths)?;
-            if dependency_state_matches(package_location, &id.name, &dependency_hash) {
-                return Ok(());
-            }
-
-            for (dep_name, dep_id) in &package.dependencies {
-                let dep_target =
-                    virtual_store_paths
-                        .get(dep_id)
-                        .ok_or_else(|| SnpmError::GraphMissing {
-                            name: dep_id.name.clone(),
-                            version: dep_id.version.clone(),
-                        })?;
-                let dep_link = package_node_modules.join(dep_name);
-
-                let dep_metadata = dep_link.symlink_metadata().ok();
-                if let Some(metadata) = dep_metadata.as_ref()
-                    && metadata.file_type().is_symlink()
-                    && symlink_is_correct(&dep_link, dep_target)
-                {
-                    continue;
-                }
-
-                // Cold install: dep_link is missing — skip the two wasted
-                // ENOENT removes. Warm install with a stale link: targeted
-                // removal of the correct kind.
-                if let Some(metadata) = dep_metadata {
-                    if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
-                        std::fs::remove_dir_all(&dep_link).ok();
-                    } else {
-                        std::fs::remove_file(&dep_link).ok();
-                    }
-                }
-
-                ensure_parent_dir(&dep_link)?;
-                symlink_dir_entry(dep_target, &dep_link)
-                    .or_else(|_| copy_dir(dep_target, &dep_link))?;
-            }
-
-            write_dependency_state(package_location, &id.name, &dependency_hash)?;
-
-            Ok(())
+            wire_dep_symlinks_into(package_location, id, package, virtual_store_paths)
         })
 }
 

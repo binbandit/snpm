@@ -2,7 +2,7 @@ use crate::{Result, SnpmError};
 
 use std::env;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub(in crate::operations::run) fn join_args(args: &[String]) -> String {
@@ -20,8 +20,18 @@ pub(in crate::operations::run) fn join_args(args: &[String]) -> String {
     result
 }
 
-pub(in crate::operations::run) fn build_path(bin_dir: PathBuf, script: &str) -> Result<OsString> {
-    let mut parts = vec![bin_dir];
+pub(in crate::operations::run) fn build_path(
+    bin_dir: PathBuf,
+    script: &str,
+    project_root: &Path,
+) -> Result<OsString> {
+    let mut parts = Vec::new();
+
+    if let Some(node_dir) = crate::node::exec::node_bin_dir_for_subprocess(project_root) {
+        parts.push(node_dir);
+    }
+
+    parts.push(bin_dir);
 
     if let Some(existing) = env::var_os("PATH") {
         for path in env::split_paths(&existing) {

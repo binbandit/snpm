@@ -96,7 +96,7 @@ fn run_single_script(project: &Project, script: &str, args: &[String]) -> Result
     command.current_dir(&project.root);
 
     let bin_dir = project.root.join("node_modules").join(".bin");
-    let path_value = build_path(bin_dir, script)?;
+    let path_value = build_path(bin_dir, script, &project.root)?;
     command.env("PATH", path_value);
 
     let status = command.status().map_err(|error| SnpmError::ScriptRun {

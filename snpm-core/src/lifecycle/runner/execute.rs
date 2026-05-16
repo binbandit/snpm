@@ -83,7 +83,13 @@ fn run_script_if_present(
 }
 
 fn build_path(root: &Path, script_name: &str) -> Result<OsString> {
-    let mut parts = vec![root.join("node_modules").join(".bin")];
+    let mut parts = Vec::new();
+
+    if let Some(node_dir) = crate::node::exec::node_bin_dir_for_subprocess(root) {
+        parts.push(node_dir);
+    }
+
+    parts.push(root.join("node_modules").join(".bin"));
 
     if let Some(existing) = env::var_os("PATH") {
         for path in env::split_paths(&existing) {

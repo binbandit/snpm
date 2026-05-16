@@ -172,6 +172,11 @@ pub(super) async fn download_and_extract(
         path: file_path.clone(),
         source,
     })?;
+    // Truncate to the actual byte count. Without this, an over-stated
+    // Content-Length from the server (or a connection that was cut short)
+    // would leave the cached blob padded with the pre-allocation's trailing
+    // zeros and disagree with what we hashed.
+    let _ = file.set_len(size_bytes).await;
     drop(file);
 
     let extract_outcome = extract_task.await.map_err(|error| SnpmError::StoreTask {
@@ -450,6 +455,134 @@ mod tests {
         target
     }
 
+    fn build_multi_file_tarball(file_count: usize, bytes_per_file: usize) -> Vec<u8> {
+        let mut builder = TarBuilder::new(Vec::new());
+        for index in 0..file_count {
+            let path = format!("package/data/{index:04}.bin");
+            let content: Vec<u8> = (0..bytes_per_file).map(|byte| (byte % 251) as u8).collect();
+            let mut header = Header::new_gnu();
+            header.set_entry_type(EntryType::Regular);
+            header.set_path(&path).unwrap();
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append(&header, &content[..]).unwrap();
+        }
+        let tar_bytes = builder.into_inner().unwrap();
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar_bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    async fn spawn_status_only_server(
+        status_line: &'static str,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/pkg.tgz");
+        let handle = tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buffer = [0_u8; 1024];
+                let mut request = Vec::new();
+                loop {
+                    let read = match socket.read(&mut buffer).await {
+                        Ok(n) => n,
+                        Err(_) => return,
+                    };
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let _ = socket
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 {status_line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        )
+                        .as_bytes(),
+                    )
+                    .await;
+            }
+        });
+        (url, handle)
+    }
+
+    async fn spawn_chunked_tarball_server(
+        body: Vec<u8>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/pkg.tgz");
+        let handle = tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buffer = [0_u8; 1024];
+                let mut request = Vec::new();
+                loop {
+                    let read = match socket.read(&mut buffer).await {
+                        Ok(n) => n,
+                        Err(_) => return,
+                    };
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let header = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+                let _ = socket.write_all(header.as_bytes()).await;
+                for chunk in body.chunks(64) {
+                    let _ = socket
+                        .write_all(format!("{:x}\r\n", chunk.len()).as_bytes())
+                        .await;
+                    let _ = socket.write_all(chunk).await;
+                    let _ = socket.write_all(b"\r\n").await;
+                }
+                let _ = socket.write_all(b"0\r\n\r\n").await;
+            }
+        });
+        (url, handle)
+    }
+
+    async fn spawn_short_body_server(
+        announced_len: usize,
+        actual_prefix: Vec<u8>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/pkg.tgz");
+        let handle = tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buffer = [0_u8; 1024];
+                let mut request = Vec::new();
+                loop {
+                    let read = match socket.read(&mut buffer).await {
+                        Ok(n) => n,
+                        Err(_) => return,
+                    };
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {announced_len}\r\nConnection: close\r\n\r\n"
+                );
+                let _ = socket.write_all(header.as_bytes()).await;
+                let _ = socket.write_all(&actual_prefix).await;
+                // Close abruptly without finishing the announced body.
+            }
+        });
+        (url, handle)
+    }
+
     #[tokio::test]
     async fn download_and_reuse_verified_blob_cache() {
         let dir = tempdir().unwrap();
@@ -614,6 +747,225 @@ mod tests {
         assert!(matches!(error, SnpmError::Tarball { .. }));
         assert!(!config.tarball_blob_cache_dir().join("sha512").exists());
 
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn streaming_extract_handles_multi_file_tarball() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let tarball = build_multi_file_tarball(64, 4096);
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (url, server) = spawn_tarball_server(tarball.clone(), request_count).await;
+        let client = reqwest::Client::new();
+
+        let target = prepare_target_dir(dir.path());
+        let result = download_and_extract(&config, "pkg", &url, None, &client, &target)
+            .await
+            .unwrap();
+
+        assert_eq!(result.size_bytes(), tarball.len() as u64);
+        for index in 0..64 {
+            let path = target.join(format!("package/data/{index:04}.bin"));
+            let bytes = std::fs::read(&path).unwrap_or_else(|error| {
+                panic!("file {path:?} missing after extract: {error}")
+            });
+            assert_eq!(bytes.len(), 4096);
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn download_and_extract_surfaces_http_4xx() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let (url, server) = spawn_status_only_server("404 Not Found").await;
+        let client = reqwest::Client::new();
+        let target = prepare_target_dir(dir.path());
+
+        let error = download_and_extract(&config, "pkg", &url, None, &client, &target)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, SnpmError::Http { .. }));
+        assert!(
+            !target.join("package").exists(),
+            "no partial extract should be left on disk after a 4xx"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn download_and_extract_surfaces_mid_stream_close() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let tarball = build_multi_file_tarball(64, 4096);
+        // Server announces full length but closes after the first quarter of
+        // the body — the extractor sees a truncated gzip stream.
+        let prefix: Vec<u8> = tarball.iter().take(tarball.len() / 4).copied().collect();
+        let (url, server) = spawn_short_body_server(tarball.len(), prefix).await;
+        let client = reqwest::Client::new();
+        let target = prepare_target_dir(dir.path());
+
+        let error = download_and_extract(&config, "pkg", &url, None, &client, &target)
+            .await
+            .unwrap_err();
+        match error {
+            SnpmError::Http { .. } | SnpmError::Archive { .. } => {}
+            other => panic!("expected Http or Archive error, got {other:?}"),
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn cached_blob_size_matches_actual_body_after_preallocation() {
+        // The Content-Length-based set_len pre-allocates space. After the
+        // stream finishes the file must be truncated back to the actual
+        // written size so the cached .tgz is byte-exact (no trailing zeros).
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let tarball = build_tarball();
+        let integrity = format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode(Sha512::digest(&tarball))
+        );
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (url, server) = spawn_tarball_server(tarball.clone(), request_count).await;
+        let client = reqwest::Client::new();
+        let target = prepare_target_dir(dir.path());
+
+        let result = download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some(&integrity),
+            &client,
+            &target,
+        )
+        .await
+        .unwrap();
+
+        let cached_size = std::fs::metadata(result.path()).unwrap().len();
+        assert_eq!(cached_size, tarball.len() as u64);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn streaming_extract_works_without_content_length() {
+        // Chunked transfer encoding means the server cannot tell us the
+        // length up front; we should fall through the preallocation step
+        // cleanly and still produce a correct extract + cache entry.
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let tarball = build_tarball();
+        let integrity = format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode(Sha512::digest(&tarball))
+        );
+        let (url, server) = spawn_chunked_tarball_server(tarball.clone()).await;
+        let client = reqwest::Client::new();
+        let target = prepare_target_dir(dir.path());
+
+        let result = download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some(&integrity),
+            &client,
+            &target,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.source(), TarballSource::Downloaded);
+        assert_eq!(result.size_bytes(), tarball.len() as u64);
+        assert!(target.join("package/package.json").is_file());
+        let cached_size = std::fs::metadata(result.path()).unwrap().len();
+        assert_eq!(cached_size, tarball.len() as u64);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn cache_hit_path_extracts_multi_file_tarball_through_buffered_reader() {
+        // Exercises the BufReader-wrapped cache-hit path with a tarball big
+        // enough to require multiple 64KB reads.
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let tarball = build_multi_file_tarball(128, 2048);
+        let integrity = format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode(Sha512::digest(&tarball))
+        );
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (url, server) = spawn_tarball_server(tarball.clone(), request_count.clone()).await;
+        let client = reqwest::Client::new();
+
+        // Prime the blob cache.
+        let target_first = prepare_target_dir(dir.path());
+        download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some(&integrity),
+            &client,
+            &target_first,
+        )
+        .await
+        .unwrap();
+        assert_eq!(request_count.load(Ordering::SeqCst), 1);
+
+        // Second call should be a cache hit (no extra HTTP request) and
+        // still produce a complete extract via the BufReader cache-hit path.
+        let target_second = dir.path().join("target-second");
+        std::fs::create_dir_all(&target_second).unwrap();
+        let result = download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some(&integrity),
+            &client,
+            &target_second,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.source(), TarballSource::BlobCache);
+        assert_eq!(request_count.load(Ordering::SeqCst), 1);
+        for index in 0..128 {
+            let path = target_second.join(format!("package/data/{index:04}.bin"));
+            assert!(path.is_file(), "missing {path:?} after cache-hit extract");
+        }
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn download_and_extract_integrity_failure_does_not_finalize_cache() {
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().to_path_buf());
+        let tarball = build_tarball();
+        let bad_integrity = format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode([0_u8; 64])
+        );
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (url, server) = spawn_tarball_server(tarball, request_count).await;
+        let client = reqwest::Client::new();
+        let target = prepare_target_dir(dir.path());
+
+        let error = download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some(&bad_integrity),
+            &client,
+            &target,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, SnpmError::Tarball { .. }));
+        assert!(
+            !config.tarball_blob_cache_dir().join("sha512").exists(),
+            "integrity failure must not leave a verified cache entry"
+        );
         server.abort();
     }
 

@@ -7,7 +7,6 @@ use std::time::Instant;
 
 use super::fetch::download_and_extract;
 use super::filesystem::atomic_finalize_extracted_dir;
-use super::limits::extraction_semaphore;
 
 pub(super) async fn materialize_remote_package(
     config: &SnpmConfig,
@@ -15,22 +14,13 @@ pub(super) async fn materialize_remote_package(
     client: &reqwest::Client,
     package_dir: &Path,
 ) -> Result<()> {
-    let _extract_permit =
-        extraction_semaphore()
-            .acquire()
-            .await
-            .map_err(|error| SnpmError::Internal {
-                reason: format!(
-                    "extraction semaphore closed while unpacking {}@{}: {error}",
-                    package.id.name, package.id.version
-                ),
-            })?;
+    // Note: the extraction semaphore is acquired inside `download_and_extract`
+    // around the actual CPU-bound decompress/extract work. Holding it here
+    // would also cover the network-bound stream, capping concurrency at the
+    // (much smaller) extract budget and serializing parallel downloads.
 
     let parent_dir = package_dir.parent().ok_or_else(|| SnpmError::Internal {
-        reason: format!(
-            "package directory has no parent: {}",
-            package_dir.display()
-        ),
+        reason: format!("package directory has no parent: {}", package_dir.display()),
     })?;
 
     let staged_dir = {

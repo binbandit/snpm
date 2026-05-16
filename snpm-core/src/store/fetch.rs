@@ -1,15 +1,13 @@
 use crate::{Result, SnpmConfig, SnpmError};
 use futures::StreamExt;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use tempfile::{Builder, TempPath};
 use tokio::io::AsyncWriteExt;
-use tokio::sync::mpsc;
 
-use super::archive::{unpack_tarball_file, unpack_tarball_reader};
+use super::archive::unpack_tarball_file;
 use super::integrity::{IntegrityCacheKey, IntegritySpec};
-use super::limits::download_semaphore;
+use super::limits::{download_semaphore, extraction_semaphore};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TarballSource {
@@ -39,9 +37,19 @@ impl DownloadedTarball {
     }
 }
 
-/// Materialize a tarball into `target_dir`, downloading and extracting concurrently
-/// on the cache-miss path. On cache hit, falls back to reading the cached blob
-/// from disk and extracting it. `target_dir` must already be prepared (empty).
+/// Materialize a tarball into `target_dir`.
+///
+/// On cache hit, reads the cached blob from disk and extracts it. On cache
+/// miss, downloads the body to a temp file (single-pass integrity hash on the
+/// network stream, server's Content-Length used to pre-size the file), then
+/// extracts to `target_dir` from that file. `target_dir` must already be
+/// prepared (empty).
+///
+/// The download holds the download-semaphore permit so up to N tarballs can
+/// be in flight network-side; the extract acquires the extraction-semaphore
+/// permit separately so the CPU/disk-bound decompress doesn't oversubscribe.
+/// Holding both at once would cap aggregate concurrency at the (much smaller)
+/// extract budget.
 pub(super) async fn download_and_extract(
     config: &SnpmConfig,
     package_name: &str,
@@ -62,6 +70,15 @@ pub(super) async fn download_and_extract(
             .len();
         let cached = cached_path.clone();
         let target = target_dir.to_path_buf();
+        let _extract_permit =
+            extraction_semaphore()
+                .acquire()
+                .await
+                .map_err(|error| SnpmError::Internal {
+                    reason: format!(
+                        "extraction semaphore closed while unpacking cached tarball: {error}"
+                    ),
+                })?;
         tokio::task::spawn_blocking(move || unpack_tarball_file(&target, &cached))
             .await
             .map_err(|error| SnpmError::StoreTask {
@@ -75,6 +92,41 @@ pub(super) async fn download_and_extract(
         });
     }
 
+    let (cached_path, source, size_bytes, retained_temp) =
+        download_blob(config, package_name, url, integrity_spec.as_ref(), client).await?;
+
+    let target = target_dir.to_path_buf();
+    let cached_for_extract = cached_path.clone();
+    let _extract_permit =
+        extraction_semaphore()
+            .acquire()
+            .await
+            .map_err(|error| SnpmError::Internal {
+                reason: format!(
+                    "extraction semaphore closed while unpacking downloaded tarball: {error}"
+                ),
+            })?;
+    tokio::task::spawn_blocking(move || unpack_tarball_file(&target, &cached_for_extract))
+        .await
+        .map_err(|error| SnpmError::StoreTask {
+            reason: error.to_string(),
+        })??;
+
+    Ok(DownloadedTarball {
+        path: cached_path,
+        size_bytes,
+        source,
+        _temp_path: retained_temp,
+    })
+}
+
+async fn download_blob(
+    config: &SnpmConfig,
+    package_name: &str,
+    url: &str,
+    integrity_spec: Option<&IntegritySpec>,
+    client: &reqwest::Client,
+) -> Result<(PathBuf, TarballSource, u64, Option<TempPath>)> {
     let _download_permit =
         download_semaphore()
             .acquire()
@@ -96,7 +148,7 @@ pub(super) async fn download_and_extract(
             source,
         })?;
 
-    let mut verifier = integrity_spec.as_ref().map(IntegritySpec::verifier);
+    let mut verifier = integrity_spec.map(IntegritySpec::verifier);
     let mut request = client.get(url);
     if let Some(header_value) = config.authorization_header_for_tarball(package_name, url) {
         request = request.header("authorization", header_value);
@@ -124,31 +176,13 @@ pub(super) async fn download_and_extract(
         let _ = file.set_len(content_length).await;
     }
 
-    // Bounded channel so the network task applies backpressure when the
-    // extractor falls behind (and vice versa). 8 chunks ≈ ~64KB–1MB of in-flight
-    // buffer depending on chunk size — small enough to keep memory bounded,
-    // large enough to absorb network jitter.
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(8);
-    let target = target_dir.to_path_buf();
-    let extract_task = tokio::task::spawn_blocking(move || -> Result<()> {
-        let reader = ChannelReader::new(rx);
-        unpack_tarball_reader(&target, reader)
-    });
-
     let mut body_stream = response.bytes_stream();
     let mut size_bytes = 0_u64;
-    let mut stream_failed: Option<SnpmError> = None;
     while let Some(chunk_result) = body_stream.next().await {
-        let chunk = match chunk_result {
-            Ok(chunk) => chunk,
-            Err(source) => {
-                stream_failed = Some(SnpmError::Http {
-                    url: url.to_string(),
-                    source,
-                });
-                break;
-            }
-        };
+        let chunk = chunk_result.map_err(|source| SnpmError::Http {
+            url: url.to_string(),
+            source,
+        })?;
         if let Some(verifier) = verifier.as_mut() {
             verifier.update(&chunk);
         }
@@ -159,14 +193,7 @@ pub(super) async fn download_and_extract(
                 source,
             })?;
         size_bytes += chunk.len() as u64;
-        if tx.send(chunk.to_vec()).await.is_err() {
-            // Extractor dropped its receiver, almost certainly because it
-            // returned an error. Stop pulling from the network and surface the
-            // extractor's error below.
-            break;
-        }
     }
-    drop(tx);
 
     file.flush().await.map_err(|source| SnpmError::WriteFile {
         path: file_path.clone(),
@@ -178,14 +205,6 @@ pub(super) async fn download_and_extract(
     // zeros and disagree with what we hashed.
     let _ = file.set_len(size_bytes).await;
     drop(file);
-
-    let extract_outcome = extract_task.await.map_err(|error| SnpmError::StoreTask {
-        reason: error.to_string(),
-    })?;
-    extract_outcome?;
-    if let Some(error) = stream_failed {
-        return Err(error);
-    }
 
     let matched_cache_key = verifier
         .map(|verifier| verifier.finish(url))
@@ -208,14 +227,7 @@ pub(super) async fn download_and_extract(
         })?;
 
         match fs::rename(&file_path, &cached_path) {
-            Ok(()) => {
-                return Ok(DownloadedTarball {
-                    path: cached_path,
-                    size_bytes,
-                    source: TarballSource::Downloaded,
-                    _temp_path: None,
-                });
-            }
+            Ok(()) => return Ok((cached_path, TarballSource::Downloaded, size_bytes, None)),
             Err(_source) if cached_path.is_file() => {
                 let size_bytes = fs::metadata(&cached_path)
                     .map_err(|metadata_source| SnpmError::ReadFile {
@@ -223,12 +235,12 @@ pub(super) async fn download_and_extract(
                         source: metadata_source,
                     })?
                     .len();
-                return Ok(DownloadedTarball {
-                    path: cached_path,
+                return Ok((
+                    cached_path,
+                    TarballSource::BlobCache,
                     size_bytes,
-                    source: TarballSource::BlobCache,
-                    _temp_path: Some(temp_path),
-                });
+                    Some(temp_path),
+                ));
             }
             Err(source) => {
                 return Err(SnpmError::WriteFile {
@@ -239,50 +251,7 @@ pub(super) async fn download_and_extract(
         }
     }
 
-    Ok(DownloadedTarball {
-        path: file_path,
-        size_bytes,
-        source: TarballSource::Downloaded,
-        _temp_path: Some(temp_path),
-    })
-}
-
-struct ChannelReader {
-    rx: mpsc::Receiver<Vec<u8>>,
-    current: Vec<u8>,
-    offset: usize,
-}
-
-impl ChannelReader {
-    fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
-        Self {
-            rx,
-            current: Vec::new(),
-            offset: 0,
-        }
-    }
-}
-
-impl Read for ChannelReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        while self.offset >= self.current.len() {
-            match self.rx.blocking_recv() {
-                Some(chunk) => {
-                    self.current = chunk;
-                    self.offset = 0;
-                }
-                None => return Ok(0),
-            }
-        }
-        let available = &self.current[self.offset..];
-        let take = available.len().min(buf.len());
-        buf[..take].copy_from_slice(&available[..take]);
-        self.offset += take;
-        Ok(take)
-    }
+    Ok((file_path, TarballSource::Downloaded, size_bytes, Some(temp_path)))
 }
 
 fn cached_blob_paths(

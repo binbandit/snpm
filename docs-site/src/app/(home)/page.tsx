@@ -7,7 +7,7 @@ import {
   Code2, Sparkles, FileText, Users, BookOpen, Github, Package, X
 } from 'lucide-react';
 
-const FALLBACK_VERSION = '2026.1.7';
+const FALLBACK_VERSION = '2026.5.16';
 const LATEST_RELEASE_URL = 'https://api.github.com/repos/binbandit/snpm/releases/latest';
 
 export default function HomePage() {
@@ -101,8 +101,8 @@ function HeroSection({ version }: { version: string }) {
                 <p className="text-sm text-gray-500 dark:text-[#c9b89a] italic">{acronym}</p>
               </div>
               <p className="text-xl text-gray-600 dark:text-[#d4c5b0] max-w-xl">
-                A drop-in replacement for npm, yarn, and pnpm. Faster installs, simpler codebase, 
-                deterministic builds—everything you need, nothing you don't. A serene development experience.
+                Familiar npm-style commands, pnpm-style shared store, workspace fan-out, and a security-first
+                default. Reads pnpm, Bun, Yarn, and npm lockfiles on day one.
               </p>
             </div>
 
@@ -163,12 +163,12 @@ function HeroSection({ version }: { version: string }) {
 }
 
 const features = [
-  { icon: Zap, title: "Blazing Fast", description: "Global cache, parallel downloads, and smart reuse. Install dependencies in record time.", stats: "50% faster" },
-  { icon: Lock, title: "Deterministic Builds", description: "Simple, readable lockfiles ensure identical installs across all environments.", stats: "100% reproducible" },
-  { icon: Code, title: "Drop-in Replacement", description: "Familiar commands. Zero learning curve. Works with your existing projects.", stats: "npm compatible" },
-  { icon: Boxes, title: "Monorepo Ready", description: "First-class workspace support with shared lockfiles and local package resolution.", stats: "Workspaces ✓" },
-  { icon: Shield, title: "Built with Rust", description: "Clean, maintainable codebase. No unsafe code. Easy to audit and contribute.", stats: "Type safe" },
-  { icon: Heart, title: "Simple by Design", description: "No clever tricks. Every line has a purpose. Code that's a joy to maintain.", stats: "Contributor friendly" }
+  { icon: Zap, title: "Hot path in milliseconds", description: "Lockfile-derived integrity markers short-circuit installs when nothing changed. Cold installs go in parallel up to the registry concurrency limit.", stats: "Hot < 100ms" },
+  { icon: Lock, title: "Deterministic by default", description: "snpm-lock.yaml (YAML, schema v1) records the tarball and integrity hash for every package. --frozen-lockfile fails fast in CI.", stats: "Reproducible" },
+  { icon: Code, title: "Lockfile imports", description: "Reads pnpm-lock.yaml, bun.lock, yarn.lock, npm-shrinkwrap.json, and package-lock.json on the first install. Then it's snpm-lock.yaml as the source of truth.", stats: "pnpm · bun · yarn · npm" },
+  { icon: Boxes, title: "Workspace fan-out", description: "Discover from snpm-workspace.yaml, pnpm-workspace.yaml, or package.json workspaces. Filter by name, glob, path, dep walk, or [git-ref].", stats: "--filter / --filter-prod" },
+  { icon: Shield, title: "Security-first defaults", description: "Install scripts blocked unless allow-listed. SNPM_MIN_PACKAGE_AGE_DAYS dodges zero-day publishes. Tarball auth scoped to the announcing registry.", stats: "Hardened" },
+  { icon: Heart, title: "Batteries included", description: "audit (SARIF), why, licenses, patch edit/commit, link, pack, publish, store status/prune, and a built-in nvm-style node version manager.", stats: "One CLI" }
 ];
 
 function KeyFeatures() {
@@ -260,12 +260,12 @@ function PerformanceSection() {
 }
 
 const commands = [
-  { title: "Install dependencies", command: "snpm install", description: "Fast, deterministic installs from your lockfile" },
-  { title: "Add a package", command: "snpm add react@18", description: "Add packages to dependencies with version resolution" },
-  { title: "Add dev dependency", command: "snpm add -D typescript", description: "Add packages to devDependencies" },
-  { title: "Remove a package", command: "snpm remove lodash", description: "Remove packages and update lockfile automatically" },
-  { title: "Run scripts", command: "snpm run build", description: "Execute package.json scripts with local binaries in PATH" },
-  { title: "Production install", command: "snpm install --production", description: "Skip devDependencies for production deployments" }
+  { title: "Install dependencies", command: "snpm install", description: "Fast, deterministic installs from snpm-lock.yaml" },
+  { title: "Add a package", command: "snpm add react", description: "Add packages to dependencies with semver resolution" },
+  { title: "Run scripts", command: "snpm run build", description: "Run package.json scripts with node_modules/.bin in PATH" },
+  { title: "Workspace fan-out", command: "snpm run test --filter api...", description: "Graph-aware filters: name, glob, path, [git-ref], dep walks" },
+  { title: "Try a package once", command: "snpm dlx create-vite my-app", description: "Download, run, and discard. Aliases: spx, snpx, pnpx" },
+  { title: "Audit and fix", command: "snpm audit --fix", description: "Find vulnerable deps and upgrade them; SARIF output supported" }
 ];
 
 function CommandShowcase() {
@@ -497,25 +497,25 @@ function Footer({ version }: { version: string }) {
           <div>
             <h3 className="text-gray-900 dark:text-[#f5f1e8] mb-4">Documentation</h3>
             <ul className="space-y-2 text-sm">
-              <li><Link href="/docs" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Getting Started</Link></li>
-              <li><Link href="/docs" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">CLI Reference</Link></li>
-              <li><Link href="/docs" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Configuration</Link></li>
-              <li><Link href="/docs" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Migration Guide</Link></li>
+              <li><Link href="/docs/installation" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Getting Started</Link></li>
+              <li><Link href="/docs/cli-reference" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">CLI Reference</Link></li>
+              <li><Link href="/docs/configuration" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Configuration</Link></li>
+              <li><Link href="/docs/comparison" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Migration Guide</Link></li>
             </ul>
           </div>
 
           <div>
             <h3 className="text-gray-900 dark:text-[#f5f1e8] mb-4">Resources</h3>
             <ul className="space-y-2 text-sm">
-              <li><a href="https://github.com/binbandit/snpm" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Changelog</a></li>
-              <li><a href="https://github.com/binbandit/snpm" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Community</a></li>
-              <li><a href="https://github.com/binbandit/snpm" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Contributing</a></li>
+              <li><a href="https://github.com/binbandit/snpm/blob/main/CHANGELOG.md" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Changelog</a></li>
+              <li><a href="https://github.com/binbandit/snpm/issues" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Issues</a></li>
+              <li><a href="https://github.com/binbandit/snpm/blob/main/CONTRIBUTING.md" className="text-gray-600 dark:text-[#d4c5b0] hover:text-gray-900 dark:hover:text-teal-400 transition-colors">Contributing</a></li>
             </ul>
           </div>
         </div>
 
         <div className="pt-8 border-t border-[#d4c5b0]/50 dark:border-[#4a3828]/50 text-center">
-          <p className="text-sm text-gray-600 dark:text-[#c9b89a]">© 2025 snpm. MIT Licensed.</p>
+          <p className="text-sm text-gray-600 dark:text-[#c9b89a]">© 2026 snpm. MIT or Apache-2.0.</p>
         </div>
       </div>
     </footer>

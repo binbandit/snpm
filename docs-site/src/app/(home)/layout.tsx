@@ -3,11 +3,11 @@ import { baseOptions } from '@/lib/layout.shared';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'snpm - The Speedy Way to Manage Packages',
-  description: 'A drop-in replacement for npm, yarn, and pnpm. Faster installs, simpler codebase, deterministic builds—everything you need, nothing you don\'t.',
+  title: 'snpm - A Rust-native package manager for JavaScript',
+  description: 'snpm is a Rust-native package manager shaped around pnpm-style workflows: shared package store, workspace fan-out, security-first defaults, and lockfile imports from pnpm, Bun, Yarn, and npm.',
   openGraph: {
-    title: 'snpm - The Speedy Way to Manage Packages',
-    description: 'A drop-in replacement for npm, yarn, and pnpm. Built with Rust for unmatched speed.',
+    title: 'snpm - A Rust-native package manager for JavaScript',
+    description: 'Shared package store, workspace fan-out, security-first defaults, and lockfile imports from pnpm, Bun, Yarn, and npm.',
     type: 'website',
   },
 };

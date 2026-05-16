@@ -39,6 +39,7 @@ pub(in crate::resolve) struct ResolverContext<'a> {
 
 #[cfg(test)]
 impl<'a> ResolverContext<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_for_tests(
         config: &'a SnpmConfig,
         client: &'a Client,

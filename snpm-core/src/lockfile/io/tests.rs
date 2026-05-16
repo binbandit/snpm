@@ -303,10 +303,7 @@ fn lockfile_to_graph(lockfile: &crate::lockfile::types::Lockfile) -> ResolutionG
                     RootDependency {
                         requested: entry.requested.clone(),
                         resolved: PackageId {
-                            name: entry
-                                .package
-                                .clone()
-                                .unwrap_or_else(|| name.clone()),
+                            name: entry.package.clone().unwrap_or_else(|| name.clone()),
                             version: version.clone(),
                         },
                     },

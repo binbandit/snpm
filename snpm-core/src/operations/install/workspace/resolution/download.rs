@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn resolve_workspace_deps(
     config: &SnpmConfig,
     client: &reqwest::Client,

@@ -11,6 +11,8 @@ use std::sync::OnceLock;
 
 static RESOLVED_AUTO_BACKEND: OnceLock<LinkBackend> = OnceLock::new();
 
+type LinkOps = (Vec<PathBuf>, Vec<(PathBuf, PathBuf)>);
+
 pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
     if try_clone_store_package_dir(config, source, dest)? {
         return Ok(());
@@ -59,10 +61,10 @@ fn try_clone_store_package_dir(config: &SnpmConfig, source: &Path, dest: &Path) 
 
         ensure_parent_dir(dest)?;
 
-        return match reflink_copy::reflink(source, dest) {
+        match reflink_copy::reflink(source, dest) {
             Ok(()) => Ok(true),
             Err(_) => Ok(false),
-        };
+        }
     }
 
     #[cfg(not(any(
@@ -77,7 +79,7 @@ fn try_clone_store_package_dir(config: &SnpmConfig, source: &Path, dest: &Path) 
     }
 }
 
-fn indexed_link_ops(source: &Path, dest: &Path) -> Option<(Vec<PathBuf>, Vec<(PathBuf, PathBuf)>)> {
+fn indexed_link_ops(source: &Path, dest: &Path) -> Option<LinkOps> {
     let shape = read_package_filesystem_shape_lossy(source)?;
     let mut directories = Vec::with_capacity(shape.directories.len() + 1);
     directories.push(dest.to_path_buf());

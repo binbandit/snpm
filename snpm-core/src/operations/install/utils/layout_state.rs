@@ -325,6 +325,7 @@ pub(crate) fn capture_workspace_checks(
     Ok(checks)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn capture_project_link_checks(
     config: &SnpmConfig,
     project: &Project,

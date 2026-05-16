@@ -83,9 +83,7 @@ pub(super) fn download_concurrency() -> usize {
 }
 
 fn extraction_concurrency_limit(cpu_count: usize) -> usize {
-    let cpu_limited = cpu_count
-        .max(MIN_EXTRACTION_CONCURRENCY)
-        .min(MAX_EXTRACTION_CONCURRENCY);
+    let cpu_limited = cpu_count.clamp(MIN_EXTRACTION_CONCURRENCY, MAX_EXTRACTION_CONCURRENCY);
 
     descriptor_limited_concurrency(
         cpu_limited,

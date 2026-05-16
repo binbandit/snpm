@@ -61,34 +61,33 @@ pub async fn run(args: OutdatedArgs, config: &SnpmConfig) -> Result<()> {
         return Ok(());
     }
 
-    if let Some(workspace) = snpm_core::Workspace::discover(&cwd)? {
-        if workspace.root == cwd {
-            let mut any = false;
+    if let Some(workspace) = snpm_core::Workspace::discover(&cwd)?
+        && workspace.root == cwd
+    {
+        let mut any = false;
 
-            for project in workspace.projects.iter() {
-                let entries =
-                    operations::outdated(config, project, !args.production, false).await?;
+        for project in workspace.projects.iter() {
+            let entries = operations::outdated(config, project, !args.production, false).await?;
 
-                if entries.is_empty() {
-                    continue;
-                }
-
-                if any {
-                    println!();
-                }
-                any = true;
-
-                let name = workspace_selector::project_label(project);
-                println!("\n{}", name);
-                print_outdated(&entries);
+            if entries.is_empty() {
+                continue;
             }
 
-            if !any {
-                console::info("All dependencies are up to date.");
+            if any {
+                println!();
             }
+            any = true;
 
-            return Ok(());
+            let name = workspace_selector::project_label(project);
+            println!("\n{}", name);
+            print_outdated(&entries);
         }
+
+        if !any {
+            console::info("All dependencies are up to date.");
+        }
+
+        return Ok(());
     }
 
     let project = Project::discover(&cwd)?;

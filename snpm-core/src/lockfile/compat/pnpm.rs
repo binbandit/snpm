@@ -396,15 +396,15 @@ fn build_optional_root_dependency(
     requested: &str,
     resolved: Option<&str>,
 ) -> LockRootDependency {
-    if let Some(dep_key) = resolved {
-        if let Some((resolved_name, version)) = split_dep_key(dep_key) {
-            return LockRootDependency {
-                requested: requested.to_string(),
-                package: (resolved_name != dep_name).then_some(resolved_name),
-                version: Some(version),
-                optional: true,
-            };
-        }
+    if let Some(dep_key) = resolved
+        && let Some((resolved_name, version)) = split_dep_key(dep_key)
+    {
+        return LockRootDependency {
+            requested: requested.to_string(),
+            package: (resolved_name != dep_name).then_some(resolved_name),
+            version: Some(version),
+            optional: true,
+        };
     }
 
     LockRootDependency {
@@ -576,12 +576,11 @@ fn looks_like_registry_package(lookup_key: &str) -> bool {
 }
 
 fn scoped_registry_for_package<'a>(config: &'a SnpmConfig, name: &str) -> &'a str {
-    if let Some((scope, _)) = name.split_once('/') {
-        if scope.starts_with('@') {
-            if let Some(registry) = config.scoped_registries.get(scope) {
-                return registry;
-            }
-        }
+    if let Some((scope, _)) = name.split_once('/')
+        && scope.starts_with('@')
+        && let Some(registry) = config.scoped_registries.get(scope)
+    {
+        return registry;
     }
 
     &config.default_registry

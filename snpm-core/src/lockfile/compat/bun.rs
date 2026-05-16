@@ -710,7 +710,7 @@ mod tests {
             lockfile.packages["is-odd@3.0.1"].dependencies["is-number"],
             "is-number@6.0.0"
         );
-        assert!(lockfile.packages["kind-of@6.0.3"].has_bin == false);
+        assert!(!lockfile.packages["kind-of@6.0.3"].has_bin);
     }
 
     #[test]

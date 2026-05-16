@@ -79,9 +79,7 @@ pub(super) fn verify_integrity_file(
 
 impl IntegritySpec {
     pub(super) fn parse(integrity: Option<&str>) -> Option<Self> {
-        let Some(integrity) = integrity.map(str::trim).filter(|value| !value.is_empty()) else {
-            return None;
-        };
+        let integrity = integrity.map(str::trim).filter(|value| !value.is_empty())?;
 
         let mut spec = Self {
             tokens: Vec::new(),

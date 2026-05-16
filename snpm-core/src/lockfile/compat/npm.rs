@@ -456,6 +456,7 @@ fn build_package_tarball(
     derive_registry_tarball(config, &entry.name, &entry.version).unwrap_or_default()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_root_from_entry(
     path: &Path,
     source_label: &str,

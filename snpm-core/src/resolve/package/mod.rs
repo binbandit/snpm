@@ -103,9 +103,7 @@ impl<'a> ResolverContext<'a> {
                 .map(|dep| dep.resolved.clone()),
         };
 
-        let Some(seed_id) = candidate else {
-            return None;
-        };
+        let seed_id = candidate?;
 
         let parsed_range = parse_range_set(name, range).ok()?;
         let parsed_version = parse_version(&seed_id.version).ok()?;

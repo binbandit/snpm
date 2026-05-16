@@ -490,10 +490,7 @@ mod tests {
         config.allow_scripts.insert("good".to_string());
         config.allow_scripts.insert("bad".to_string());
 
-        for (name, body) in [
-            ("good", "exit 0"),
-            ("bad", "exit 7"),
-        ] {
+        for (name, body) in [("good", "exit 0"), ("bad", "exit 7")] {
             let dep_root = project_root.join("node_modules").join(name);
             fs::create_dir_all(&dep_root).unwrap();
             fs::write(

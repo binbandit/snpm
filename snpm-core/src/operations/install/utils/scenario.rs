@@ -9,6 +9,7 @@ use crate::{Project, SnpmConfig, lockfile};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+#[allow(clippy::too_many_arguments)]
 pub fn detect_install_scenario(
     project: &Project,
     workspace: Option<&crate::Workspace>,
@@ -204,6 +205,23 @@ fn lockfile_source_path(
     }
 }
 
+fn read_existing_lockfile(
+    lockfile_path: &Path,
+    compatible_lockfile: Option<&crate::lockfile::CompatibleLockfile>,
+    config: &SnpmConfig,
+) -> crate::Result<crate::lockfile::Lockfile> {
+    if lockfile_path.is_file() {
+        return lockfile::read(lockfile_path);
+    }
+
+    let source = compatible_lockfile.ok_or_else(|| crate::SnpmError::Lockfile {
+        path: lockfile_path.to_path_buf(),
+        reason: "no lockfile was found".into(),
+    })?;
+
+    lockfile::read_compatible_lockfile(source, config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::detect_install_scenario;
@@ -338,21 +356,4 @@ mod tests {
             Some("1.0.0")
         );
     }
-}
-
-fn read_existing_lockfile(
-    lockfile_path: &Path,
-    compatible_lockfile: Option<&crate::lockfile::CompatibleLockfile>,
-    config: &SnpmConfig,
-) -> crate::Result<crate::lockfile::Lockfile> {
-    if lockfile_path.is_file() {
-        return lockfile::read(lockfile_path);
-    }
-
-    let source = compatible_lockfile.ok_or_else(|| crate::SnpmError::Lockfile {
-        path: lockfile_path.to_path_buf(),
-        reason: "no lockfile was found".into(),
-    })?;
-
-    lockfile::read_compatible_lockfile(source, config)
 }

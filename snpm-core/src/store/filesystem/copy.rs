@@ -36,16 +36,13 @@ pub(crate) fn atomic_finalize_extracted_dir(staged: &Path, final_path: &Path) ->
 }
 
 fn remove_path_any(path: &Path) {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            let file_type = metadata.file_type();
-            if file_type.is_dir() && !file_type.is_symlink() {
-                let _ = fs::remove_dir_all(path);
-            } else {
-                let _ = fs::remove_file(path);
-            }
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        let file_type = metadata.file_type();
+        if file_type.is_dir() && !file_type.is_symlink() {
+            let _ = fs::remove_dir_all(path);
+        } else {
+            let _ = fs::remove_file(path);
         }
-        Err(_) => {}
     }
 }
 

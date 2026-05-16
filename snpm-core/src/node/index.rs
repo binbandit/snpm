@@ -51,10 +51,11 @@ pub fn distro_url() -> String {
 pub async fn fetch_index(config: &SnpmConfig, force_refresh: bool) -> Result<Vec<NodeRelease>> {
     let cache_path = config.node_index_cache_path();
 
-    if !force_refresh && cache_is_fresh(&cache_path) {
-        if let Some(releases) = read_cached(&cache_path) {
-            return Ok(releases);
-        }
+    if !force_refresh
+        && cache_is_fresh(&cache_path)
+        && let Some(releases) = read_cached(&cache_path)
+    {
+        return Ok(releases);
     }
 
     let url = format!("{}{}", distro_url(), DIST_INDEX_PATH);

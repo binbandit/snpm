@@ -67,6 +67,7 @@ pub(crate) struct CachedInstallState {
     pub(crate) layout_valid: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_project_install_state(
     config: &SnpmConfig,
     project: &Project,

@@ -616,12 +616,9 @@ mod tests {
         };
 
         let selected =
-            super::select_workspace_projects(&workspace, &vec!["api...".to_string()], &[]).unwrap();
+            super::select_workspace_projects(&workspace, &["api...".to_string()], &[]).unwrap();
         assert_eq!(selected.len(), 2);
-        let names: BTreeSet<String> = selected
-            .into_iter()
-            .map(|project| project_label(project))
-            .collect();
+        let names: BTreeSet<String> = selected.into_iter().map(project_label).collect();
         assert!(names.contains("api"));
         assert!(names.contains("lib"));
     }

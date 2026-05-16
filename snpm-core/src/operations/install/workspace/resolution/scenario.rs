@@ -32,6 +32,7 @@ impl WorkspaceScenarioArtifacts {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn detect_workspace_scenario_early(
     workspace: &Workspace,
     lockfile_path: &Path,
@@ -179,6 +180,7 @@ fn detect_from_graph(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_lockfile_matches_manifest(
     frozen_lockfile: FrozenLockfileMode,
     lockfile_path: &Path,

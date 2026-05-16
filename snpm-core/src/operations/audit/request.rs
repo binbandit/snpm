@@ -148,6 +148,7 @@ fn walk_audited_packages(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_package(
     lockfile: &Lockfile,
     package_key: &str,

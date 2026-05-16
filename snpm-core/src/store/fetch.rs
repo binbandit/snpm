@@ -306,7 +306,12 @@ async fn download_blob(
         }
     }
 
-    Ok((file_path, TarballSource::Downloaded, size_bytes, Some(temp_path)))
+    Ok((
+        file_path,
+        TarballSource::Downloaded,
+        size_bytes,
+        Some(temp_path),
+    ))
 }
 
 fn cached_blob_paths(
@@ -534,9 +539,7 @@ mod tests {
         (url, handle)
     }
 
-    async fn spawn_chunked_tarball_server(
-        body: Vec<u8>,
-    ) -> (String, tokio::task::JoinHandle<()>) {
+    async fn spawn_chunked_tarball_server(body: Vec<u8>) -> (String, tokio::task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let url = format!("http://{addr}/pkg.tgz");
@@ -557,7 +560,8 @@ mod tests {
                         break;
                     }
                 }
-                let header = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+                let header =
+                    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
                 let _ = socket.write_all(header.as_bytes()).await;
                 for chunk in body.chunks(64) {
                     let _ = socket
@@ -791,9 +795,8 @@ mod tests {
         assert_eq!(result.size_bytes(), tarball.len() as u64);
         for index in 0..64 {
             let path = target.join(format!("package/data/{index:04}.bin"));
-            let bytes = std::fs::read(&path).unwrap_or_else(|error| {
-                panic!("file {path:?} missing after extract: {error}")
-            });
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|error| panic!("file {path:?} missing after extract: {error}"));
             assert_eq!(bytes.len(), 4096);
         }
         server.abort();
@@ -856,16 +859,9 @@ mod tests {
         let client = reqwest::Client::new();
         let target = prepare_target_dir(dir.path());
 
-        let result = download_and_extract(
-            &config,
-            "pkg",
-            &url,
-            Some(&integrity),
-            &client,
-            &target,
-        )
-        .await
-        .unwrap();
+        let result = download_and_extract(&config, "pkg", &url, Some(&integrity), &client, &target)
+            .await
+            .unwrap();
 
         let cached_size = std::fs::metadata(result.path()).unwrap().len();
         assert_eq!(cached_size, tarball.len() as u64);
@@ -888,16 +884,9 @@ mod tests {
         let client = reqwest::Client::new();
         let target = prepare_target_dir(dir.path());
 
-        let result = download_and_extract(
-            &config,
-            "pkg",
-            &url,
-            Some(&integrity),
-            &client,
-            &target,
-        )
-        .await
-        .unwrap();
+        let result = download_and_extract(&config, "pkg", &url, Some(&integrity), &client, &target)
+            .await
+            .unwrap();
 
         assert_eq!(result.source(), TarballSource::Downloaded);
         assert_eq!(result.size_bytes(), tarball.len() as u64);
@@ -974,16 +963,10 @@ mod tests {
         let client = reqwest::Client::new();
         let target = prepare_target_dir(dir.path());
 
-        let error = download_and_extract(
-            &config,
-            "pkg",
-            &url,
-            Some(&bad_integrity),
-            &client,
-            &target,
-        )
-        .await
-        .unwrap_err();
+        let error =
+            download_and_extract(&config, "pkg", &url, Some(&bad_integrity), &client, &target)
+                .await
+                .unwrap_err();
         assert!(matches!(error, SnpmError::Tarball { .. }));
         assert!(
             !config.tarball_blob_cache_dir().join("sha512").exists(),

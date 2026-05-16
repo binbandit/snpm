@@ -45,8 +45,9 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
     } = args;
     let frozen_lockfile = super::frozen::resolve_frozen_lockfile_mode(config, None);
 
-    if !global && workspace.is_none() {
-        if let Some(WorkspaceSelection {
+    if !global
+        && workspace.is_none()
+        && let Some(WorkspaceSelection {
             projects,
             filter_label,
         }) = workspace_selector::select_workspace_projects(
@@ -55,32 +56,32 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
             recursive,
             &filter,
             &filter_prod,
-        )? {
-            console::header("add", env!("CARGO_PKG_VERSION"));
-            let requested = packages.clone();
-            for (idx, mut project) in projects.into_iter().enumerate() {
-                if idx > 0 {
-                    println!();
-                }
-                let options = operations::InstallOptions {
-                    requested: requested.clone(),
-                    dev,
-                    include_dev: true,
-                    frozen_lockfile: frozen_lockfile.mode,
-                    strict_no_lockfile: frozen_lockfile.strict_no_lockfile,
-                    force,
-                    silent_summary: false,
-                };
-
-                console::info(&format!(
-                    "add {} in {} ({filter_label})",
-                    options.requested.join(", "),
-                    workspace_selector::project_label(&project)
-                ));
-                operations::install(config, &mut project, options).await?;
+        )?
+    {
+        console::header("add", env!("CARGO_PKG_VERSION"));
+        let requested = packages.clone();
+        for (idx, mut project) in projects.into_iter().enumerate() {
+            if idx > 0 {
+                println!();
             }
-            return Ok(());
+            let options = operations::InstallOptions {
+                requested: requested.clone(),
+                dev,
+                include_dev: true,
+                frozen_lockfile: frozen_lockfile.mode,
+                strict_no_lockfile: frozen_lockfile.strict_no_lockfile,
+                force,
+                silent_summary: false,
+            };
+
+            console::info(&format!(
+                "add {} in {} ({filter_label})",
+                options.requested.join(", "),
+                workspace_selector::project_label(&project)
+            ));
+            operations::install(config, &mut project, options).await?;
         }
+        return Ok(());
     }
 
     if global {

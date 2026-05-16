@@ -1,4 +1,4 @@
-use crate::{Result, SnpmError, Workspace};
+use crate::{Result, SnpmError};
 
 use snpm_semver::RangeSet;
 use std::collections::BTreeMap;
@@ -29,20 +29,6 @@ pub fn insert_workspace_root_dep(
     }
 
     Ok(())
-}
-
-pub fn conflicting_range_error<T>(
-    workspace: &Workspace,
-    name: &str,
-    existing: &str,
-    incoming: &str,
-) -> Result<T> {
-    Err(SnpmError::WorkspaceConfig {
-        path: workspace.root.clone(),
-        reason: format!(
-            "dependency {name} has conflicting ranges {existing} and {incoming} across workspace projects"
-        ),
-    })
 }
 
 fn resolve_workspace_range(

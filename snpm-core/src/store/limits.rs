@@ -8,8 +8,8 @@ use crate::{Result, SnpmConfig, SnpmError};
 const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 32;
 const MAX_REGISTRY_CONCURRENCY: usize = 64;
 const MAX_STORE_TASK_CONCURRENCY: usize = 48;
-const MIN_EXTRACTION_CONCURRENCY: usize = 2;
-const MAX_EXTRACTION_CONCURRENCY: usize = 8;
+const MIN_EXTRACTION_CONCURRENCY: usize = 4;
+const MAX_EXTRACTION_CONCURRENCY: usize = 32;
 const OPEN_FILE_DESCRIPTOR_RESERVE: usize = 96;
 const REGISTRY_DESCRIPTORS_PER_TASK: usize = 4;
 const DOWNLOAD_DESCRIPTORS_PER_TASK: usize = 8;
@@ -178,18 +178,18 @@ mod tests {
 
     #[test]
     fn extraction_limit_keeps_small_machines_busy_without_oversubscribing() {
-        assert_eq!(extraction_concurrency_limit(0), 2);
-        assert_eq!(extraction_concurrency_limit(1), 2);
-        assert_eq!(extraction_concurrency_limit(2), 2);
+        assert_eq!(extraction_concurrency_limit(0), 4);
+        assert_eq!(extraction_concurrency_limit(1), 4);
+        assert_eq!(extraction_concurrency_limit(2), 4);
         assert_eq!(extraction_concurrency_limit(4), 4);
     }
 
     #[test]
     fn extraction_limit_tracks_cpu_count_until_cap() {
         assert_eq!(extraction_concurrency_limit(8), 8);
-        assert_eq!(extraction_concurrency_limit(16), 8);
-        assert_eq!(extraction_concurrency_limit(32), 8);
-        assert_eq!(extraction_concurrency_limit(96), 8);
+        assert_eq!(extraction_concurrency_limit(16), 16);
+        assert_eq!(extraction_concurrency_limit(32), 32);
+        assert_eq!(extraction_concurrency_limit(96), 32);
     }
 
     #[test]

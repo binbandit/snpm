@@ -69,9 +69,7 @@ pub(crate) fn populate_shared_virtual_store_for_packages(
         .par_iter()
         .map(|id| -> Result<()> {
             let package_location = &shared_paths[*id];
-            let marker_file =
-                hashed_virtual_marker_path(&shared_virtual_store_dir, id, Some(&entry_hashes));
-            materialize_one_package(config, store_paths, id, package_location, &marker_file)?;
+            materialize_one_package(config, store_paths, id, package_location)?;
 
             let package = graph
                 .packages
@@ -92,31 +90,24 @@ pub(crate) fn populate_shared_virtual_store_for_packages(
 }
 
 /// Reflink/link a single package from the store into `package_location` if
-/// the slot is missing or stale. Idempotent: returns early on a warm hit.
+/// the slot is missing or stale. Idempotent: returns early on a warm hit
+/// detected via the presence of the snpm metadata file.
 fn materialize_one_package(
     config: &SnpmConfig,
     store_paths: &BTreeMap<PackageId, PathBuf>,
     id: &PackageId,
     package_location: &Path,
-    marker_file: &Path,
 ) -> Result<()> {
+    if virtual_package_ready(package_location) {
+        return Ok(());
+    }
+
     let store_path = store_paths.get(id).ok_or_else(|| SnpmError::StoreMissing {
         name: id.name.clone(),
         version: id.version.clone(),
     })?;
 
-    let location_metadata = package_location.symlink_metadata().ok();
-    let marker_present = marker_file.is_file();
-
-    if marker_present && virtual_package_ready(package_location) {
-        return Ok(());
-    }
-
-    if marker_present {
-        fs::remove_file(marker_file).ok();
-    }
-
-    if let Some(metadata) = location_metadata {
+    if let Ok(metadata) = package_location.symlink_metadata() {
         if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
             fs::remove_dir_all(package_location).ok();
         } else {
@@ -124,11 +115,7 @@ fn materialize_one_package(
         }
     }
 
-    link_dir(config, store_path, package_location)?;
-    fs::write(marker_file, []).map_err(|source| SnpmError::WriteFile {
-        path: marker_file.to_path_buf(),
-        source,
-    })
+    link_dir(config, store_path, package_location)
 }
 
 /// Create one symlink per dep inside `package_location`'s sibling
@@ -227,14 +214,12 @@ pub(super) fn populate_virtual_store(
         .par_iter()
         .map(|id| -> Result<()> {
             let package_location = &project_paths[*id];
-            let marker_file = virtual_marker_path(virtual_store_dir, id);
             let should_materialize_locally = locally_materialized_ids.contains(*id);
 
             let location_metadata = package_location.symlink_metadata().ok();
-            let marker_present = marker_file.is_file();
 
             let already_ready = if should_materialize_locally {
-                marker_present && virtual_package_ready(package_location)
+                virtual_package_ready(package_location)
             } else {
                 let shared_target =
                     shared_paths
@@ -251,10 +236,6 @@ pub(super) fn populate_virtual_store(
             };
 
             if !already_ready {
-                if marker_present {
-                    fs::remove_file(&marker_file).ok();
-                }
-
                 if let Some(metadata) = location_metadata {
                     if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
                         fs::remove_dir_all(package_location).ok();
@@ -272,10 +253,6 @@ pub(super) fn populate_virtual_store(
                                 version: id.version.clone(),
                             })?;
                     link_dir(config, store_path, package_location)?;
-                    fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
-                        path: marker_file.clone(),
-                        source,
-                    })?;
                 } else {
                     let shared_target =
                         shared_paths
@@ -294,10 +271,6 @@ pub(super) fn populate_virtual_store(
                                     version: id.version.clone(),
                                 })?;
                         link_dir(config, store_path, package_location)?;
-                        fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
-                            path: marker_file.clone(),
-                            source,
-                        })?;
                     }
                 }
             }
@@ -521,17 +494,10 @@ fn hashed_virtual_package_location(
         .join(&id.name)
 }
 
-fn virtual_marker_path(virtual_store_dir: &Path, id: &PackageId) -> PathBuf {
-    virtual_id_dir(virtual_store_dir, id).join(".snpm_linked")
-}
-
-fn hashed_virtual_marker_path(
-    virtual_store_dir: &Path,
-    id: &PackageId,
-    entry_hashes: Option<&BTreeMap<PackageId, String>>,
-) -> PathBuf {
-    hashed_virtual_id_dir(virtual_store_dir, id, entry_hashes).join(".snpm_linked")
-}
+// Note: `.snpm_linked` is no longer written. `virtual_package_ready`
+// (presence of `.snpm-package-metadata.json`) is now the warm-hit
+// indicator and it's reflinked into every virtual store entry by
+// `link_dir`, so a separate marker file is redundant.
 
 fn global_virtual_store_entry_hashes(graph: &ResolutionGraph) -> BTreeMap<PackageId, String> {
     let mut hashes = BTreeMap::new();
@@ -601,16 +567,27 @@ fn short_hash(bytes: &[u8]) -> String {
 }
 
 fn virtual_package_ready(package_location: &Path) -> bool {
-    let is_real_dir = package_location
+    // Fast path: the snpm-written metadata file is a unique fingerprint of
+    // a snpm-materialized package. It supersedes the old `.snpm_linked`
+    // marker — anything that has the metadata file was materialized by us
+    // and is fully wired.
+    if package_location.join(PACKAGE_METADATA_FILE).is_file() {
+        return true;
+    }
+    // Legacy compatibility: stores populated by older snpm versions, or
+    // fixtures that don't write the metadata file, still count as "ready"
+    // if the location is a real, non-empty directory.
+    package_location
         .symlink_metadata()
-        .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
-
-    is_real_dir
-        && (package_location.join(PACKAGE_METADATA_FILE).is_file()
-            || fs::read_dir(package_location)
-                .ok()
-                .and_then(|mut entries| entries.next())
-                .is_some())
+        .ok()
+        .is_some_and(|metadata| {
+            metadata.is_dir()
+                && !metadata.file_type().is_symlink()
+                && fs::read_dir(package_location)
+                    .ok()
+                    .and_then(|mut entries| entries.next())
+                    .is_some()
+        })
 }
 
 fn dependency_state_hash(

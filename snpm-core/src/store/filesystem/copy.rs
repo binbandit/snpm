@@ -5,21 +5,31 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
-pub(crate) fn reset_package_dir(target_dir: &Path) -> Result<()> {
-    match fs::remove_dir_all(target_dir) {
-        Ok(()) => {}
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(source) => {
-            return Err(SnpmError::WriteFile {
-                path: target_dir.to_path_buf(),
-                source,
-            });
-        }
+/// Move `staged` into `final_path` atomically once extraction has succeeded.
+///
+/// Behavior:
+/// - Happy path: `fs::rename` succeeds when `final_path` is missing.
+/// - If another worker already finished (marker file is present), discard our
+///   staging directory and report success.
+/// - If a partial extract from a prior crash or concurrent racer occupies
+///   `final_path`, clear it and retry the rename so our complete tree wins.
+pub(crate) fn atomic_finalize_extracted_dir(staged: &Path, final_path: &Path) -> Result<()> {
+    if let Ok(()) = fs::rename(staged, final_path) {
+        return Ok(());
     }
 
-    fs::create_dir_all(target_dir).map_err(|source| SnpmError::WriteFile {
-        path: target_dir.to_path_buf(),
-        source,
+    if final_path.join(".snpm_complete").is_file() {
+        let _ = fs::remove_dir_all(staged);
+        return Ok(());
+    }
+
+    let _ = fs::remove_dir_all(final_path);
+    fs::rename(staged, final_path).map_err(|source| {
+        let _ = fs::remove_dir_all(staged);
+        SnpmError::WriteFile {
+            path: final_path.to_path_buf(),
+            source,
+        }
     })
 }
 

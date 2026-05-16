@@ -387,4 +387,155 @@ mod tests {
             "expected parallel dispatch (<1.3s), got {elapsed:?}; sequential would be >=1.6s"
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn empty_project_returns_no_blocked_packages() {
+        // Project without a node_modules directory at all — collect phase
+        // produces an empty job list and the runner short-circuits.
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let config = make_config(project_root.join(".snpm-data"));
+
+        let blocked = run_install_scripts(&config, None, project_root).unwrap();
+        assert!(blocked.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_with_only_blocked_packages_runs_nothing() {
+        // A package with lifecycle scripts that policy refuses to run must
+        // surface in `blocked` and must NOT have its script executed.
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let counter = project_root.join("counter.txt");
+        let config = make_config(project_root.join(".snpm-data"));
+
+        let dep_root = project_root.join("node_modules").join("not-allowed");
+        fs::create_dir_all(&dep_root).unwrap();
+        fs::write(
+            dep_root.join("package.json"),
+            format!(
+                r#"{{
+  "name": "not-allowed",
+  "version": "1.0.0",
+  "scripts": {{
+    "postinstall": "echo SHOULD_NOT_RUN >> '{}'"
+  }}
+}}
+"#,
+                counter.display()
+            ),
+        )
+        .unwrap();
+
+        let blocked = run_install_scripts(&config, None, project_root).unwrap();
+        assert_eq!(blocked, vec!["not-allowed".to_string()]);
+        assert!(
+            !counter.exists(),
+            "blocked package's script must not execute"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mixed_allowed_and_blocked_dependencies_run_only_allowed() {
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let allowed_marker = project_root.join("allowed.txt");
+        let blocked_marker = project_root.join("blocked.txt");
+        let mut config = make_config(project_root.join(".snpm-data"));
+        config.allow_scripts.insert("ok-pkg".to_string());
+
+        for (name, marker) in [
+            ("ok-pkg", &allowed_marker),
+            ("blocked-pkg", &blocked_marker),
+        ] {
+            let dep_root = project_root.join("node_modules").join(name);
+            fs::create_dir_all(&dep_root).unwrap();
+            fs::write(
+                dep_root.join("package.json"),
+                format!(
+                    r#"{{
+  "name": "{name}",
+  "version": "1.0.0",
+  "scripts": {{
+    "postinstall": "echo ran > '{}'"
+  }}
+}}
+"#,
+                    marker.display()
+                ),
+            )
+            .unwrap();
+        }
+
+        let blocked = run_install_scripts(&config, None, project_root).unwrap();
+        assert_eq!(blocked, vec!["blocked-pkg".to_string()]);
+        assert!(allowed_marker.is_file(), "allowed package must have run");
+        assert!(
+            !blocked_marker.exists(),
+            "blocked package must not have run"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn one_script_failure_surfaces_an_error() {
+        // When a dep's script exits non-zero, the runner must surface the
+        // failure (it currently fail-fasts via try_for_each).
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let mut config = make_config(project_root.join(".snpm-data"));
+        config.allow_scripts.insert("good".to_string());
+        config.allow_scripts.insert("bad".to_string());
+
+        for (name, body) in [
+            ("good", "exit 0"),
+            ("bad", "exit 7"),
+        ] {
+            let dep_root = project_root.join("node_modules").join(name);
+            fs::create_dir_all(&dep_root).unwrap();
+            fs::write(
+                dep_root.join("package.json"),
+                format!(
+                    r#"{{
+  "name": "{name}",
+  "version": "1.0.0",
+  "scripts": {{
+    "postinstall": "{body}"
+  }}
+}}
+"#
+                ),
+            )
+            .unwrap();
+        }
+
+        let result = run_install_scripts(&config, None, project_root);
+        assert!(
+            result.is_err(),
+            "a failing dep script must produce an error"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_without_lifecycle_keys_is_skipped() {
+        // A package.json with a `scripts` block that has no lifecycle keys
+        // should not consume a job slot or contribute to `blocked`.
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let config = make_config(project_root.join(".snpm-data"));
+        let dep_root = project_root.join("node_modules").join("noop");
+        fs::create_dir_all(&dep_root).unwrap();
+        fs::write(
+            dep_root.join("package.json"),
+            r#"{"name":"noop","version":"1.0.0","scripts":{"test":"echo hi"}}"#,
+        )
+        .unwrap();
+
+        let blocked = run_install_scripts(&config, None, project_root).unwrap();
+        assert!(blocked.is_empty());
+    }
 }

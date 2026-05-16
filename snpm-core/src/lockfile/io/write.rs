@@ -1,5 +1,6 @@
 use super::super::keys::package_key;
 use super::super::types::{LOCKFILE_VERSION, LockPackage, LockRoot, LockRootDependency, Lockfile};
+use super::binary::{encode_sidecar, sidecar_path, yaml_hash};
 use crate::resolve::ResolutionGraph;
 use crate::{Result, SnpmError};
 
@@ -25,10 +26,17 @@ pub fn write(
         source,
     })?;
 
-    fs::write(path, data).map_err(|source| SnpmError::WriteFile {
+    fs::write(path, &data).map_err(|source| SnpmError::WriteFile {
         path: path.to_path_buf(),
         source,
     })?;
+
+    // Write the binary sidecar next to the YAML. We intentionally swallow any
+    // error from this path: the sidecar is a fast-load cache and never the
+    // source of truth. A read can always fall back to the YAML.
+    if let Some(bytes) = encode_sidecar(&lockfile, yaml_hash(data.as_bytes())) {
+        let _ = fs::write(sidecar_path(path), bytes);
+    }
 
     Ok(())
 }

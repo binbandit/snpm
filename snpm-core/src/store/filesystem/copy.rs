@@ -13,6 +13,8 @@ use std::path::Path;
 ///   staging directory and report success.
 /// - If a partial extract from a prior crash or concurrent racer occupies
 ///   `final_path`, clear it and retry the rename so our complete tree wins.
+/// - If `final_path` is something other than a directory (a stray file or
+///   symlink), it is also removed before retrying the rename.
 pub(crate) fn atomic_finalize_extracted_dir(staged: &Path, final_path: &Path) -> Result<()> {
     if let Ok(()) = fs::rename(staged, final_path) {
         return Ok(());
@@ -23,7 +25,7 @@ pub(crate) fn atomic_finalize_extracted_dir(staged: &Path, final_path: &Path) ->
         return Ok(());
     }
 
-    let _ = fs::remove_dir_all(final_path);
+    remove_path_any(final_path);
     fs::rename(staged, final_path).map_err(|source| {
         let _ = fs::remove_dir_all(staged);
         SnpmError::WriteFile {
@@ -31,6 +33,20 @@ pub(crate) fn atomic_finalize_extracted_dir(staged: &Path, final_path: &Path) ->
             source,
         }
     })
+}
+
+fn remove_path_any(path: &Path) {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            let file_type = metadata.file_type();
+            if file_type.is_dir() && !file_type.is_symlink() {
+                let _ = fs::remove_dir_all(path);
+            } else {
+                let _ = fs::remove_file(path);
+            }
+        }
+        Err(_) => {}
+    }
 }
 
 pub(crate) fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {

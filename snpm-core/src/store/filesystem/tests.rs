@@ -96,7 +96,10 @@ fn atomic_finalize_discards_staging_when_marker_winner_exists() {
 
     atomic_finalize_extracted_dir(&staged, &final_path).unwrap();
 
-    assert!(!staged.exists(), "lost the race; staged dir should be discarded");
+    assert!(
+        !staged.exists(),
+        "lost the race; staged dir should be discarded"
+    );
     let preserved = fs::read_to_string(final_path.join("package.json")).unwrap();
     assert_eq!(preserved, "{\"name\":\"winner\"}");
 }
@@ -118,4 +121,67 @@ fn atomic_finalize_replaces_incomplete_destination() {
     assert!(!staged.exists());
     assert!(final_path.join("package.json").is_file());
     assert!(!final_path.join("half-written.bin").exists());
+}
+
+#[test]
+fn atomic_finalize_treats_marker_directory_as_unmarked() {
+    let dir = tempdir().unwrap();
+    let staged = dir.path().join(".snpm-extract-abc");
+    let final_path = dir.path().join("pkg");
+    fs::create_dir(&staged).unwrap();
+    fs::write(staged.join("package.json"), "{\"version\":\"new\"}").unwrap();
+    fs::create_dir(&final_path).unwrap();
+    // Corrupt marker — the marker is meant to be a regular file. If a previous
+    // crashed extract somehow left a directory at that path, we must not treat
+    // it as "another worker finished".
+    fs::create_dir(final_path.join(".snpm_complete")).unwrap();
+
+    atomic_finalize_extracted_dir(&staged, &final_path).unwrap();
+
+    assert!(!staged.exists());
+    assert!(final_path.join("package.json").is_file());
+    assert!(!final_path.join(".snpm_complete").exists());
+}
+
+#[test]
+fn atomic_finalize_replaces_when_destination_is_a_regular_file() {
+    let dir = tempdir().unwrap();
+    let staged = dir.path().join(".snpm-extract-abc");
+    let final_path = dir.path().join("pkg");
+    fs::create_dir(&staged).unwrap();
+    fs::write(staged.join("package.json"), "{\"version\":\"new\"}").unwrap();
+    // Some operator-level mishap (or a pre-existing artifact) put a stray
+    // *file* where the package directory should live. The finalize should
+    // recover and overwrite it instead of leaving the staged dir orphaned.
+    fs::write(&final_path, "stray").unwrap();
+
+    atomic_finalize_extracted_dir(&staged, &final_path).unwrap();
+
+    assert!(!staged.exists());
+    assert!(final_path.is_dir());
+    assert!(final_path.join("package.json").is_file());
+}
+
+#[test]
+fn atomic_finalize_marker_winner_keeps_winning_extract_intact() {
+    let dir = tempdir().unwrap();
+    let staged = dir.path().join(".snpm-extract-abc");
+    let final_path = dir.path().join("pkg");
+    fs::create_dir(&staged).unwrap();
+    fs::write(staged.join("package.json"), "{\"version\":\"loser\"}").unwrap();
+    fs::create_dir(&final_path).unwrap();
+    fs::write(final_path.join("package.json"), "{\"version\":\"winner\"}").unwrap();
+    fs::write(final_path.join("extra.txt"), "winner-only").unwrap();
+    fs::write(final_path.join(".snpm_complete"), "").unwrap();
+
+    atomic_finalize_extracted_dir(&staged, &final_path).unwrap();
+
+    // Marker present → the winner's tree must be left intact, including
+    // files that don't exist in the loser's staged copy.
+    assert_eq!(
+        fs::read_to_string(final_path.join("package.json")).unwrap(),
+        "{\"version\":\"winner\"}"
+    );
+    assert!(final_path.join("extra.txt").is_file());
+    assert!(!staged.exists());
 }

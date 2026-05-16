@@ -115,6 +115,15 @@ pub(super) async fn download_and_extract(
             source,
         })?;
 
+    // Pre-size the blob cache temp file from Content-Length when the server
+    // advertises one. Reduces filesystem fragmentation on cold writes and lets
+    // the kernel pick a single extent for the .tgz on most filesystems.
+    if let Some(content_length) = response.content_length()
+        && content_length > 0
+    {
+        let _ = file.set_len(content_length).await;
+    }
+
     // Bounded channel so the network task applies backpressure when the
     // extractor falls behind (and vice versa). 8 chunks ≈ ~64KB–1MB of in-flight
     // buffer depending on chunk size — small enough to keep memory bounded,
@@ -529,8 +538,7 @@ mod tests {
 
         let tarball = build_tarball();
         let request_count = Arc::new(AtomicUsize::new(0));
-        let (url, captured, server) =
-            spawn_capturing_tarball_server(tarball, request_count).await;
+        let (url, captured, server) = spawn_capturing_tarball_server(tarball, request_count).await;
         let client = reqwest::Client::new();
 
         let target = prepare_target_dir(dir.path());
@@ -553,8 +561,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let tarball = build_tarball();
         let request_count = Arc::new(AtomicUsize::new(0));
-        let (url, captured, server) =
-            spawn_capturing_tarball_server(tarball, request_count).await;
+        let (url, captured, server) = spawn_capturing_tarball_server(tarball, request_count).await;
 
         let host = url
             .strip_prefix("http://")
@@ -593,10 +600,16 @@ mod tests {
         let client = reqwest::Client::new();
 
         let target = prepare_target_dir(dir.path());
-        let error =
-            download_and_extract(&config, "pkg", &url, Some("sha512-invalid"), &client, &target)
-                .await
-                .unwrap_err();
+        let error = download_and_extract(
+            &config,
+            "pkg",
+            &url,
+            Some("sha512-invalid"),
+            &client,
+            &target,
+        )
+        .await
+        .unwrap_err();
 
         assert!(matches!(error, SnpmError::Tarball { .. }));
         assert!(!config.tarball_blob_cache_dir().join("sha512").exists());

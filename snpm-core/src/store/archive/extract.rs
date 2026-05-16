@@ -4,11 +4,13 @@ use flate2::read::GzDecoder;
 use std::fs;
 #[cfg(test)]
 use std::io::Cursor;
-use std::io::{ErrorKind, Read};
+use std::io::{BufReader, ErrorKind, Read};
 use std::path::Path;
 use tar::Archive;
 
 use super::paths::safe_join;
+
+const READ_BUFFER_BYTES: usize = 64 * 1024;
 
 #[cfg(test)]
 pub(crate) fn unpack_tarball(pkg_dir: &Path, data: Vec<u8>) -> Result<()> {
@@ -21,7 +23,10 @@ pub(crate) fn unpack_tarball_file(pkg_dir: &Path, tarball_path: &Path) -> Result
         source,
     })?;
 
-    unpack_tarball_reader(pkg_dir, file)
+    // Coalesce the 512-byte tar block reads + small GzDecoder reads into 64 KB
+    // file reads. Without this each tar block walks through a fresh syscall.
+    let buffered = BufReader::with_capacity(READ_BUFFER_BYTES, file);
+    unpack_tarball_reader(pkg_dir, buffered)
 }
 
 pub(crate) fn unpack_tarball_reader<R: Read>(pkg_dir: &Path, reader: R) -> Result<()> {

@@ -5,12 +5,27 @@ use super::manifest::{package_name, package_scripts, package_version, read_manif
 use crate::console;
 use crate::{Result, SnpmConfig, SnpmError, Workspace};
 
+use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const LIFECYCLE_SCRIPT_NAMES: [&str; 4] = ["preinstall", "install", "postinstall", "prepare"];
+
+/// A dependency that needs its lifecycle scripts executed. Built during the
+/// (serial) walk of node_modules and then handed to a parallel runner.
+///
+/// The `cache_entry` is the side-effects cache handle built from the pre-script
+/// state of the package dir. We carry it into the job so the post-script
+/// `save()` writes to the same path the next install's `restore_if_available`
+/// will look in.
+struct DepScriptJob {
+    name: String,
+    pkg_root: PathBuf,
+    scripts: serde_json::Map<String, serde_json::Value>,
+    cache_entry: Option<SideEffectsCacheEntry>,
+}
 
 pub fn run_install_scripts(
     config: &SnpmConfig,
@@ -28,6 +43,7 @@ pub fn run_install_scripts_for_projects(
     let mut blocked = Vec::new();
     let mut blocked_seen = BTreeSet::new();
     let mut visited_dirs = BTreeSet::<PathBuf>::new();
+    let mut jobs: Vec<DepScriptJob> = Vec::new();
 
     for project_root in project_roots {
         let node_modules = project_root.join("node_modules");
@@ -37,12 +53,15 @@ pub fn run_install_scripts_for_projects(
                 config,
                 workspace,
                 &node_modules,
+                &mut jobs,
                 &mut blocked,
                 &mut blocked_seen,
                 &mut visited_dirs,
             )?;
         }
     }
+
+    run_jobs(jobs)?;
 
     Ok(blocked)
 }
@@ -51,6 +70,7 @@ fn walk_node_modules(
     config: &SnpmConfig,
     workspace: Option<&Workspace>,
     dir: &Path,
+    jobs: &mut Vec<DepScriptJob>,
     blocked: &mut Vec<String>,
     blocked_seen: &mut BTreeSet<String>,
     visited_dirs: &mut BTreeSet<PathBuf>,
@@ -86,11 +106,12 @@ fn walk_node_modules(
                 continue;
             }
 
-            run_package_scripts(
+            inspect_package(
                 config,
                 workspace,
                 &visit_path,
                 &manifest_path,
+                jobs,
                 blocked,
                 blocked_seen,
             )?;
@@ -101,6 +122,7 @@ fn walk_node_modules(
                     config,
                     workspace,
                     &nested,
+                    jobs,
                     blocked,
                     blocked_seen,
                     visited_dirs,
@@ -111,6 +133,7 @@ fn walk_node_modules(
                 config,
                 workspace,
                 &visit_path,
+                jobs,
                 blocked,
                 blocked_seen,
                 visited_dirs,
@@ -121,11 +144,12 @@ fn walk_node_modules(
     Ok(())
 }
 
-fn run_package_scripts(
+fn inspect_package(
     config: &SnpmConfig,
     workspace: Option<&Workspace>,
     pkg_root: &Path,
     manifest_path: &Path,
+    jobs: &mut Vec<DepScriptJob>,
     blocked: &mut Vec<String>,
     blocked_seen: &mut BTreeSet<String>,
 ) -> Result<()> {
@@ -148,13 +172,13 @@ fn run_package_scripts(
         return Ok(());
     }
 
-    let cache_entry = package_version(&value)
-        .filter(|version| !version.is_empty())
-        .map(|version| SideEffectsCacheEntry::new(config, name, version, pkg_root))
-        .transpose()?;
+    let cache_entry = match package_version(&value).filter(|version| !version.is_empty()) {
+        Some(version) => Some(SideEffectsCacheEntry::new(config, name, version, pkg_root)?),
+        None => None,
+    };
 
-    if let Some(cache_entry) = cache_entry.as_ref() {
-        match cache_entry.restore_if_available(pkg_root) {
+    if let Some(entry) = cache_entry.as_ref() {
+        match entry.restore_if_available(pkg_root) {
             Ok(SideEffectsCacheRestore::Restored | SideEffectsCacheRestore::AlreadyApplied) => {
                 return Ok(());
             }
@@ -168,19 +192,56 @@ fn run_package_scripts(
         }
     }
 
-    let ran = run_present_scripts(name, pkg_root, scripts)?;
+    jobs.push(DepScriptJob {
+        name: name.to_string(),
+        pkg_root: pkg_root.to_path_buf(),
+        scripts: scripts.clone(),
+        cache_entry,
+    });
+    Ok(())
+}
 
-    if ran > 0
-        && let Some(cache_entry) = cache_entry
-        && let Err(error) = cache_entry.save(pkg_root)
+fn run_jobs(jobs: Vec<DepScriptJob>) -> Result<()> {
+    if jobs.is_empty() {
+        return Ok(());
+    }
+
+    let concurrency = lifecycle_script_concurrency();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(concurrency)
+        .build()
+        .map_err(|error| SnpmError::Internal {
+            reason: format!("could not build lifecycle script worker pool: {error}"),
+        })?;
+
+    pool.install(|| jobs.into_par_iter().try_for_each(run_single_job))
+}
+
+fn run_single_job(job: DepScriptJob) -> Result<()> {
+    let ran = run_present_scripts(&job.name, &job.pkg_root, &job.scripts)?;
+    if ran == 0 {
+        return Ok(());
+    }
+
+    if let Some(entry) = job.cache_entry
+        && let Err(error) = entry.save(&job.pkg_root)
     {
         console::warn(&format!(
             "failed to save side-effects cache for {}: {}",
-            name, error
+            job.name, error
         ));
     }
 
     Ok(())
+}
+
+fn lifecycle_script_concurrency() -> usize {
+    let cpus = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(2);
+    // Most postinstall workloads are a mix of I/O and CPU; oversubscribing
+    // wastes context-switches and starves the shell. Cap at four.
+    cpus.clamp(1, 4)
 }
 
 fn has_lifecycle_scripts(scripts: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -277,5 +338,53 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&counter).unwrap().lines().count(), 1);
         assert_eq!(fs::read_to_string(&built).unwrap(), "built\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dep_lifecycle_scripts_run_in_parallel() {
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let mut config = make_config(project_root.join(".snpm-data"));
+        config.allow_scripts.insert("dep-a".to_string());
+        config.allow_scripts.insert("dep-b".to_string());
+        config.allow_scripts.insert("dep-c".to_string());
+        config.allow_scripts.insert("dep-d".to_string());
+
+        let dep_names = ["dep-a", "dep-b", "dep-c", "dep-d"];
+        for name in dep_names {
+            let dep_root = project_root.join("node_modules").join(name);
+            fs::create_dir_all(&dep_root).unwrap();
+            fs::write(
+                dep_root.join("package.json"),
+                format!(
+                    r#"{{
+  "name": "{name}",
+  "version": "1.0.0",
+  "scripts": {{
+    "postinstall": "sleep 0.4"
+  }}
+}}
+"#
+                ),
+            )
+            .unwrap();
+        }
+
+        let started = Instant::now();
+        run_install_scripts(&config, None, project_root).unwrap();
+        let elapsed = started.elapsed();
+
+        // Four 400ms sleeps run sequentially take ~1.6s. With concurrency
+        // capped at min(cpus, 4) >= 2 they should comfortably finish in
+        // under 1.2s (sequential lower bound 1.6s, parallel ~0.4-0.8s).
+        // The threshold is loose to tolerate slow CI without hiding the
+        // sequentialization regression.
+        assert!(
+            elapsed < Duration::from_millis(1300),
+            "expected parallel dispatch (<1.3s), got {elapsed:?}; sequential would be >=1.6s"
+        );
     }
 }

@@ -7,6 +7,7 @@ pub mod http;
 pub mod lifecycle;
 pub mod linker;
 pub mod lockfile;
+pub mod node;
 pub mod operations;
 pub mod patch;
 pub mod platform;

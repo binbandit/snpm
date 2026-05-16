@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.5.16-r.2] - 2026-05-16
+## [2026.5.16-r.3] - 2026-05-16
 
 ### <!-- 0 -->🚀 Features
 
@@ -417,7 +417,10 @@ All notable changes to this project will be documented in this file.
 - *(release)* Bump version to 2026.5.16-r.1 [skip ci] ([a758a9b](https://github.com/binbandit/snpm/commit/a758a9b0cf7bfcb428e144f2a1bb2ce6822871cc))
 - *(release)* Merge 2026.5.16-r.1 release [skip ci] ([7d724d8](https://github.com/binbandit/snpm/commit/7d724d89a039bea4c232f9b74ec8a79bb5faa568))
 - Apply clippy suggestions and rustfmt formatting ([3353798](https://github.com/binbandit/snpm/commit/3353798627f6b061cbd3f03b27f686a4deaef2d1))
-- *(release)* Bump version to 2026.5.16-r.2 [skip ci] ([aa7347e](https://github.com/binbandit/snpm/commit/aa7347e1fc2b62ab3fa63782be8b5919bc181414))
+- *(release)* Bump version to 2026.5.16-r.2 [skip ci] ([0fee702](https://github.com/binbandit/snpm/commit/0fee702267b66d0d47a8b1834c084a7277760bdf))
+- *(release)* Merge 2026.5.16-r.2 release [skip ci] ([5f27e12](https://github.com/binbandit/snpm/commit/5f27e12575d7b17ec71d44fed77522d15781299c))
+- *(docs)* Publish docs on snpm.io ([cebaf7a](https://github.com/binbandit/snpm/commit/cebaf7a380a2910e7f16d6bc890d1ba7292446c1))
+- *(release)* Bump version to 2026.5.16-r.3 [skip ci] ([6f8cd22](https://github.com/binbandit/snpm/commit/6f8cd2251cbfe0da1f2cb3405abe54adcebde7ff))
 
 ## [2025.12.24] - 2025-12-24
 

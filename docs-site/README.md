@@ -34,6 +34,20 @@ A `source.config.ts` config file has been included, you can customise different 
 
 Read the [Introduction](https://fumadocs.dev/docs/mdx) for further details.
 
+## Deployment
+
+The docs site is statically exported and published by `.github/workflows/deploy-docs.yml` to GitHub Pages on pushes to `main`.
+
+Production is served from `https://snpm.io`, so the workflow builds without a `NEXT_PUBLIC_BASE_PATH`. `public/.nojekyll` keeps GitHub Pages from hiding Next.js `_next/` assets. `public/CNAME` is included for static-host compatibility, while the GitHub Pages custom-domain setting remains the source of truth for Actions deployments.
+
+One-time Pages and DNS settings:
+
+- GitHub Pages source: GitHub Actions.
+- GitHub Pages custom domain: `snpm.io`.
+- Apex `A` records: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`.
+- `www` CNAME: `binbandit.github.io`.
+- Enable HTTPS enforcement after GitHub provisions the certificate.
+
 ## Learn More
 
 To learn more about Next.js and Fumadocs, take a look at the following

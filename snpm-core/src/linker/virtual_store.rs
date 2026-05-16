@@ -80,8 +80,12 @@ pub(super) fn populate_virtual_store(
             let marker_file = virtual_marker_path(virtual_store_dir, id);
             let should_materialize_locally = locally_materialized_ids.contains(*id);
 
+            // Check if we can short-circuit before doing any cleanup.
+            let location_metadata = package_location.symlink_metadata().ok();
+            let marker_present = marker_file.is_file();
+
             if should_materialize_locally {
-                if marker_file.is_file() && virtual_package_ready(&package_location) {
+                if marker_present && virtual_package_ready(&package_location) {
                     return Ok(((*id).clone(), package_location));
                 }
             } else {
@@ -93,12 +97,17 @@ pub(super) fn populate_virtual_store(
                             version: id.version.clone(),
                         })?;
 
-                if symlink_is_correct(&package_location, shared_target) {
+                if location_metadata
+                    .as_ref()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false)
+                    && symlink_is_correct(&package_location, shared_target)
+                {
                     return Ok(((*id).clone(), package_location));
                 }
             }
 
-            if marker_file.is_file() {
+            if marker_present {
                 fs::remove_file(&marker_file).ok();
             }
 
@@ -107,12 +116,21 @@ pub(super) fn populate_virtual_store(
                 version: id.version.clone(),
             })?;
 
-            fs::remove_file(&package_location).ok();
-            fs::remove_dir_all(&package_location).ok();
-
-            ensure_parent_dir(&package_location)?;
+            // Only attempt removal if there's actually something at the path.
+            // On cold installs this skips two wasted ENOENT syscalls per
+            // package; on warm installs it's a single targeted unlink.
+            if let Some(metadata) = location_metadata {
+                if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+                    fs::remove_dir_all(&package_location).ok();
+                } else {
+                    fs::remove_file(&package_location).ok();
+                }
+            }
 
             if should_materialize_locally {
+                // link_dir already calls ensure_parent_dir internally for the
+                // reflink fast-path; the slow path's create_dir_all also
+                // produces the parent. No need for a redundant call here.
                 link_dir(config, store_path, &package_location)?;
                 fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
                     path: marker_file,
@@ -126,6 +144,7 @@ pub(super) fn populate_virtual_store(
                             name: id.name.clone(),
                             version: id.version.clone(),
                         })?;
+                ensure_parent_dir(&package_location)?;
                 if symlink_dir_entry(shared_target, &package_location).is_err() {
                     link_dir(config, store_path, &package_location)?;
                     fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
@@ -281,18 +300,30 @@ fn materialize_virtual_store(
                 version: id.version.clone(),
             })?;
 
-            if marker_file.is_file() && virtual_package_ready(&package_location) {
+            // Pre-checked stat lets us skip the marker-remove and the two
+            // path-remove calls when the slot is virgin (cold install).
+            let location_metadata = package_location.symlink_metadata().ok();
+            let marker_present = marker_file.is_file();
+
+            if marker_present && virtual_package_ready(&package_location) {
                 return Ok(((*id).clone(), package_location));
             }
 
-            if marker_file.is_file() {
+            if marker_present {
                 fs::remove_file(&marker_file).ok();
             }
 
-            fs::remove_file(&package_location).ok();
-            fs::remove_dir_all(&package_location).ok();
+            if let Some(metadata) = location_metadata {
+                if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+                    fs::remove_dir_all(&package_location).ok();
+                } else {
+                    fs::remove_file(&package_location).ok();
+                }
+            }
 
-            ensure_parent_dir(&package_location)?;
+            // link_dir's reflink path calls ensure_parent_dir itself; its
+            // slow path's create_dir_all covers the parent too. The outer
+            // ensure_parent_dir was always redundant.
             link_dir(config, store_path, &package_location)?;
             fs::write(&marker_file, []).map_err(|source| SnpmError::WriteFile {
                 path: marker_file,
@@ -374,12 +405,24 @@ fn link_selected_virtual_dependencies(
                         })?;
                 let dep_link = package_node_modules.join(dep_name);
 
-                if symlink_is_correct(&dep_link, dep_target) {
+                let dep_metadata = dep_link.symlink_metadata().ok();
+                if let Some(metadata) = dep_metadata.as_ref()
+                    && metadata.file_type().is_symlink()
+                    && symlink_is_correct(&dep_link, dep_target)
+                {
                     continue;
                 }
 
-                std::fs::remove_file(&dep_link).ok();
-                std::fs::remove_dir_all(&dep_link).ok();
+                // Cold install: dep_link is missing — skip the two wasted
+                // ENOENT removes. Warm install with a stale link: targeted
+                // removal of the correct kind.
+                if let Some(metadata) = dep_metadata {
+                    if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+                        std::fs::remove_dir_all(&dep_link).ok();
+                    } else {
+                        std::fs::remove_file(&dep_link).ok();
+                    }
+                }
 
                 ensure_parent_dir(&dep_link)?;
                 symlink_dir_entry(dep_target, &dep_link)

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
+use super::bins::{link_bins, link_known_bins};
 use super::fs::{
     copy_dir, ensure_parent_dir, link_dir, package_node_modules, symlink_dir_entry,
     symlink_is_correct,
@@ -85,6 +86,9 @@ pub(crate) fn populate_shared_virtual_store_for_packages(
     for result in materialize_results {
         result?;
     }
+
+    let shared_ids: Vec<PackageId> = shared_package_ids.iter().cloned().collect();
+    link_dep_bins_for_packages(&shared_paths, graph, &shared_ids);
 
     Ok(shared_paths)
 }
@@ -176,6 +180,57 @@ fn wire_dep_symlinks_into(
     }
 
     write_dependency_state(package_location, &id.name, &dependency_hash)
+}
+
+/// Populate `<virtual_id_dir>/node_modules/.bin/` for each package by walking
+/// every dep's bin field. Runs as a separate pass so all sibling targets are
+/// already materialized by the time we resolve their bin paths — important
+/// because `create_bin_file` skips entries whose target file doesn't exist.
+///
+/// Without this, postinstall scripts that shell out to a sibling CLI (e.g.
+/// `unrs-resolver`'s postinstall calling `napi-postinstall`) fail with
+/// "command not found" — there is no entry in this env's `.bin/`.
+fn link_dep_bins_for_packages(
+    dep_locations: &BTreeMap<PackageId, PathBuf>,
+    graph: &ResolutionGraph,
+    package_ids: &[PackageId],
+) {
+    package_ids.par_iter().for_each(|id| {
+        let Some(package_location) = dep_locations.get(id) else {
+            return;
+        };
+        let Some(package) = graph.packages.get(id) else {
+            return;
+        };
+        if package.dependencies.is_empty() {
+            return;
+        }
+        let Some(package_node_modules) = package_node_modules(package_location, &id.name) else {
+            return;
+        };
+        for (dep_name, dep_id) in &package.dependencies {
+            let Some(dep_target) = dep_locations.get(dep_id) else {
+                continue;
+            };
+            let dep_package = graph.packages.get(dep_id);
+            if let Some(dep_pkg) = dep_package
+                && !dep_pkg.has_bin
+            {
+                continue;
+            }
+
+            let result = match dep_package.and_then(|pkg| pkg.bin.as_ref()) {
+                Some(bin) => link_known_bins(dep_target, &package_node_modules, dep_name, bin),
+                None => link_bins(dep_target, &package_node_modules, dep_name),
+            };
+            if let Err(error) = result {
+                crate::console::warn(&format!(
+                    "failed to link bins for dep {} of {}: {}",
+                    dep_name, id.name, error
+                ));
+            }
+        }
+    });
 }
 
 pub(super) fn populate_virtual_store(
@@ -299,6 +354,13 @@ pub(super) fn populate_virtual_store(
     for result in results {
         result?;
     }
+
+    // Second pass: link `.bin/` entries for sibling deps in every locally-
+    // materialized package's isolated node_modules. Done after all materialize
+    // + wire passes so dep target files exist when `create_bin_file` checks
+    // for them.
+    let local_ids: Vec<PackageId> = locally_materialized_ids.iter().cloned().collect();
+    link_dep_bins_for_packages(&project_paths, graph, &local_ids);
 
     Ok(project_paths)
 }
@@ -458,7 +520,11 @@ pub(crate) fn link_selected_virtual_dependencies(
                         version: id.version.clone(),
                     })?;
             wire_dep_symlinks_into(package_location, id, package, virtual_store_paths)
-        })
+        })?;
+
+    let ids: Vec<PackageId> = package_ids.iter().cloned().collect();
+    link_dep_bins_for_packages(virtual_store_paths, graph, &ids);
+    Ok(())
 }
 
 fn virtual_id_dir(virtual_store_dir: &Path, id: &PackageId) -> PathBuf {

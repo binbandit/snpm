@@ -1,3 +1,4 @@
+pub(crate) mod capabilities;
 mod copy;
 mod link;
 mod paths;

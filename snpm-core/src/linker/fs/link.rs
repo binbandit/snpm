@@ -1,3 +1,6 @@
+use super::capabilities::{
+    hardlink_likely, record_hardlink_outcome, record_reflink_outcome, reflink_likely,
+};
 use super::paths::ensure_parent_dir;
 use super::symlinks::symlink_file_entry;
 use crate::store::read_package_filesystem_shape_lossy;
@@ -59,11 +62,21 @@ fn try_clone_store_package_dir(config: &SnpmConfig, source: &Path, dest: &Path) 
             return Ok(false);
         }
 
+        if !reflink_likely(source, dest) {
+            return Ok(false);
+        }
+
         ensure_parent_dir(dest)?;
 
         match reflink_copy::reflink(source, dest) {
-            Ok(()) => Ok(true),
-            Err(_) => Ok(false),
+            Ok(()) => {
+                record_reflink_outcome(source, dest, true);
+                Ok(true)
+            }
+            Err(_) => {
+                record_reflink_outcome(source, dest, false);
+                Ok(false)
+            }
         }
     }
 
@@ -141,15 +154,19 @@ fn collect_link_ops(
 
 fn resolve_auto_backend(from: &Path, to: &Path) -> LinkBackend {
     *RESOLVED_AUTO_BACKEND.get_or_init(|| {
-        if reflink_copy::reflink(from, to).is_ok() {
+        if reflink_likely(from, to) && reflink_copy::reflink(from, to).is_ok() {
             let _ = fs::remove_file(to);
+            record_reflink_outcome(from, to, true);
             return LinkBackend::Reflink;
         }
+        record_reflink_outcome(from, to, false);
 
-        if fs::hard_link(from, to).is_ok() {
+        if hardlink_likely(from, to) && fs::hard_link(from, to).is_ok() {
             let _ = fs::remove_file(to);
+            record_hardlink_outcome(from, to, true);
             return LinkBackend::Hardlink;
         }
+        record_hardlink_outcome(from, to, false);
 
         if symlink_file_entry(from, to).is_ok() {
             let _ = fs::remove_file(to);
@@ -158,6 +175,24 @@ fn resolve_auto_backend(from: &Path, to: &Path) -> LinkBackend {
 
         LinkBackend::Copy
     })
+}
+
+fn try_reflink(from: &Path, to: &Path) -> bool {
+    if !reflink_likely(from, to) {
+        return false;
+    }
+    let result = reflink_copy::reflink(from, to);
+    record_reflink_outcome(from, to, result.is_ok());
+    result.is_ok()
+}
+
+fn try_hard_link(from: &Path, to: &Path) -> bool {
+    if !hardlink_likely(from, to) {
+        return false;
+    }
+    let result = fs::hard_link(from, to);
+    record_hardlink_outcome(from, to, result.is_ok());
+    result.is_ok()
 }
 
 fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
@@ -170,16 +205,15 @@ fn link_file(config: &SnpmConfig, from: &Path, to: &Path) -> Result<()> {
     match backend {
         LinkBackend::Auto => unreachable!(),
         LinkBackend::Reflink => {
-            if reflink_copy::reflink(from, to).is_err() {
-                if matches!(requested_backend, LinkBackend::Auto) && fs::hard_link(from, to).is_ok()
-                {
+            if !try_reflink(from, to) {
+                if matches!(requested_backend, LinkBackend::Auto) && try_hard_link(from, to) {
                     return Ok(());
                 }
                 copy_file(from, to)?;
             }
         }
         LinkBackend::Hardlink => {
-            if fs::hard_link(from, to).is_err() {
+            if !try_hard_link(from, to) {
                 copy_file(from, to)?;
             }
         }

@@ -1,8 +1,27 @@
+use crate::linker::fs::capabilities::{record_reflink_outcome, reflink_likely};
+
 use std::io;
 use std::path::Path;
 
 pub(crate) fn clone_or_copy_file(from: &Path, to: &Path) -> io::Result<()> {
-    reflink_copy::reflink_or_copy(from, to).map(|_| ())
+    // Skip the syscall when an earlier reflink on the same (src_fs,
+    // dst_fs) pair already failed — reflink_copy::reflink_or_copy
+    // would otherwise attempt the clone, take an EXDEV / EOPNOTSUPP,
+    // and then copy. Going straight to std::fs::copy saves a syscall
+    // per file across thousands of files in a big install.
+    if reflink_likely(from, to) {
+        match reflink_copy::reflink(from, to) {
+            Ok(()) => {
+                record_reflink_outcome(from, to, true);
+                return Ok(());
+            }
+            Err(_) => {
+                record_reflink_outcome(from, to, false);
+            }
+        }
+    }
+
+    std::fs::copy(from, to).map(|_| ())
 }
 
 #[cfg(test)]

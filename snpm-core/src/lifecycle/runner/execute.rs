@@ -129,7 +129,23 @@ fn build_path(root: &Path, self_bin_dir: Option<&Path>, script_name: &str) -> Re
         parts.push(node_dir);
     }
 
+    // Project-style layout: `<root>/node_modules/.bin/` holds bins for
+    // the project's direct deps. Used by the root project + workspace
+    // packages.
     parts.push(root.join("node_modules").join(".bin"));
+
+    // Virtual-store layout: when a dep script runs, `root` is the
+    // package's own dir at `<vstore>/<pkg>@<ver>/node_modules/<pkg>/`.
+    // Sibling deps' bins live one level up at
+    // `<vstore>/<pkg>@<ver>/node_modules/.bin/`. Without this entry,
+    // postinstalls that call a sibling CLI (e.g. unrs-resolver's
+    // postinstall calling `napi-postinstall`) fail with exit 127.
+    if let Some(parent) = root.parent() {
+        let sibling_bin = parent.join(".bin");
+        if sibling_bin != root.join("node_modules").join(".bin") {
+            parts.push(sibling_bin);
+        }
+    }
 
     if let Some(existing) = env::var_os("PATH") {
         for path in env::split_paths(&existing) {

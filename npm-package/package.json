@@ -1,6 +1,6 @@
 {
   "name": "snpm",
-  "version": "2026.5.16-r.4",
+  "version": "2026.5.18",
   "description": "Speedy Node Package Manager - A fast, Rust-based package manager",
   "bin": {
     "snpm": "bin/snpm.js",

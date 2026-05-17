@@ -1,13 +1,16 @@
 use super::super::policy::is_dep_script_allowed;
 use super::cache::{SideEffectsCacheEntry, SideEffectsCacheRestore};
 use super::execute::{DEPENDENCY_LIFECYCLE_SCRIPT_NAMES, run_present_scripts};
-use super::manifest::{package_bin, package_name, package_scripts, package_version, read_manifest};
+use super::manifest::{
+    package_bin, package_name, package_runtime_dep_names, package_scripts, package_version,
+    read_manifest,
+};
 use crate::console;
 use crate::project::BinField;
 use crate::{Result, SnpmConfig, SnpmError, Workspace};
 
 use rayon::prelude::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,6 +28,11 @@ struct DepScriptJob {
     scripts: serde_json::Map<String, serde_json::Value>,
     bin: Option<BinField>,
     cache_entry: Option<SideEffectsCacheEntry>,
+    /// Names listed under this package's `dependencies` / `optional` /
+    /// `peer` blocks. Used by the topological sequencer to order
+    /// scripts when a producer/consumer relationship exists between
+    /// two packages whose postinstalls both run.
+    dep_names: Vec<String>,
 }
 
 pub fn run_install_scripts(
@@ -198,6 +206,7 @@ fn inspect_package(
         scripts: scripts.clone(),
         bin: package_bin(&value),
         cache_entry,
+        dep_names: package_runtime_dep_names(&value),
     });
     Ok(())
 }
@@ -215,7 +224,83 @@ fn run_jobs(jobs: Vec<DepScriptJob>) -> Result<()> {
             reason: format!("could not build lifecycle script worker pool: {error}"),
         })?;
 
-    pool.install(|| jobs.into_par_iter().try_for_each(run_single_job))
+    let chunks = topological_chunks(jobs);
+    for chunk in chunks {
+        pool.install(|| chunk.into_par_iter().try_for_each(run_single_job))?;
+    }
+    Ok(())
+}
+
+/// Partition `jobs` into dep-ordered chunks: chunk N depends only on
+/// jobs in chunks 0..N-1, so members within a chunk are safe to run
+/// in parallel and chunks run sequentially. A cycle in the dep
+/// subgraph collapses to a final warn-and-run chunk — the upstream
+/// behavior pacquet inherits from pnpm's `runGroups`.
+fn topological_chunks(jobs: Vec<DepScriptJob>) -> Vec<Vec<DepScriptJob>> {
+    let mut by_name: HashMap<String, DepScriptJob> = jobs
+        .into_iter()
+        .map(|job| (job.name.clone(), job))
+        .collect();
+    let job_names: HashSet<String> = by_name.keys().cloned().collect();
+
+    let mut in_degree: HashMap<String, usize> = HashMap::with_capacity(by_name.len());
+    let mut dependents: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, job) in &by_name {
+        let mut deg = 0;
+        for dep in &job.dep_names {
+            if dep != name && job_names.contains(dep) {
+                deg += 1;
+                dependents
+                    .entry(dep.clone())
+                    .or_default()
+                    .push(name.clone());
+            }
+        }
+        in_degree.insert(name.clone(), deg);
+    }
+
+    let mut chunks: Vec<Vec<DepScriptJob>> = Vec::new();
+    let mut ready: Vec<String> = in_degree
+        .iter()
+        .filter(|(_, degree)| **degree == 0)
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    while !ready.is_empty() {
+        let mut chunk = Vec::with_capacity(ready.len());
+        let mut next_ready = Vec::new();
+        for name in ready {
+            if let Some(job) = by_name.remove(&name) {
+                chunk.push(job);
+            }
+            if let Some(consumers) = dependents.remove(&name) {
+                for consumer in consumers {
+                    if let Some(degree) = in_degree.get_mut(&consumer) {
+                        *degree = degree.saturating_sub(1);
+                        if *degree == 0 {
+                            next_ready.push(consumer);
+                        }
+                    }
+                }
+            }
+        }
+        if !chunk.is_empty() {
+            chunks.push(chunk);
+        }
+        ready = next_ready;
+    }
+
+    if !by_name.is_empty() {
+        let mut cycle_names: Vec<String> = by_name.keys().cloned().collect();
+        cycle_names.sort();
+        console::warn(&format!(
+            "dependency cycle among lifecycle scripts: {} — running them in parallel",
+            cycle_names.join(", ")
+        ));
+        chunks.push(by_name.into_values().collect());
+    }
+
+    chunks
 }
 
 fn run_single_job(job: DepScriptJob) -> Result<()> {
@@ -259,13 +344,105 @@ fn has_lifecycle_scripts(scripts: &serde_json::Map<String, serde_json::Value>) -
 
 #[cfg(test)]
 mod tests {
-    use super::run_install_scripts;
+    use super::{DepScriptJob, run_install_scripts, topological_chunks};
     use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
 
     use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
+
+    fn make_job(name: &str, deps: &[&str]) -> DepScriptJob {
+        DepScriptJob {
+            name: name.to_string(),
+            pkg_root: PathBuf::from("/dev/null"),
+            scripts: serde_json::Map::new(),
+            bin: None,
+            cache_entry: None,
+            dep_names: deps.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn chunk_names(chunks: &[Vec<DepScriptJob>]) -> Vec<Vec<String>> {
+        chunks
+            .iter()
+            .map(|chunk| {
+                let mut names: Vec<String> = chunk.iter().map(|j| j.name.clone()).collect();
+                names.sort();
+                names
+            })
+            .collect()
+    }
+
+    #[test]
+    fn topological_chunks_orders_producer_before_consumer() {
+        // builder produces an artifact; consumer reads it.
+        let chunks = topological_chunks(vec![
+            make_job("consumer", &["builder"]),
+            make_job("builder", &[]),
+        ]);
+        let names = chunk_names(&chunks);
+        assert_eq!(names, vec![vec!["builder"], vec!["consumer"]]);
+    }
+
+    #[test]
+    fn topological_chunks_runs_independents_in_same_chunk() {
+        // No deps between any of them — all in the first chunk.
+        let chunks = topological_chunks(vec![
+            make_job("a", &[]),
+            make_job("b", &[]),
+            make_job("c", &[]),
+        ]);
+        let names = chunk_names(&chunks);
+        assert_eq!(names, vec![vec!["a", "b", "c"]]);
+    }
+
+    #[test]
+    fn topological_chunks_ignores_deps_outside_the_job_set() {
+        // pkg depends on `react`, but `react` has no lifecycle scripts and
+        // therefore no job. The sequencer must treat pkg as having no
+        // in-degree constraints, not block on a non-existent producer.
+        let chunks = topological_chunks(vec![make_job("pkg", &["react"])]);
+        let names = chunk_names(&chunks);
+        assert_eq!(names, vec![vec!["pkg"]]);
+    }
+
+    #[test]
+    fn topological_chunks_collapses_cycles_into_one_chunk() {
+        // a -> b -> a forms a cycle. The sequencer warns and runs them
+        // together rather than aborting; this mirrors pnpm's behavior.
+        let chunks = topological_chunks(vec![make_job("a", &["b"]), make_job("b", &["a"])]);
+        let names = chunk_names(&chunks);
+        assert_eq!(names, vec![vec!["a", "b"]]);
+    }
+
+    #[test]
+    fn topological_chunks_three_level_chain() {
+        // c depends on b depends on a — three separate chunks of one.
+        let chunks = topological_chunks(vec![
+            make_job("a", &[]),
+            make_job("b", &["a"]),
+            make_job("c", &["b"]),
+        ]);
+        let names = chunk_names(&chunks);
+        assert_eq!(names, vec![vec!["a"], vec!["b"], vec!["c"]]);
+    }
+
+    #[test]
+    fn topological_chunks_diamond_keeps_root_alone_then_fans_out_then_joins() {
+        // root <- left, right; sink <- left, right.
+        let chunks = topological_chunks(vec![
+            make_job("root", &[]),
+            make_job("left", &["root"]),
+            make_job("right", &["root"]),
+            make_job("sink", &["left", "right"]),
+        ]);
+        let names = chunk_names(&chunks);
+        assert_eq!(
+            names,
+            vec![vec!["root"], vec!["left", "right"], vec!["sink"]]
+        );
+    }
 
     fn make_config(data_dir: PathBuf) -> SnpmConfig {
         SnpmConfig {

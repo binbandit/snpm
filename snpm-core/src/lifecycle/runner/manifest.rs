@@ -33,6 +33,24 @@ pub(super) fn package_scripts(value: &Value) -> Option<&serde_json::Map<String, 
     }
 }
 
+/// Names listed under `dependencies` / `optionalDependencies` / `peerDependencies` on
+/// the package's manifest, in iteration order. Used to topologically sort
+/// lifecycle jobs so a script that needs another package's built artifact
+/// doesn't race the producer. The list isn't filtered against actually-jobbed
+/// packages here — the caller does that intersection.
+pub(super) fn package_runtime_dep_names(value: &Value) -> Vec<String> {
+    let mut names = Vec::new();
+    for key in ["dependencies", "optionalDependencies", "peerDependencies"] {
+        let Some(block) = value.get(key).and_then(Value::as_object) else {
+            continue;
+        };
+        for name in block.keys() {
+            names.push(name.clone());
+        }
+    }
+    names
+}
+
 pub(super) fn package_bin(value: &Value) -> Option<BinField> {
     let bin = value.get("bin")?;
     match bin {

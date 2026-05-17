@@ -1,10 +1,13 @@
 use crate::copying::clone_or_copy_file;
 use crate::linker::fs::{symlink_dir_entry, symlink_file_entry};
+use crate::node;
 use crate::{Result, SnpmConfig, SnpmError};
 
 use sha2::{Digest, Sha512};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::OnceLock;
 
 const SIDE_EFFECTS_CACHE_MARKER: &str = ".snpm-side-effects-cache";
 const SIDE_EFFECTS_TMP_PREFIX: &str = ".tmp-side-effects-";
@@ -32,7 +35,21 @@ impl SideEffectsCacheEntry {
             None => hash_dir(package_dir)?,
         };
         let safe_name = name.replace('/', "__");
-        let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+        // Native modules link against a specific Node ABI; restoring an
+        // artifact built under one Node major into a project pinned to a
+        // different major produces opaque "abi mismatch" or NAPI version
+        // errors at require-time. Partition the cache slot per Node major
+        // so the per-package side-effects survive correctly across
+        // project Node-version changes. Pure-JS packages pay a tiny disk
+        // cost (one extra slot per Node major they're built under) but
+        // never miss-restore; native packages stay correct.
+        let engine = node_engine_tag(config, package_dir);
+        let platform = format!(
+            "{}-{}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            engine
+        );
 
         Ok(Self {
             path: config
@@ -109,6 +126,62 @@ impl SideEffectsCacheEntry {
             }
         }
     }
+}
+
+/// Returns a cache-key fragment like `node18` that identifies the Node
+/// major the package's scripts will run under. Preference order:
+///   1. The pinned version from `.node-version`/`.nvmrc`/`engines.node`,
+///      parsed for its major. This is the user's stated intent; using it
+///      before resolution means we partition correctly even when the
+///      pinned Node hasn't been installed yet (auto-install will install
+///      it before scripts run).
+///   2. The resolved active Node version (if pin is unresolvable but a
+///      Node is installed).
+///   3. The Node version on PATH (`node --version`).
+///   4. Fallback sentinel `node-unknown` — partitions unknown-version
+///      installs into their own slot rather than risking a wrong-ABI
+///      restore.
+fn node_engine_tag(config: &SnpmConfig, package_dir: &Path) -> String {
+    if let Some(major) = pinned_node_major(package_dir) {
+        return format!("node{major}");
+    }
+
+    if let Some(active) = node::exec::active_for_project_offline(config, package_dir)
+        .ok()
+        .flatten()
+        && let Some(major) = parse_node_major(&active.version)
+    {
+        return format!("node{major}");
+    }
+
+    if let Some(major) = process_node_major() {
+        return format!("node{major}");
+    }
+
+    "node-unknown".to_string()
+}
+
+fn pinned_node_major(start: &Path) -> Option<u32> {
+    let pin = node::discover::discover_pinned(start).ok().flatten()?;
+    parse_node_major(&pin.spec)
+}
+
+fn process_node_major() -> Option<u32> {
+    static CACHED: OnceLock<Option<u32>> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        let output = Command::new("node").arg("--version").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8(output.stdout).ok()?;
+        parse_node_major(&text)
+    })
+}
+
+fn parse_node_major(version: &str) -> Option<u32> {
+    let trimmed = version.trim().trim_start_matches('v');
+    let major = trimmed.split('.').next()?;
+    major.parse::<u32>().ok()
 }
 
 fn marker_matches(package_dir: &Path, expected: &str) -> bool {
@@ -378,5 +451,54 @@ mod tests {
             fs::read_to_string(package_dir.join("built.txt")).unwrap(),
             "built"
         );
+    }
+
+    #[test]
+    fn cache_path_partitions_by_node_major() {
+        // Pinning two different Node majors via .node-version must
+        // produce cache slots whose `<platform>` segment differs (the
+        // input_hash differs too because .node-version is part of the
+        // dir, but the engine segment is what protects against ABI
+        // mismatch on restore). The check on the resulting path
+        // proves the engine tag flows into the slot layout.
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+
+        let pkg_18 = dir.path().join("pkg-18");
+        fs::create_dir_all(&pkg_18).unwrap();
+        fs::write(pkg_18.join(".node-version"), "v18.20.4").unwrap();
+        let entry_18 = SideEffectsCacheEntry::new(&config, "native-mod", "1.0.0", &pkg_18).unwrap();
+
+        let pkg_22 = dir.path().join("pkg-22");
+        fs::create_dir_all(&pkg_22).unwrap();
+        fs::write(pkg_22.join(".node-version"), "v22.1.0").unwrap();
+        let entry_22 = SideEffectsCacheEntry::new(&config, "native-mod", "1.0.0", &pkg_22).unwrap();
+
+        assert!(
+            entry_18.path.to_string_lossy().contains("node18"),
+            "expected `node18` segment in path, got {}",
+            entry_18.path.display()
+        );
+        assert!(
+            entry_22.path.to_string_lossy().contains("node22"),
+            "expected `node22` segment in path, got {}",
+            entry_22.path.display()
+        );
+
+        let platform_18 = entry_18.path.parent().and_then(|p| p.parent()).unwrap();
+        let platform_22 = entry_22.path.parent().and_then(|p| p.parent()).unwrap();
+        assert_ne!(
+            platform_18, platform_22,
+            "the per-platform/engine slot must differ across Node majors"
+        );
+    }
+
+    #[test]
+    fn parse_node_major_handles_v_prefix() {
+        assert_eq!(super::parse_node_major("v20.10.0"), Some(20));
+        assert_eq!(super::parse_node_major("18.19.0"), Some(18));
+        assert_eq!(super::parse_node_major(" v22.1.0\n"), Some(22));
+        assert_eq!(super::parse_node_major(""), None);
+        assert_eq!(super::parse_node_major("not-a-version"), None);
     }
 }

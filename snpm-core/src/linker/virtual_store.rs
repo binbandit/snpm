@@ -212,14 +212,11 @@ fn link_dep_bins_for_packages(
             let Some(dep_target) = dep_locations.get(dep_id) else {
                 continue;
             };
-            let dep_package = graph.packages.get(dep_id);
-            if let Some(dep_pkg) = dep_package
-                && !dep_pkg.has_bin
-            {
-                continue;
-            }
-
-            let result = match dep_package.and_then(|pkg| pkg.bin.as_ref()) {
+            // `has_bin=false` is not authoritative for yarn lockfile imports
+            // (the format doesn't carry the field), so don't skip on it.
+            // Fall through to `link_bins`, which reads the actual
+            // package.json and is a no-op when there's no bin.
+            let result = match graph.packages.get(dep_id).and_then(|pkg| pkg.bin.as_ref()) {
                 Some(bin) => link_known_bins(dep_target, &package_node_modules, dep_name, bin),
                 None => link_bins(dep_target, &package_node_modules, dep_name),
             };

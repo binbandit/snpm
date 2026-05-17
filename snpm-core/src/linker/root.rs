@@ -50,8 +50,12 @@ pub(super) fn link_root_bins(
 ) -> Result<()> {
     root_deps.par_iter().for_each(|(name, dep)| {
         let dest = root_node_modules.join(name);
+        // `has_bin=false` is not authoritative: yarn-classic and yarn-berry
+        // lockfile imports set it to `false` unconditionally because the
+        // lockfile format doesn't carry the field. Falling through to
+        // `link_bins` reads the actual package.json (cheap, already in fs
+        // cache from extraction) — a no-op when there really is no bin.
         let result = match graph.packages.get(&dep.resolved) {
-            Some(pkg) if !pkg.has_bin => return,
             Some(pkg) => pkg.bin.as_ref().map_or_else(
                 || link_bins(&dest, root_node_modules, name),
                 |bin| link_known_bins(&dest, root_node_modules, name, bin),
@@ -119,5 +123,61 @@ mod tests {
         link_root_bins(&deps, &root_node_modules, &graph).unwrap();
 
         assert!(root_node_modules.join(".bin/tool").exists());
+    }
+
+    #[test]
+    fn link_root_bins_falls_back_to_manifest_when_has_bin_is_false() {
+        // Yarn lockfile imports leave `has_bin=false` and `bin=None` even
+        // for packages with bin entries. link_root_bins must still discover
+        // the bin from the extracted package.json — otherwise webpack/jest/
+        // redux installs end up with empty .bin/ and root prepare scripts
+        // fail with "husky: command not found".
+        let dir = tempdir().unwrap();
+        let root_node_modules = dir.path().join("node_modules");
+        let package_dir = root_node_modules.join("husky");
+        fs::create_dir_all(&package_dir).unwrap();
+        fs::write(package_dir.join("bin.js"), "#!/usr/bin/env node\n").unwrap();
+        fs::write(
+            package_dir.join("package.json"),
+            r#"{"name":"husky","version":"9.0.0","bin":"bin.js"}"#,
+        )
+        .unwrap();
+
+        let package_id = PackageId {
+            name: "husky".to_string(),
+            version: "9.0.0".to_string(),
+        };
+        let root_dep = RootDependency {
+            requested: "^9.0.0".to_string(),
+            resolved: package_id.clone(),
+        };
+        let graph = ResolutionGraph {
+            root: ResolutionRoot {
+                dependencies: BTreeMap::from([("husky".to_string(), root_dep.clone())]),
+            },
+            packages: BTreeMap::from([(
+                package_id.clone(),
+                ResolvedPackage {
+                    id: package_id,
+                    tarball: String::new(),
+                    integrity: None,
+                    dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
+                    bundled_dependencies: None,
+                    // Simulate a yarn lockfile import: bin info is missing.
+                    has_bin: false,
+                    bin: None,
+                },
+            )]),
+        };
+
+        let dep_name = "husky".to_string();
+        let deps = vec![(&dep_name, &root_dep)];
+        link_root_bins(&deps, &root_node_modules, &graph).unwrap();
+
+        assert!(
+            root_node_modules.join(".bin/husky").exists(),
+            "must fall through to manifest read when has_bin=false"
+        );
     }
 }

@@ -25,3 +25,13 @@ panic = "abort"
 debug = 0
 split-debuginfo = "unpacked"
 strip = "debuginfo"
+
+# Release-like build with debuginfo + frame pointers preserved, used for
+# profiling with `samply` / `cargo flamegraph`. LTO is off so symbol
+# names survive demangling; opt-level=3 keeps perf realistic.
+[profile.profiling]
+inherits = "release"
+debug = "full"
+strip = "none"
+lto = "off"
+codegen-units = 16

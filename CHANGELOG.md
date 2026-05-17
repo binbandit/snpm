@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.5.16-r.4] - 2026-05-16
+## [2026.5.18] - 2026-05-17
 
 ### <!-- 0 -->🚀 Features
 
@@ -120,6 +120,7 @@ All notable changes to this project will be documented in this file.
 - *(store)* Finalize extracted package via atomic rename ([cb257b4](https://github.com/binbandit/snpm/commit/cb257b49190795e21a36e68d5924878434937758))
 - *(security)* Refuse tarball auth on http scheme downgrade ([dfca295](https://github.com/binbandit/snpm/commit/dfca295a632ab94652808cfb1c063effd26b9b74))
 - *(store)* Handle non-directory destinations in atomic finalize ([35166d6](https://github.com/binbandit/snpm/commit/35166d6736e20c96442700f70bb825babba60f4a))
+- *(registry)* Surface clear error on 304 with no cached metadata ([0741fa0](https://github.com/binbandit/snpm/commit/0741fa0ca4f2256d752d529828d87bef9eb2507d))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -423,7 +424,9 @@ All notable changes to this project will be documented in this file.
 - *(docs)* Publish docs on snpm.io ([cebaf7a](https://github.com/binbandit/snpm/commit/cebaf7a380a2910e7f16d6bc890d1ba7292446c1))
 - *(release)* Bump version to 2026.5.16-r.3 [skip ci] ([68cb5a3](https://github.com/binbandit/snpm/commit/68cb5a3db7ceeee00d9cbc4b527e12b472c81891))
 - *(release)* Merge 2026.5.16-r.3 release [skip ci] ([736f17b](https://github.com/binbandit/snpm/commit/736f17bb56fa52769c0e3a005cb2c0ddfe44e23c))
-- *(release)* Bump version to 2026.5.16-r.4 [skip ci] ([7191474](https://github.com/binbandit/snpm/commit/71914742d7fb069dbb856910bb72831667fa15ff))
+- *(release)* Bump version to 2026.5.16-r.4 [skip ci] ([7efd8bf](https://github.com/binbandit/snpm/commit/7efd8bf9cfe956fae5aacd6e2c2437cb5f71cf02))
+- *(release)* Merge 2026.5.16-r.4 release [skip ci] ([63b115d](https://github.com/binbandit/snpm/commit/63b115d7dc5345cbc91f60a7d8a8af732cd1fd82))
+- *(release)* Bump version to 2026.5.18 [skip ci] ([890d58c](https://github.com/binbandit/snpm/commit/890d58c2ff3d897b17639caf40102e29de7066b1))
 
 ## [2025.12.24] - 2025-12-24
 

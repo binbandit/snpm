@@ -20,12 +20,24 @@ pub(super) async fn handle_registry_response(
     url: &str,
     response: reqwest::Response,
 ) -> Result<RegistryPackage> {
-    if response.status() == reqwest::StatusCode::NOT_MODIFIED
-        && let Some(cached) = load_metadata_with_offline(config, name, OfflineMode::Offline)
-    {
-        console::verbose(&format!("registry 304: using cached metadata for {}", name));
-        let _ = save_metadata(config, name, &cached);
-        return Ok(cached);
+    if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+        // 304 means "your cached version is current." If we don't actually
+        // have a cached version (registry cache evicted, mismatched ETag
+        // persisted, etc.), falling through to JSON-parse the empty body
+        // produces a confusing "failed to parse JSON" error. Surface the
+        // actual problem instead.
+        return match load_metadata_with_offline(config, name, OfflineMode::Offline) {
+            Some(cached) => {
+                console::verbose(&format!("registry 304: using cached metadata for {}", name));
+                let _ = save_metadata(config, name, &cached);
+                Ok(cached)
+            }
+            None => Err(SnpmError::Internal {
+                reason: format!(
+                    "registry returned 304 Not Modified for {name} ({url}) but no cached metadata is available — delete the local metadata cache or re-run with a fresh registry to recover"
+                ),
+            }),
+        };
     }
 
     let response_etag = response

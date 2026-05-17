@@ -1,8 +1,9 @@
 use super::super::policy::is_dep_script_allowed;
 use super::cache::{SideEffectsCacheEntry, SideEffectsCacheRestore};
-use super::execute::run_present_scripts;
-use super::manifest::{package_name, package_scripts, package_version, read_manifest};
+use super::execute::{DEPENDENCY_LIFECYCLE_SCRIPT_NAMES, run_present_scripts};
+use super::manifest::{package_bin, package_name, package_scripts, package_version, read_manifest};
 use crate::console;
+use crate::project::BinField;
 use crate::{Result, SnpmConfig, SnpmError, Workspace};
 
 use rayon::prelude::*;
@@ -10,8 +11,6 @@ use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const LIFECYCLE_SCRIPT_NAMES: [&str; 4] = ["preinstall", "install", "postinstall", "prepare"];
 
 /// A dependency that needs its lifecycle scripts executed. Built during the
 /// (serial) walk of node_modules and then handed to a parallel runner.
@@ -24,6 +23,7 @@ struct DepScriptJob {
     name: String,
     pkg_root: PathBuf,
     scripts: serde_json::Map<String, serde_json::Value>,
+    bin: Option<BinField>,
     cache_entry: Option<SideEffectsCacheEntry>,
 }
 
@@ -196,6 +196,7 @@ fn inspect_package(
         name: name.to_string(),
         pkg_root: pkg_root.to_path_buf(),
         scripts: scripts.clone(),
+        bin: package_bin(&value),
         cache_entry,
     });
     Ok(())
@@ -218,7 +219,13 @@ fn run_jobs(jobs: Vec<DepScriptJob>) -> Result<()> {
 }
 
 fn run_single_job(job: DepScriptJob) -> Result<()> {
-    let ran = run_present_scripts(&job.name, &job.pkg_root, &job.scripts)?;
+    let ran = run_present_scripts(
+        &job.name,
+        &job.pkg_root,
+        &job.scripts,
+        job.bin.as_ref(),
+        &DEPENDENCY_LIFECYCLE_SCRIPT_NAMES,
+    )?;
     if ran == 0 {
         return Ok(());
     }
@@ -245,7 +252,7 @@ fn lifecycle_script_concurrency() -> usize {
 }
 
 fn has_lifecycle_scripts(scripts: &serde_json::Map<String, serde_json::Value>) -> bool {
-    LIFECYCLE_SCRIPT_NAMES
+    DEPENDENCY_LIFECYCLE_SCRIPT_NAMES
         .iter()
         .any(|script_name| scripts.contains_key(*script_name))
 }
@@ -534,5 +541,50 @@ mod tests {
 
         let blocked = run_install_scripts(&config, None, project_root).unwrap();
         assert!(blocked.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dependency_prepare_script_does_not_run() {
+        // Registry-installed deps must NOT have `prepare` run. Real packages
+        // (globals, husky, rollup, etc.) ship `prepare` scripts that call
+        // `tsc`/`rollup`/etc. — tools that aren't in the published tarball.
+        // npm and pnpm only run `prepare` for git/local deps, never registry.
+        let dir = tempdir().unwrap();
+        let project_root = dir.path();
+        let prepare_marker = project_root.join("prepare-ran.txt");
+        let postinstall_marker = project_root.join("postinstall-ran.txt");
+        let mut config = make_config(project_root.join(".snpm-data"));
+        config.allow_scripts.insert("dep".to_string());
+
+        let dep_root = project_root.join("node_modules").join("dep");
+        fs::create_dir_all(&dep_root).unwrap();
+        fs::write(
+            dep_root.join("package.json"),
+            format!(
+                r#"{{
+  "name": "dep",
+  "version": "1.0.0",
+  "scripts": {{
+    "postinstall": "echo ran > '{}'",
+    "prepare": "echo ran > '{}'"
+  }}
+}}
+"#,
+                postinstall_marker.display(),
+                prepare_marker.display()
+            ),
+        )
+        .unwrap();
+
+        run_install_scripts(&config, None, project_root).unwrap();
+        assert!(
+            postinstall_marker.is_file(),
+            "postinstall must still run for deps"
+        );
+        assert!(
+            !prepare_marker.exists(),
+            "prepare must NOT run for registry-installed deps"
+        );
     }
 }

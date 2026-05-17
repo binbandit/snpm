@@ -1,6 +1,8 @@
+use crate::project::BinField;
 use crate::{Result, SnpmError};
 
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -27,6 +29,27 @@ pub(super) fn package_version(value: &Value) -> Option<&str> {
 pub(super) fn package_scripts(value: &Value) -> Option<&serde_json::Map<String, Value>> {
     match value.get("scripts") {
         Some(Value::Object(map)) => Some(map),
+        _ => None,
+    }
+}
+
+pub(super) fn package_bin(value: &Value) -> Option<BinField> {
+    let bin = value.get("bin")?;
+    match bin {
+        Value::String(script) if !script.is_empty() => Some(BinField::Single(script.clone())),
+        Value::Object(map) => {
+            let entries: BTreeMap<String, String> = map
+                .iter()
+                .filter_map(|(name, value)| {
+                    value.as_str().map(|spec| (name.clone(), spec.to_string()))
+                })
+                .collect();
+            if entries.is_empty() {
+                None
+            } else {
+                Some(BinField::Map(entries))
+            }
+        }
         _ => None,
     }
 }

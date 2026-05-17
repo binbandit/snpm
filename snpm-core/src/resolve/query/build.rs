@@ -109,9 +109,23 @@ fn resolve_local_workspace_source(
 }
 
 fn looks_like_registry_range(value: &str) -> bool {
-    !value.is_empty()
-        && !value.starts_with('@')
-        && !value.contains('@')
-        && !value.contains('/')
-        && !value.contains(':')
+    if value.is_empty()
+        || value.starts_with('@')
+        || value.contains('@')
+        || value.contains('/')
+        || value.contains(':')
+    {
+        return false;
+    }
+    // A semver range starts with a digit or a comparator/wildcard sigil.
+    // Bare alphabetic strings (e.g. "react-is" in `npm:react-is`) are package
+    // names, not ranges — fall through so split_protocol_spec interprets them
+    // as `<name>@latest`. Without this guard, names match here and are passed
+    // to the semver parser, producing errors like
+    // "Invalid semver react-is@react-is" (see facebook/react's yarn.lock).
+    matches!(
+        value.chars().next(),
+        Some(c) if c.is_ascii_digit()
+            || matches!(c, '^' | '~' | '=' | '>' | '<' | '*' | 'x' | 'X')
+    )
 }

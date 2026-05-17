@@ -67,6 +67,28 @@ fn build_dep_request_package_less_npm_protocol_uses_dependency_name() {
 }
 
 #[test]
+fn build_dep_request_npm_alias_without_version_uses_latest() {
+    // facebook/react's package.json contains `"react-is": "npm:react-is"` —
+    // a no-op alias with no explicit `@<range>`. The previous behavior
+    // mistook "react-is" for a semver range and failed with
+    // "Invalid semver react-is@react-is".
+    let protocol = RegistryProtocol::npm();
+    let request = build_dep_request("react-is", "npm:react-is", &protocol, None, None);
+    assert_eq!(request.protocol, RegistryProtocol::npm());
+    assert_eq!(request.source, "react-is");
+    assert_eq!(request.range, "latest");
+}
+
+#[test]
+fn build_dep_request_npm_alias_with_target_name_and_version() {
+    let protocol = RegistryProtocol::npm();
+    let request = build_dep_request("my-h3", "npm:h3@^2.0.0", &protocol, None, None);
+    assert_eq!(request.protocol, RegistryProtocol::npm());
+    assert_eq!(request.source, "h3");
+    assert_eq!(request.range, "^2.0.0");
+}
+
+#[test]
 fn build_dep_request_workspace_protocol_uses_dependency_name() {
     let protocol = RegistryProtocol::npm();
     let request = build_dep_request("@yarnpkg/core", "workspace:^", &protocol, None, None);

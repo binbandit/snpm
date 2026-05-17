@@ -1,3 +1,4 @@
+use crate::http::{RetryPolicy, with_retry};
 use crate::{Result, SnpmConfig, SnpmError};
 use futures::StreamExt;
 use std::fs;
@@ -218,23 +219,20 @@ async fn download_blob(
         })?;
 
     let mut verifier = integrity_spec.map(IntegritySpec::verifier);
-    let mut request = client.get(url);
-    if let Some(header_value) = config.authorization_header_for_tarball(package_name, url) {
-        request = request.header("authorization", header_value);
-    }
 
-    let response = request
-        .send()
-        .await
-        .map_err(|source| SnpmError::Http {
-            url: url.to_string(),
-            source,
-        })?
-        .error_for_status()
-        .map_err(|source| SnpmError::Http {
-            url: url.to_string(),
-            source,
-        })?;
+    let retry_label = format!("tarball {}", package_name);
+    let response = with_retry(RetryPolicy::default(), &retry_label, || {
+        let mut request = client.get(url);
+        if let Some(header_value) = config.authorization_header_for_tarball(package_name, url) {
+            request = request.header("authorization", header_value);
+        }
+        async move { request.send().await?.error_for_status() }
+    })
+    .await
+    .map_err(|source| SnpmError::Http {
+        url: url.to_string(),
+        source,
+    })?;
 
     let mut body_stream = response.bytes_stream();
     let mut size_bytes = 0_u64;

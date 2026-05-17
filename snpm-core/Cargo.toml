@@ -21,6 +21,7 @@ reqwest = { version = "0.13.2", default-features = false, features = [
     "rustls",
     "http2",
     "stream",
+    "hickory-dns",
 ] }
 tar = "0.4"
 flate2 = { version = "1.0", default-features = false, features = ["zlib-rs"] }

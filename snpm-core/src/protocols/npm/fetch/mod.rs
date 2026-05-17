@@ -3,6 +3,7 @@ mod response;
 
 use crate::config::OfflineMode;
 use crate::console;
+use crate::http::{RetryPolicy, with_retry};
 use crate::registry::RegistryPackage;
 use crate::{Result, SnpmConfig, SnpmError};
 
@@ -30,7 +31,6 @@ pub(super) async fn fetch_registry_package(
     }
 
     let url = registry_url(config, protocol_name, name);
-    let request = build_request(config, client, name, &url);
 
     console::verbose(&format!(
         "registry request: name={} protocol={} url={}",
@@ -38,7 +38,13 @@ pub(super) async fn fetch_registry_package(
     ));
     let started = Instant::now();
 
-    let response = request.send().await.map_err(|source| SnpmError::Http {
+    let retry_label = format!("metadata {}", name);
+    let response = with_retry(RetryPolicy::metadata(), &retry_label, || {
+        let request = build_request(config, client, name, &url);
+        async move { request.send().await }
+    })
+    .await
+    .map_err(|source| SnpmError::Http {
         url: url.clone(),
         source,
     })?;

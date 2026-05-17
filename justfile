@@ -15,6 +15,10 @@ install:
   cargo install --path snpm-cli --force
   cargo install --path snpm-switch --force
 
-# Run benchmarks (requires hyperfine, snpm, and at least one of pnpm/bun)
+# Run benchmarks
 bench:
   ./benchmarks/bench.sh
+
+# Run the compat-lab harness across the curated repo matrix
+compat *ARGS:
+  ./compat-lab/run.sh {{ARGS}}

@@ -15,22 +15,31 @@ pub(super) fn read(path: &Path, config: &SnpmConfig) -> Result<Lockfile> {
         path: path.to_path_buf(),
         source,
     })?;
-    let raw: RawNpmLockfile =
+
+    let probe: VersionProbe =
         serde_json::from_str(&data).map_err(|source| SnpmError::ParseJson {
             path: path.to_path_buf(),
             source,
         })?;
 
-    if raw.lockfile_version < 2 {
-        return Err(SnpmError::Lockfile {
-            path: path.to_path_buf(),
-            reason: format!(
-                "{} lockfileVersion {} is not supported yet; only npm lockfile v2/v3 is currently supported",
-                lockfile_name(path),
-                raw.lockfile_version
-            ),
-        });
-    }
+    let raw = match probe.lockfile_version {
+        1 => parse_v1_as_v2(path, &data)?,
+        2 | 3 => serde_json::from_str::<RawNpmLockfile>(&data).map_err(|source| {
+            SnpmError::ParseJson {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?,
+        other => {
+            return Err(SnpmError::Lockfile {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "{} lockfileVersion {other} is not supported; only npm lockfile v1/v2/v3 is currently supported",
+                    lockfile_name(path)
+                ),
+            });
+        }
+    };
 
     let packages_by_path = normalize_packages(&raw.packages);
     let root_entry = packages_by_path
@@ -91,12 +100,16 @@ pub(super) fn read(path: &Path, config: &SnpmConfig) -> Result<Lockfile> {
     })
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct RawNpmLockfile {
-    #[serde(rename = "lockfileVersion")]
-    lockfile_version: u32,
     #[serde(default)]
     packages: BTreeMap<String, RawNpmPackage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VersionProbe {
+    #[serde(rename = "lockfileVersion")]
+    lockfile_version: u32,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -147,6 +160,199 @@ fn normalize_packages(raw: &BTreeMap<String, RawNpmPackage>) -> BTreeMap<String,
     raw.iter()
         .map(|(path, package)| (normalize_lockfile_path(path), package.clone()))
         .collect()
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawNpmV1Lockfile {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, RawNpmV1Dependency>,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+struct RawNpmV1Dependency {
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    resolved: Option<String>,
+    #[serde(default)]
+    integrity: Option<String>,
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    requires: BTreeMap<String, String>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, RawNpmV1Dependency>,
+    #[serde(default)]
+    dev: bool,
+    #[serde(default)]
+    optional: bool,
+    #[serde(default)]
+    bundled: bool,
+    #[serde(default)]
+    bin: Option<Value>,
+}
+
+fn parse_v1_as_v2(path: &Path, data: &str) -> Result<RawNpmLockfile> {
+    let v1: RawNpmV1Lockfile =
+        serde_json::from_str(data).map_err(|source| SnpmError::ParseJson {
+            path: path.to_path_buf(),
+            source,
+        })?;
+
+    let mut packages = BTreeMap::new();
+    flatten_v1_deps(&v1.dependencies, "", &mut packages);
+    packages.insert(String::new(), build_v1_root_entry(path, &v1));
+
+    Ok(RawNpmLockfile { packages })
+}
+
+fn flatten_v1_deps(
+    deps: &BTreeMap<String, RawNpmV1Dependency>,
+    parent_path: &str,
+    out: &mut BTreeMap<String, RawNpmPackage>,
+) {
+    for (name, dep) in deps {
+        let install_path = if parent_path.is_empty() {
+            format!("node_modules/{name}")
+        } else {
+            format!("{parent_path}/node_modules/{name}")
+        };
+
+        let resolved = dep
+            .resolved
+            .clone()
+            .or_else(|| dep.from.clone().filter(|value| value.contains("://")));
+
+        let bundled_dependencies = collect_v1_bundled_children(&dep.dependencies);
+
+        let entry = RawNpmPackage {
+            name: Some(name.clone()),
+            version: dep.version.clone(),
+            resolved,
+            integrity: dep.integrity.clone(),
+            link: false,
+            dependencies: dep.requires.clone(),
+            dev_dependencies: BTreeMap::new(),
+            optional_dependencies: BTreeMap::new(),
+            bundled_dependencies,
+            bundle_dependencies: None,
+            bin: dep.bin.clone(),
+            workspaces: Vec::new(),
+        };
+
+        out.insert(install_path.clone(), entry);
+        flatten_v1_deps(&dep.dependencies, &install_path, out);
+    }
+}
+
+fn collect_v1_bundled_children(
+    children: &BTreeMap<String, RawNpmV1Dependency>,
+) -> Option<BundledDependencies> {
+    let names: Vec<String> = children
+        .iter()
+        .filter(|(_, child)| child.bundled)
+        .map(|(name, _)| name.clone())
+        .collect();
+    if names.is_empty() {
+        None
+    } else {
+        Some(BundledDependencies::List(names))
+    }
+}
+
+fn build_v1_root_entry(path: &Path, v1: &RawNpmV1Lockfile) -> RawNpmPackage {
+    let mut entry = RawNpmPackage {
+        name: v1.name.clone(),
+        version: v1.version.clone(),
+        ..RawNpmPackage::default()
+    };
+
+    let pkg_json = path
+        .parent()
+        .map(|parent| parent.join("package.json"))
+        .filter(|candidate| candidate.is_file());
+
+    if let Some(pkg_json) = pkg_json
+        && let Ok(content) = fs::read_to_string(&pkg_json)
+        && let Ok(value) = serde_json::from_str::<Value>(&content)
+    {
+        populate_root_from_manifest(&mut entry, &value);
+    }
+
+    if entry.dependencies.is_empty()
+        && entry.dev_dependencies.is_empty()
+        && entry.optional_dependencies.is_empty()
+    {
+        for (name, dep) in &v1.dependencies {
+            let spec = dep
+                .from
+                .clone()
+                .or_else(|| dep.version.clone())
+                .unwrap_or_else(|| "*".to_string());
+            if dep.optional {
+                entry.optional_dependencies.insert(name.clone(), spec);
+            } else if dep.dev {
+                entry.dev_dependencies.insert(name.clone(), spec);
+            } else {
+                entry.dependencies.insert(name.clone(), spec);
+            }
+        }
+    }
+
+    entry
+}
+
+fn populate_root_from_manifest(entry: &mut RawNpmPackage, manifest: &Value) {
+    copy_dep_block(manifest, "dependencies", &mut entry.dependencies);
+    copy_dep_block(manifest, "devDependencies", &mut entry.dev_dependencies);
+    copy_dep_block(
+        manifest,
+        "optionalDependencies",
+        &mut entry.optional_dependencies,
+    );
+
+    if let Some(workspaces) = manifest.get("workspaces") {
+        entry.workspaces = workspaces_from_manifest(workspaces);
+    }
+
+    if entry.bin.is_none()
+        && let Some(bin) = manifest.get("bin")
+    {
+        entry.bin = Some(bin.clone());
+    }
+}
+
+fn copy_dep_block(manifest: &Value, key: &str, target: &mut BTreeMap<String, String>) {
+    let Some(block) = manifest.get(key).and_then(Value::as_object) else {
+        return;
+    };
+    for (name, spec) in block {
+        if let Some(spec) = spec.as_str() {
+            target.insert(name.clone(), spec.to_string());
+        }
+    }
+}
+
+fn workspaces_from_manifest(value: &Value) -> Vec<String> {
+    if let Some(arr) = value.as_array() {
+        return arr
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect();
+    }
+    if let Some(obj) = value.as_object()
+        && let Some(packages) = obj.get("packages").and_then(Value::as_array)
+    {
+        return packages
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect();
+    }
+    Vec::new()
 }
 
 fn collect_workspace_member_paths(
@@ -1297,7 +1503,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_npm_lockfile_v1() {
+    fn imports_empty_npm_lockfile_v1() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("package-lock.json");
         fs::write(
@@ -1310,10 +1516,198 @@ mod tests {
         )
         .unwrap();
 
+        let lockfile = read(&path, &test_config()).unwrap();
+        assert_eq!(lockfile.version, 1);
+        assert!(lockfile.root.dependencies.is_empty());
+        assert!(lockfile.packages.is_empty());
+    }
+
+    #[test]
+    fn imports_npm_lockfile_v1_flat() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package-lock.json");
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "v1-flat",
+  "version": "1.0.0",
+  "dependencies": { "foo": "^1.0.0" },
+  "devDependencies": { "bar": "^2.0.0" }
+}"#,
+        )
+        .unwrap();
+        fs::write(
+            &path,
+            r#"{
+  "name": "v1-flat",
+  "version": "1.0.0",
+  "lockfileVersion": 1,
+  "requires": true,
+  "dependencies": {
+    "foo": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz",
+      "integrity": "sha512-foo"
+    },
+    "bar": {
+      "version": "2.0.0",
+      "resolved": "https://registry.npmjs.org/bar/-/bar-2.0.0.tgz",
+      "integrity": "sha512-bar",
+      "dev": true,
+      "requires": {
+        "foo": "^1.0.0"
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+
+        assert_eq!(lockfile.version, 1);
+        assert_eq!(lockfile.root.dependencies.len(), 2);
+        assert_eq!(
+            lockfile
+                .root
+                .dependencies
+                .get("foo")
+                .unwrap()
+                .version
+                .as_deref(),
+            Some("1.0.0"),
+        );
+        assert_eq!(
+            lockfile
+                .root
+                .dependencies
+                .get("bar")
+                .unwrap()
+                .version
+                .as_deref(),
+            Some("2.0.0"),
+        );
+        assert!(lockfile.packages.contains_key("foo@1.0.0"));
+        assert!(lockfile.packages.contains_key("bar@2.0.0"));
+
+        let bar = lockfile.packages.get("bar@2.0.0").unwrap();
+        assert_eq!(bar.dependencies.get("foo").unwrap(), "foo@1.0.0");
+    }
+
+    #[test]
+    fn imports_npm_lockfile_v1_nested_shadow() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package-lock.json");
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "v1-nested",
+  "version": "1.0.0",
+  "dependencies": { "alpha": "^1", "beta": "^1" }
+}"#,
+        )
+        .unwrap();
+        fs::write(
+            &path,
+            r#"{
+  "name": "v1-nested",
+  "version": "1.0.0",
+  "lockfileVersion": 1,
+  "requires": true,
+  "dependencies": {
+    "alpha": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/alpha/-/alpha-1.0.0.tgz",
+      "integrity": "sha512-alpha",
+      "requires": { "shared": "^1.0.0" },
+      "dependencies": {
+        "shared": {
+          "version": "1.0.0",
+          "resolved": "https://registry.npmjs.org/shared/-/shared-1.0.0.tgz",
+          "integrity": "sha512-sharedv1"
+        }
+      }
+    },
+    "beta": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/beta/-/beta-1.0.0.tgz",
+      "integrity": "sha512-beta",
+      "requires": { "shared": "^2.0.0" },
+      "dependencies": {
+        "shared": {
+          "version": "2.0.0",
+          "resolved": "https://registry.npmjs.org/shared/-/shared-2.0.0.tgz",
+          "integrity": "sha512-sharedv2"
+        }
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+        assert_eq!(lockfile.root.dependencies.len(), 2);
+        let alpha = lockfile.packages.get("alpha@1.0.0").unwrap();
+        let beta = lockfile.packages.get("beta@1.0.0").unwrap();
+        assert_eq!(alpha.dependencies.get("shared").unwrap(), "shared@1.0.0");
+        assert_eq!(beta.dependencies.get("shared").unwrap(), "shared@2.0.0");
+        assert!(lockfile.packages.contains_key("shared@1.0.0"));
+        assert!(lockfile.packages.contains_key("shared@2.0.0"));
+    }
+
+    #[test]
+    fn imports_npm_lockfile_v1_without_package_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package-lock.json");
+        fs::write(
+            &path,
+            r#"{
+  "name": "no-manifest",
+  "version": "0.1.0",
+  "lockfileVersion": 1,
+  "requires": true,
+  "dependencies": {
+    "foo": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz",
+      "integrity": "sha512-foo"
+    },
+    "tool": {
+      "version": "0.1.0",
+      "resolved": "https://registry.npmjs.org/tool/-/tool-0.1.0.tgz",
+      "integrity": "sha512-tool",
+      "dev": true
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+        assert_eq!(lockfile.root.dependencies.len(), 2);
+        assert!(lockfile.root.dependencies.contains_key("foo"));
+        assert!(lockfile.root.dependencies.contains_key("tool"));
+    }
+
+    #[test]
+    fn rejects_unknown_npm_lockfile_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package-lock.json");
+        fs::write(
+            &path,
+            r#"{
+  "name": "future-test",
+  "lockfileVersion": 99,
+  "packages": {}
+}"#,
+        )
+        .unwrap();
+
         let error = read(&path, &test_config()).unwrap_err();
         assert!(matches!(
             error,
-            crate::SnpmError::Lockfile { reason, .. } if reason.contains("lockfileVersion 1")
+            crate::SnpmError::Lockfile { reason, .. } if reason.contains("lockfileVersion 99")
         ));
     }
 }

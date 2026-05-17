@@ -49,30 +49,54 @@ fn remove_existing_bin_entry(path: &Path) -> Result<()> {
 
 #[cfg(unix)]
 fn write_bin_link(target: &Path, destination: &Path) -> Result<()> {
+    use std::io::ErrorKind;
     use std::os::unix::fs::symlink;
 
-    if let Err(_source) = symlink(target, destination) {
-        clone_or_copy_file(target, destination).map_err(|source| SnpmError::WriteFile {
-            path: destination.to_path_buf(),
-            source,
-        })?;
-        ensure_executable_bits(destination)?;
+    match symlink(target, destination) {
+        Ok(()) => return Ok(()),
+        // Parallel writers may race when two packages claim the same bin
+        // name (e.g. `jest` + `jest-expo`). The earlier writer wins; the
+        // loser must clear the slot and try once more before falling back
+        // to a copy.
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+            remove_existing_bin_entry(destination)?;
+            if symlink(target, destination).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(_) => {}
     }
 
+    remove_existing_bin_entry(destination)?;
+    clone_or_copy_file(target, destination).map_err(|source| SnpmError::WriteFile {
+        path: destination.to_path_buf(),
+        source,
+    })?;
+    ensure_executable_bits(destination)?;
     Ok(())
 }
 
 #[cfg(windows)]
 fn write_bin_link(target: &Path, destination: &Path) -> Result<()> {
+    use std::io::ErrorKind;
     use std::os::windows::fs::symlink_file;
 
-    if let Err(_source) = symlink_file(target, destination) {
-        clone_or_copy_file(target, destination).map_err(|source| SnpmError::WriteFile {
-            path: destination.to_path_buf(),
-            source,
-        })?;
+    match symlink_file(target, destination) {
+        Ok(()) => return Ok(()),
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+            remove_existing_bin_entry(destination)?;
+            if symlink_file(target, destination).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(_) => {}
     }
 
+    remove_existing_bin_entry(destination)?;
+    clone_or_copy_file(target, destination).map_err(|source| SnpmError::WriteFile {
+        path: destination.to_path_buf(),
+        source,
+    })?;
     Ok(())
 }
 

@@ -123,6 +123,16 @@ pub(super) fn read_logging_env() -> (bool, Option<PathBuf>) {
     (verbose, log_file)
 }
 
+pub(super) fn read_remote_cache_env() -> (Option<String>, Option<String>, bool) {
+    let url = read_non_empty_env("SNPM_REMOTE_CACHE_URL")
+        .map(|value| value.trim().trim_end_matches('/').to_string());
+    let token = read_non_empty_env("SNPM_REMOTE_CACHE_TOKEN");
+    let read_only = read_non_empty_env("SNPM_REMOTE_CACHE_READ_ONLY")
+        .map(|value| env_flag_is_enabled(&value))
+        .unwrap_or(false);
+    (url, token, read_only)
+}
+
 fn env_flag_is_enabled(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),

@@ -11,7 +11,10 @@ use super::{
 };
 
 use dirs::resolve_home_dirs;
-use env::{apply_auth_env, apply_default_registry_env, apply_install_env, read_logging_env};
+use env::{
+    apply_auth_env, apply_default_registry_env, apply_install_env, read_logging_env,
+    read_remote_cache_env,
+};
 
 impl SnpmConfig {
     pub fn from_env() -> Self {
@@ -59,6 +62,8 @@ impl SnpmConfig {
         }
 
         let (verbose, log_file) = read_logging_env();
+        let (remote_cache_url, remote_cache_auth_token, remote_cache_read_only) =
+            read_remote_cache_env();
 
         SnpmConfig {
             cache_dir,
@@ -85,6 +90,9 @@ impl SnpmConfig {
             registry_concurrency,
             verbose,
             log_file,
+            remote_cache_url,
+            remote_cache_auth_token,
+            remote_cache_read_only,
         }
     }
 }

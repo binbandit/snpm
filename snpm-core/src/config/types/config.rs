@@ -28,6 +28,20 @@ pub struct SnpmConfig {
     pub registry_concurrency: usize,
     pub verbose: bool,
     pub log_file: Option<PathBuf>,
+    /// Base URL of a remote side-effects cache (e.g.
+    /// `https://cache.example.com/snpm`). When set, side-effects
+    /// artifacts are first GET'd from `<url>/<cache-key>.tar.gz` on
+    /// restore, and PUT back after a successful build. `None` disables
+    /// the remote layer entirely (local cache still works).
+    pub remote_cache_url: Option<String>,
+    /// Bearer token sent as `Authorization: Bearer <token>` on remote
+    /// cache requests. `None` means no auth header (suitable for
+    /// open-bucket or in-cluster usage).
+    pub remote_cache_auth_token: Option<String>,
+    /// When `true`, snpm reads from the remote cache but never PUTs.
+    /// Useful for CI pipelines that should consume but not pollute a
+    /// shared cache, or for staging-against-prod scenarios.
+    pub remote_cache_read_only: bool,
 }
 
 pub fn default_disable_global_virtual_store_for_packages() -> BTreeSet<String> {

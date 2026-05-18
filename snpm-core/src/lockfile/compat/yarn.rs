@@ -796,6 +796,9 @@ mod tests {
             registry_concurrency: 16,
             verbose: false,
             log_file: None,
+            remote_cache_url: None,
+            remote_cache_auth_token: None,
+            remote_cache_read_only: false,
         }
     }
 

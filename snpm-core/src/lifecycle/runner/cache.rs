@@ -1,3 +1,4 @@
+use super::remote_cache::RemoteCache;
 use crate::copying::clone_or_copy_file;
 use crate::linker::fs::{symlink_dir_entry, symlink_file_entry};
 use crate::node;
@@ -21,6 +22,11 @@ pub(super) enum SideEffectsCacheRestore {
 pub(super) struct SideEffectsCacheEntry {
     input_hash: String,
     path: PathBuf,
+    /// `<platform>/<name>@<version>/<input_hash>.tar.gz` — the key used
+    /// for the remote backend. Empty when no remote is configured (we
+    /// avoid the format! work in the common case).
+    remote_key: String,
+    remote: Option<RemoteCache>,
 }
 
 impl SideEffectsCacheEntry {
@@ -51,13 +57,22 @@ impl SideEffectsCacheEntry {
             engine
         );
 
+        let remote = RemoteCache::from_config(config);
+        let remote_key = if remote.is_some() {
+            format!("{platform}/{safe_name}@{version}/{input_hash}.tar.gz")
+        } else {
+            String::new()
+        };
+
         Ok(Self {
             path: config
                 .side_effects_cache_dir()
-                .join(platform)
+                .join(&platform)
                 .join(format!("{safe_name}@{version}"))
                 .join(&input_hash),
             input_hash,
+            remote_key,
+            remote,
         })
     }
 
@@ -69,17 +84,77 @@ impl SideEffectsCacheEntry {
             return Ok(SideEffectsCacheRestore::AlreadyApplied);
         }
 
-        if !self.path.is_dir() {
-            return Ok(SideEffectsCacheRestore::Miss);
+        if self.path.is_dir() {
+            copy_dir(&self.path, package_dir)?;
+            return Ok(SideEffectsCacheRestore::Restored);
         }
 
-        copy_dir(&self.path, package_dir)?;
-        Ok(SideEffectsCacheRestore::Restored)
+        // Local miss — try the remote cache. On hit, restore directly
+        // into the package dir AND populate the local slot so the next
+        // install short-circuits without re-downloading.
+        if let Some(remote) = &self.remote
+            && remote.try_restore(&self.remote_key, package_dir)
+        {
+            // Promote to local for subsequent installs.
+            if let Err(error) = self.save_local_from(package_dir) {
+                crate::console::verbose(&format!(
+                    "remote cache restored {} but local promotion failed: {}",
+                    self.remote_key, error
+                ));
+            }
+            write_marker(package_dir, &self.input_hash)?;
+            return Ok(SideEffectsCacheRestore::Restored);
+        }
+
+        Ok(SideEffectsCacheRestore::Miss)
+    }
+
+    fn save_local_from(&self, package_dir: &Path) -> Result<()> {
+        if self.path.is_dir() {
+            return Ok(());
+        }
+        let parent = self.path.parent().ok_or_else(|| SnpmError::Internal {
+            reason: format!(
+                "side-effects cache path has no parent: {}",
+                self.path.display()
+            ),
+        })?;
+        fs::create_dir_all(parent).map_err(|source| SnpmError::WriteFile {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+        let tmp_dir = parent.join(format!(
+            "{SIDE_EFFECTS_TMP_PREFIX}{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        if tmp_dir.exists() {
+            remove_path(&tmp_dir)?;
+        }
+        copy_dir(package_dir, &tmp_dir)?;
+        match fs::rename(&tmp_dir, &self.path) {
+            Ok(()) => Ok(()),
+            Err(_) if self.path.is_dir() => {
+                remove_path(&tmp_dir).ok();
+                Ok(())
+            }
+            Err(source) => {
+                remove_path(&tmp_dir).ok();
+                Err(SnpmError::WriteFile {
+                    path: self.path.clone(),
+                    source,
+                })
+            }
+        }
     }
 
     pub(super) fn save(&self, package_dir: &Path) -> Result<()> {
         if self.path.is_dir() {
             write_marker(package_dir, &self.input_hash)?;
+            self.push_remote(package_dir);
             return Ok(());
         }
 
@@ -111,7 +186,7 @@ impl SideEffectsCacheEntry {
 
         copy_dir(package_dir, &tmp_dir)?;
 
-        match fs::rename(&tmp_dir, &self.path) {
+        let local_save = match fs::rename(&tmp_dir, &self.path) {
             Ok(()) => Ok(()),
             Err(_source) if self.path.is_dir() => {
                 remove_path(&tmp_dir).ok();
@@ -124,6 +199,16 @@ impl SideEffectsCacheEntry {
                     source,
                 })
             }
+        };
+
+        local_save?;
+        self.push_remote(package_dir);
+        Ok(())
+    }
+
+    fn push_remote(&self, package_dir: &Path) {
+        if let Some(remote) = &self.remote {
+            remote.try_upload(&self.remote_key, package_dir);
         }
     }
 }
@@ -416,6 +501,9 @@ mod tests {
             registry_concurrency: 64,
             verbose: false,
             log_file: None,
+            remote_cache_url: None,
+            remote_cache_auth_token: None,
+            remote_cache_read_only: false,
         }
     }
 
@@ -500,5 +588,78 @@ mod tests {
         assert_eq!(super::parse_node_major(" v22.1.0\n"), Some(22));
         assert_eq!(super::parse_node_major(""), None);
         assert_eq!(super::parse_node_major("not-a-version"), None);
+    }
+
+    #[test]
+    fn remote_cache_restore_promotes_to_local() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        let dir = tempdir().unwrap();
+        let mut config = make_config(dir.path().join("data"));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        config.remote_cache_url = Some(format!("http://{addr}"));
+
+        // Prepare a "remote" payload by packing a directory locally.
+        let staged = dir.path().join("staged");
+        fs::create_dir_all(&staged).unwrap();
+        fs::write(staged.join("built-by-remote.txt"), "from-remote").unwrap();
+        let archive = super::super::remote_cache::pack_dir(&staged).unwrap();
+        let storage: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(archive));
+        let storage_for_server = storage.clone();
+
+        let server = thread::spawn(move || {
+            for stream in listener.incoming().take(1) {
+                let mut stream = stream.unwrap();
+                let mut buf = [0_u8; 4096];
+                let mut headers = Vec::new();
+                loop {
+                    let read = stream.read(&mut buf).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    headers.extend_from_slice(&buf[..read]);
+                    if headers.windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let body = storage_for_server.lock().unwrap().clone();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(header.as_bytes()).unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+
+        // A "package" with no artifacts yet.
+        let package_dir = dir.path().join("package");
+        fs::create_dir_all(&package_dir).unwrap();
+        fs::write(
+            package_dir.join("package.json"),
+            r#"{"name":"native-mod","version":"1.0.0"}"#,
+        )
+        .unwrap();
+
+        let entry =
+            SideEffectsCacheEntry::new(&config, "native-mod", "1.0.0", &package_dir).unwrap();
+        let restore = entry.restore_if_available(&package_dir).unwrap();
+        assert!(matches!(restore, SideEffectsCacheRestore::Restored));
+        assert_eq!(
+            fs::read_to_string(package_dir.join("built-by-remote.txt")).unwrap(),
+            "from-remote",
+            "remote cache content should be restored into the package dir"
+        );
+        // Local cache should now have the slot populated for next time.
+        assert!(
+            entry.path.is_dir(),
+            "local cache slot should be promoted after remote restore"
+        );
+
+        server.join().unwrap();
     }
 }

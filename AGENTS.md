@@ -155,6 +155,9 @@ Environment keys currently in use:
 - `SNPM_NODE_BIN_OVERRIDE` (explicit Node `bin/` dir to prepend; used by `snpm node run` and exposed for callers)
 - `SNPM_NODE_DISTRO_URL` (override the default `https://nodejs.org/dist` source)
 - `SNPM_NODE_SKIP_CHECKSUM` (skip SHASUMS256.txt verification when installing Node — for diagnostics only)
+- `SNPM_REMOTE_CACHE_URL` (base URL of a remote side-effects cache, e.g. `https://cache.example.com/snpm`; GET on restore + PUT on save)
+- `SNPM_REMOTE_CACHE_TOKEN` (bearer token sent as `Authorization: Bearer <token>` on remote-cache requests; optional)
+- `SNPM_REMOTE_CACHE_READ_ONLY` (`1`/`true` to read from the remote cache but never PUT — useful for CI consumers that should not pollute a shared cache)
 - `NPM_CONFIG_REGISTRY` / `npm_config_registry`
 - `NPM_CONFIG__AUTH` / `npm_config__auth`
 - `NODE_AUTH_TOKEN` / `NPM_TOKEN` / `SNPM_AUTH_TOKEN`

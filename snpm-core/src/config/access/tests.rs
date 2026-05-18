@@ -25,6 +25,9 @@ fn make_config() -> SnpmConfig {
         registry_concurrency: 64,
         verbose: false,
         log_file: None,
+        remote_cache_url: None,
+        remote_cache_auth_token: None,
+        remote_cache_read_only: false,
     }
 }
 
@@ -60,6 +63,9 @@ fn authorization_header_uses_scoped_basic_auth() {
         registry_concurrency: 64,
         verbose: false,
         log_file: None,
+        remote_cache_url: None,
+        remote_cache_auth_token: None,
+        remote_cache_read_only: false,
     };
 
     let header = config

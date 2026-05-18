@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// Tri-state knowledge about whether a link primitive works for a
@@ -18,6 +19,18 @@ struct Capabilities {
     reflink: Probe,
     hardlink: Probe,
 }
+
+/// Process-wide "any reflink/hardlink failure has been observed" flags.
+/// While false, the cache is empty in the worst case — `reflink_likely`
+/// short-circuits to `true` without stat-ing either path. The whole
+/// point: on macOS APFS (and other always-supporting filesystems) the
+/// cache adds zero overhead because we never need to consult it.
+///
+/// Once we observe the first failure, we flip the flag and start
+/// paying the per-call stat + Mutex cost — but only then, and only
+/// for the failing primitive.
+static ANY_REFLINK_FAILURE: AtomicBool = AtomicBool::new(false);
+static ANY_HARDLINK_FAILURE: AtomicBool = AtomicBool::new(false);
 
 /// Per-`(source_dev_id, dest_dev_id)` memo so we don't pay the syscall
 /// cost of re-attempting a primitive that already failed on this
@@ -74,7 +87,17 @@ fn device_id_for_create(_path: &Path) -> io::Result<u64> {
 /// pair succeeded, or no attempt has been made yet. Returns `false` only
 /// after a recorded failure — callers should then skip the syscall and
 /// go straight to the fallback path.
+///
+/// The fast path here is the load of `ANY_REFLINK_FAILURE`: if no
+/// failure has been seen anywhere, we return `true` immediately and
+/// the caller's reflink call proceeds with zero added syscalls. This
+/// matters on macOS APFS where reflink always succeeds — without this
+/// short-circuit, the per-file device-id stats would cost ~30ms on a
+/// 1245-package install.
 pub(crate) fn reflink_likely(from: &Path, to: &Path) -> bool {
+    if !ANY_REFLINK_FAILURE.load(Ordering::Relaxed) {
+        return true;
+    }
     match key_for(from, to) {
         Ok(key) => {
             let cache = cache().lock().unwrap();
@@ -83,16 +106,24 @@ pub(crate) fn reflink_likely(from: &Path, to: &Path) -> bool {
                 .map(|caps| caps.reflink != Probe::Incapable)
                 .unwrap_or(true)
         }
-        // If we can't even stat the source, let the caller's attempt
-        // surface the real error instead of silently downgrading.
         Err(_) => true,
     }
 }
 
 pub(crate) fn record_reflink_outcome(from: &Path, to: &Path, succeeded: bool) {
+    // On the success path with no prior failures, do nothing — the
+    // cache is only consulted after a failure, and writing
+    // `Probe::Capable` for every successful link would burn the same
+    // Mutex acquire we're trying to avoid.
+    if succeeded && !ANY_REFLINK_FAILURE.load(Ordering::Relaxed) {
+        return;
+    }
     let Ok(key) = key_for(from, to) else {
         return;
     };
+    if !succeeded {
+        ANY_REFLINK_FAILURE.store(true, Ordering::Relaxed);
+    }
     let mut cache = cache().lock().unwrap();
     let caps = cache.entry(key).or_default();
     caps.reflink = if succeeded {
@@ -103,6 +134,9 @@ pub(crate) fn record_reflink_outcome(from: &Path, to: &Path, succeeded: bool) {
 }
 
 pub(crate) fn hardlink_likely(from: &Path, to: &Path) -> bool {
+    if !ANY_HARDLINK_FAILURE.load(Ordering::Relaxed) {
+        return true;
+    }
     match key_for(from, to) {
         Ok(key) => {
             let cache = cache().lock().unwrap();
@@ -116,9 +150,15 @@ pub(crate) fn hardlink_likely(from: &Path, to: &Path) -> bool {
 }
 
 pub(crate) fn record_hardlink_outcome(from: &Path, to: &Path, succeeded: bool) {
+    if succeeded && !ANY_HARDLINK_FAILURE.load(Ordering::Relaxed) {
+        return;
+    }
     let Ok(key) = key_for(from, to) else {
         return;
     };
+    if !succeeded {
+        ANY_HARDLINK_FAILURE.store(true, Ordering::Relaxed);
+    }
     let mut cache = cache().lock().unwrap();
     let caps = cache.entry(key).or_default();
     caps.hardlink = if succeeded {
@@ -130,6 +170,8 @@ pub(crate) fn record_hardlink_outcome(from: &Path, to: &Path, succeeded: bool) {
 
 #[cfg(test)]
 pub(crate) fn reset_for_tests() {
+    ANY_REFLINK_FAILURE.store(false, Ordering::Relaxed);
+    ANY_HARDLINK_FAILURE.store(false, Ordering::Relaxed);
     if let Some(lock) = CACHE.get() {
         lock.lock().unwrap().clear();
     }
@@ -139,10 +181,17 @@ pub(crate) fn reset_for_tests() {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::Mutex;
     use tempfile::tempdir;
+
+    // All tests in this module mutate process-wide static state (the
+    // failure flags + the device-pair cache). Serialize them through
+    // one Mutex so they don't race when nextest runs them in parallel.
+    static SERIAL: Mutex<()> = Mutex::new(());
 
     #[test]
     fn reflink_likely_defaults_to_true() {
+        let _guard = SERIAL.lock().unwrap();
         reset_for_tests();
         let dir = tempdir().unwrap();
         let from = dir.path().join("from.txt");
@@ -154,6 +203,7 @@ mod tests {
 
     #[test]
     fn record_failure_blocks_subsequent_attempts() {
+        let _guard = SERIAL.lock().unwrap();
         reset_for_tests();
         let dir = tempdir().unwrap();
         let from = dir.path().join("from.txt");
@@ -171,6 +221,7 @@ mod tests {
 
     #[test]
     fn record_success_overrides_prior_failure() {
+        let _guard = SERIAL.lock().unwrap();
         reset_for_tests();
         let dir = tempdir().unwrap();
         let from = dir.path().join("from.txt");
@@ -184,6 +235,7 @@ mod tests {
 
     #[test]
     fn hardlink_state_is_independent_of_reflink_state() {
+        let _guard = SERIAL.lock().unwrap();
         reset_for_tests();
         let dir = tempdir().unwrap();
         let from = dir.path().join("from.txt");
@@ -194,5 +246,18 @@ mod tests {
         assert!(hardlink_likely(&from, &to));
         record_hardlink_outcome(&from, &to, false);
         assert!(!hardlink_likely(&from, &to));
+    }
+
+    #[test]
+    fn success_path_is_zero_cost_when_no_prior_failure() {
+        let _guard = SERIAL.lock().unwrap();
+        reset_for_tests();
+        // Use a path that doesn't exist — `key_for` would fail on it
+        // (no stat possible). The fast path must short-circuit BEFORE
+        // calling `key_for`, so this still returns true.
+        let nonexistent = std::path::PathBuf::from("/nonexistent/does/not/exist/file.txt");
+        let other = std::path::PathBuf::from("/also/nonexistent/file.txt");
+        assert!(reflink_likely(&nonexistent, &other));
+        assert!(hardlink_likely(&nonexistent, &other));
     }
 }

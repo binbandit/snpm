@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.5.18] - 2026-05-17
+## [2026.5.26] - 2026-05-25
 
 ### <!-- 0 -->🚀 Features
 
@@ -54,6 +54,8 @@ All notable changes to this project will be documented in this file.
 - *(core)* Add node module for nvm-style Node.js version management ([9ba1a13](https://github.com/binbandit/snpm/commit/9ba1a13445334aa59523528bf1eda09404e4a73e))
 - *(cli)* Add snpm node subcommand surface ([c9dae84](https://github.com/binbandit/snpm/commit/c9dae84cebd8f607654e91fbd3d38006ceabec1e))
 - *(run)* Auto-switch active Node version for run/exec/lifecycle scripts ([e196af8](https://github.com/binbandit/snpm/commit/e196af848feb76ff14d7f2f89d9c6f66ed2500b2))
+- *(lockfile)* Import npm lockfile v1 by flattening nested tree ([8db0a25](https://github.com/binbandit/snpm/commit/8db0a25810c478a8576776b24b6dbc2a7003dec3))
+- *(lifecycle)* Add remote side-effects cache (S3/HTTP backend) ([2b92e47](https://github.com/binbandit/snpm/commit/2b92e47c17c8cdf7092c0467694c4d71f0a0facc))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -121,6 +123,14 @@ All notable changes to this project will be documented in this file.
 - *(security)* Refuse tarball auth on http scheme downgrade ([dfca295](https://github.com/binbandit/snpm/commit/dfca295a632ab94652808cfb1c063effd26b9b74))
 - *(store)* Handle non-directory destinations in atomic finalize ([35166d6](https://github.com/binbandit/snpm/commit/35166d6736e20c96442700f70bb825babba60f4a))
 - *(registry)* Surface clear error on 304 with no cached metadata ([0741fa0](https://github.com/binbandit/snpm/commit/0741fa0ca4f2256d752d529828d87bef9eb2507d))
+- *(lifecycle)* Prepend package's own bins to script PATH ([649d5ee](https://github.com/binbandit/snpm/commit/649d5ee2c93d0a809f8a845d789e311209f31a1b))
+- *(lifecycle)* Partition side-effects cache by Node major ([d34f189](https://github.com/binbandit/snpm/commit/d34f189c50e4c7e0fde60011332dfa4c4a3f9c72))
+- *(resolve)* Treat npm:<bare-name> alias as latest tag, not range ([21d92af](https://github.com/binbandit/snpm/commit/21d92af259cfde428e09d9f19425873b8ec83484))
+- *(linker)* Retry symlink + clear destination on EEXIST race ([6f22a94](https://github.com/binbandit/snpm/commit/6f22a94fd58924731a160991a3ba9b07ab6bf6e8))
+- *(linker)* Populate .bin/ for virtual-store sibling deps ([8770c00](https://github.com/binbandit/snpm/commit/8770c0025701c1fa8de9156b280497fc4a3a511a))
+- *(linker)* Don't trust has_bin=false from yarn lockfile imports ([5f291fe](https://github.com/binbandit/snpm/commit/5f291fe463dc846f8db5458c2881ee7abdf76caa))
+- *(lifecycle)* Order postinstall scripts topologically by deps ([e2b4d21](https://github.com/binbandit/snpm/commit/e2b4d214ebdba90fa95c270fd060539402beb66a))
+- *(lifecycle)* Expose sibling-dep .bin/ on PATH for virtual-store scripts ([15b46ba](https://github.com/binbandit/snpm/commit/15b46ba3a176b4934cbeee6dff19fe4612b73c3c))
 
 ### <!-- 2 -->♻️ Refactor
 
@@ -201,6 +211,9 @@ All notable changes to this project will be documented in this file.
 - *(linker)* Fold materialize + dep-link into one par_iter per package ([f755ef9](https://github.com/binbandit/snpm/commit/f755ef9268af8666a458b078e1094badb0aaac26))
 - *(linker)* Drop .snpm_linked marker, use metadata file as the warm hit ([b5d406e](https://github.com/binbandit/snpm/commit/b5d406e909ec1c0dc386fd1d4c8ad7946b33f9f1))
 - *(store)* Memoize parsed package metadata ([0cae774](https://github.com/binbandit/snpm/commit/0cae774e42eb08b6d4d4c9fc7c4ffdad4cd5215d))
+- *(http)* Harden client and add retry-with-jitter ([5817a5e](https://github.com/binbandit/snpm/commit/5817a5e04a4edb5b491e92792b50dd2563346c0d))
+- *(linker)* Memoize reflink/hardlink capability per fs pair ([dbb50b4](https://github.com/binbandit/snpm/commit/dbb50b41d87fe072e5a667bade486736bd61357f))
+- *(linker)* Fast-path the reflink memo when no failure observed ([60b57e2](https://github.com/binbandit/snpm/commit/60b57e2a16cb533ad501bdcb25796b52b6bf159d))
 
 ### <!-- 5 -->🎨 Styling
 
@@ -426,7 +439,11 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.5.16-r.3 release [skip ci] ([736f17b](https://github.com/binbandit/snpm/commit/736f17bb56fa52769c0e3a005cb2c0ddfe44e23c))
 - *(release)* Bump version to 2026.5.16-r.4 [skip ci] ([7efd8bf](https://github.com/binbandit/snpm/commit/7efd8bf9cfe956fae5aacd6e2c2437cb5f71cf02))
 - *(release)* Merge 2026.5.16-r.4 release [skip ci] ([63b115d](https://github.com/binbandit/snpm/commit/63b115d7dc5345cbc91f60a7d8a8af732cd1fd82))
-- *(release)* Bump version to 2026.5.18 [skip ci] ([890d58c](https://github.com/binbandit/snpm/commit/890d58c2ff3d897b17639caf40102e29de7066b1))
+- *(release)* Bump version to 2026.5.18 [skip ci] ([0694660](https://github.com/binbandit/snpm/commit/0694660e98bd48ae9670003ad06b6b8cf8cbcab1))
+- *(release)* Merge 2026.5.18 release [skip ci] ([5e6b375](https://github.com/binbandit/snpm/commit/5e6b375f637940192ca3a076ba62ada0afaa8acf))
+- *(justfile)* Add compat recipe for compat-lab harness ([e5e23e9](https://github.com/binbandit/snpm/commit/e5e23e9605ee86e48f8e9d914aa733da1856c146))
+- *(workspace)* Add `profiling` cargo profile ([3eac88e](https://github.com/binbandit/snpm/commit/3eac88e943c326b7588dd157e49d6e0fa68694ad))
+- *(release)* Bump version to 2026.5.26 [skip ci] ([8558678](https://github.com/binbandit/snpm/commit/85586786e354a65138401053f77af5a260f46ef0))
 
 ## [2025.12.24] - 2025-12-24
 

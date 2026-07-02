@@ -78,7 +78,11 @@ fn list_global(config: &SnpmConfig) -> Result<()> {
         Vec::new()
     };
 
-    if dependencies.is_empty() {
+    // Packages installed by the pre-project layout live as bare dirs in
+    // the global root until the next add/remove -g migrates them.
+    let legacy = snpm_core::operations::global::legacy_global_packages(config);
+
+    if dependencies.is_empty() && legacy.is_empty() {
         println!("No global packages installed");
         println!();
         println!("Install with: snpm add -g <package>");
@@ -93,6 +97,13 @@ fn list_global(config: &SnpmConfig) -> Result<()> {
         match installed {
             Some(version) => println!("  {} @ {}", name, version),
             None => println!("  {} @ {} (not linked)", name, range),
+        }
+    }
+
+    for (name, version) in legacy {
+        match version {
+            Some(version) => println!("  {} @ {} (legacy layout)", name, version),
+            None => println!("  {} (legacy layout)", name),
         }
     }
 

@@ -40,7 +40,12 @@ impl WorkspacesField {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
+    // Absent name/version must stay absent on rewrite: `"version": null`
+    // is invalid per npm's package.json schema and breaks other tools
+    // reading the manifest after an `snpm add` rewrites it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_manager: Option<String>,

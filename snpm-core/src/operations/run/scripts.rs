@@ -1,6 +1,6 @@
 use super::filters::{format_filters, project_label, select_workspace_projects};
 use super::process::{build_path, join_args, make_command};
-use crate::{Project, Result, SnpmError, Workspace, console};
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, console};
 
 pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()> {
     run_script_with_node(project, script, args, None)
@@ -38,7 +38,8 @@ pub fn run_script_with_node(
     Ok(())
 }
 
-pub fn run_workspace_scripts(
+pub async fn run_workspace_scripts(
+    config: &SnpmConfig,
     workspace: &Workspace,
     script: &str,
     filters: &[String],
@@ -72,6 +73,11 @@ pub fn run_workspace_scripts(
 
         any_ran = true;
         println!("\n{}", name);
+        // Each member may pin its own Node (pin discovery walks up from
+        // the member root, so this also covers a workspace-root pin);
+        // the sync PATH construction below can only match installed
+        // versions, so missing pins are downloaded here.
+        crate::node::exec::prepare_node_for_project(config, &project.root).await?;
         run_script(project, script, args)?;
     }
 
@@ -122,6 +128,15 @@ fn run_single_script(
         project.manifest.version.as_deref(),
         script,
     );
+
+    // An explicit Node override (`snpm node run <version> <script>`) must
+    // reach nested snpm invocations inside the script, or they would
+    // rediscover the project pin and switch Node back. Set it on the
+    // child only — mutating this process's env is unsound under the
+    // multi-threaded runtime.
+    if let Some(node_dir) = node_bin_dir {
+        command.env(crate::node::exec::BIN_OVERRIDE_ENV, node_dir);
+    }
 
     let status = command.status().map_err(|error| SnpmError::ScriptRun {
         name: script.to_string(),

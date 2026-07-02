@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.5.26] - 2026-05-25
+## [2026.7.2] - 2026-07-02
 
 ### <!-- 0 -->🚀 Features
 
@@ -443,7 +443,9 @@ All notable changes to this project will be documented in this file.
 - *(release)* Merge 2026.5.18 release [skip ci] ([5e6b375](https://github.com/binbandit/snpm/commit/5e6b375f637940192ca3a076ba62ada0afaa8acf))
 - *(justfile)* Add compat recipe for compat-lab harness ([e5e23e9](https://github.com/binbandit/snpm/commit/e5e23e9605ee86e48f8e9d914aa733da1856c146))
 - *(workspace)* Add `profiling` cargo profile ([3eac88e](https://github.com/binbandit/snpm/commit/3eac88e943c326b7588dd157e49d6e0fa68694ad))
-- *(release)* Bump version to 2026.5.26 [skip ci] ([8558678](https://github.com/binbandit/snpm/commit/85586786e354a65138401053f77af5a260f46ef0))
+- *(release)* Bump version to 2026.5.26 [skip ci] ([08770cd](https://github.com/binbandit/snpm/commit/08770cd756ee8b6acd517f56e1663ef915380f23))
+- *(release)* Merge 2026.5.26 release [skip ci] ([26e00b5](https://github.com/binbandit/snpm/commit/26e00b553b888c2ba97097484d6ed8ae3f861623))
+- *(release)* Bump version to 2026.7.2 [skip ci] ([642bd15](https://github.com/binbandit/snpm/commit/642bd158c9d37bd0af4d36c84f9df8508c52de04))
 
 ## [2025.12.24] - 2025-12-24
 

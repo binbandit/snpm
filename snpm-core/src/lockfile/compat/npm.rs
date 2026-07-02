@@ -1,7 +1,7 @@
 use super::super::keys::{package_key, split_dep_key};
 use super::super::types::{LockPackage, LockRoot, LockRootDependency, Lockfile};
 use crate::protocols::encode_package_name;
-use crate::registry::BundledDependencies;
+use crate::registry::{BundledDependencies, PeerDependencyMeta};
 use crate::{Result, SnpmConfig, SnpmError};
 
 use serde::Deserialize;
@@ -132,6 +132,10 @@ struct RawNpmPackage {
     #[serde(default)]
     optional_dependencies: BTreeMap<String, String>,
     #[serde(default)]
+    peer_dependencies: BTreeMap<String, String>,
+    #[serde(default)]
+    peer_dependencies_meta: BTreeMap<String, PeerDependencyMeta>,
+    #[serde(default)]
     bundled_dependencies: Option<BundledDependencies>,
     #[serde(default)]
     bundle_dependencies: Option<BundledDependencies>,
@@ -238,6 +242,9 @@ fn flatten_v1_deps(
             dependencies: dep.requires.clone(),
             dev_dependencies: BTreeMap::new(),
             optional_dependencies: BTreeMap::new(),
+            // package-lock v1 entries carry no peerDependencies data.
+            peer_dependencies: BTreeMap::new(),
+            peer_dependencies_meta: BTreeMap::new(),
             bundled_dependencies,
             bundle_dependencies: None,
             bin: dep.bin.clone(),
@@ -607,7 +614,10 @@ fn build_packages(
             tarball: build_package_tarball(project_root, config, entry, raw),
             integrity: raw.integrity.clone(),
             dependencies,
-            peer_dependencies: BTreeMap::new(),
+            peer_dependencies: super::required_peer_dependencies_with_meta(
+                &raw.peer_dependencies,
+                &raw.peer_dependencies_meta,
+            ),
             bundled_dependencies: raw
                 .bundled_dependencies
                 .clone()
@@ -1219,6 +1229,61 @@ mod tests {
             lockfile.packages["shared@4.0.1"]
                 .bundled_dependencies
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn imports_required_peer_dependencies() {
+        // Peer data must survive the import: an empty peer map bypasses
+        // peer-aware virtual-store placement, which shares the package
+        // with no peer wired and breaks require() at runtime.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package-lock.json");
+        fs::write(
+            &path,
+            r#"{
+  "name": "peer-test",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {
+      "dependencies": {
+        "react-dom": "^18.0.0",
+        "react": "^18.0.0"
+      }
+    },
+    "node_modules/react": {
+      "version": "18.3.1",
+      "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz"
+    },
+    "node_modules/react-dom": {
+      "version": "18.3.1",
+      "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz",
+      "peerDependencies": {
+        "react": "^18.3.1",
+        "styling": ">=1"
+      },
+      "peerDependenciesMeta": {
+        "styling": { "optional": true }
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+
+        let react_dom = &lockfile.packages["react-dom@18.3.1"];
+        assert_eq!(react_dom.peer_dependencies["react"], "^18.3.1");
+        assert!(
+            !react_dom.peer_dependencies.contains_key("styling"),
+            "optional peers must be excluded, matching the resolver"
+        );
+        assert!(
+            lockfile.packages["react@18.3.1"]
+                .peer_dependencies
+                .is_empty()
         );
     }
 

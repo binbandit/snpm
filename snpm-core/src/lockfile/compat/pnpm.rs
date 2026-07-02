@@ -1,7 +1,7 @@
 use super::super::keys::{package_key, split_dep_key};
 use super::super::types::{LockPackage, LockRoot, LockRootDependency, Lockfile};
 use crate::protocols::encode_package_name;
-use crate::registry::BundledDependencies;
+use crate::registry::{BundledDependencies, PeerDependencyMeta};
 use crate::{Result, SnpmConfig, SnpmError};
 
 use serde::Deserialize;
@@ -119,6 +119,10 @@ struct RawPackageInfo {
     bundled_dependencies: Option<BundledDependencies>,
     #[serde(default, rename = "hasBin")]
     has_bin: bool,
+    #[serde(default, rename = "peerDependencies")]
+    peer_dependencies: BTreeMap<String, String>,
+    #[serde(default, rename = "peerDependenciesMeta")]
+    peer_dependencies_meta: BTreeMap<String, PeerDependencyMeta>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -302,7 +306,14 @@ fn build_packages(
                 .unwrap_or_default(),
             integrity: package_info.and_then(|info| info.resolution.integrity.clone()),
             dependencies,
-            peer_dependencies: BTreeMap::new(),
+            peer_dependencies: package_info
+                .map(|info| {
+                    super::required_peer_dependencies_with_meta(
+                        &info.peer_dependencies,
+                        &info.peer_dependencies_meta,
+                    )
+                })
+                .unwrap_or_default(),
             bundled_dependencies: package_info.and_then(|info| info.bundled_dependencies.clone()),
             has_bin: package_info.map(|info| info.has_bin).unwrap_or(false),
             bin: None,
@@ -594,6 +605,7 @@ mod tests {
     use super::read;
     use crate::config::SnpmConfig;
 
+
     fn test_config() -> SnpmConfig {
         SnpmConfig {
             registry_concurrency: 16,
@@ -635,6 +647,54 @@ snapshots:
             "https://registry.npmjs.org/is-positive/-/is-positive-1.0.0.tgz"
         );
         assert_eq!(pkg.integrity.as_deref(), Some("sha512-abc"));
+    }
+
+    #[test]
+    fn imports_required_peer_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pnpm-lock.yaml");
+        std::fs::write(
+            &path,
+            r#"lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      react-dom:
+        specifier: ^18.0.0
+        version: 18.3.1(react@18.3.1)
+      react:
+        specifier: ^18.0.0
+        version: 18.3.1
+packages:
+  react-dom@18.3.1:
+    resolution:
+      integrity: sha512-dom
+    peerDependencies:
+      react: ^18.3.1
+      styling: '>=1'
+    peerDependenciesMeta:
+      styling:
+        optional: true
+  react@18.3.1:
+    resolution:
+      integrity: sha512-react
+snapshots:
+  react-dom@18.3.1(react@18.3.1):
+    dependencies:
+      react: 18.3.1
+  react@18.3.1: {}
+"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+        let react_dom = &lockfile.packages["react-dom@18.3.1"];
+
+        assert_eq!(react_dom.peer_dependencies["react"], "^18.3.1");
+        assert!(
+            !react_dom.peer_dependencies.contains_key("styling"),
+            "optional peers must be excluded, matching the resolver"
+        );
     }
 
     #[test]

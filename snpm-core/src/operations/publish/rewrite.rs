@@ -90,16 +90,17 @@ fn rewrite_spec(
     catalog: Option<&CatalogConfig>,
 ) -> Result<Option<String>> {
     if let Some(rest) = spec.strip_prefix("workspace:") {
-        let version = sibling_version(name, workspace)?;
-        let rewritten = match rest {
-            "" | "*" => version,
-            "~" => format!("~{version}"),
-            "^" => format!("^{version}"),
-            // `workspace:^1.2.3` / `workspace:1.2.3` — the range after
-            // the prefix is already a real registry range.
-            other => other.to_string(),
-        };
-        return Ok(Some(rewritten));
+        // pnpm's aliased form `workspace:foo@^` / `workspace:@scope/foo@~`:
+        // the edge name differs from the sibling package, so the published
+        // spec must become an npm alias (`npm:foo@^1.2.3`).
+        if let Some((target, range)) = split_workspace_alias(rest) {
+            let rewritten = concrete_range(range, || sibling_version(target, workspace))?;
+            return Ok(Some(format!("npm:{target}@{rewritten}")));
+        }
+
+        return Ok(Some(concrete_range(rest, || {
+            sibling_version(name, workspace)
+        })?));
     }
 
     if spec.starts_with("catalog:") {
@@ -107,6 +108,33 @@ fn rewrite_spec(
     }
 
     Ok(None)
+}
+
+/// Turn a `workspace:` range shorthand into a real registry range,
+/// resolving the sibling's version lazily (only the shorthand forms need
+/// it; an explicit range like `^1.2.3` passes through untouched).
+fn concrete_range(range: &str, version: impl FnOnce() -> Result<String>) -> Result<String> {
+    Ok(match range {
+        "" | "*" => version()?,
+        "~" => format!("~{}", version()?),
+        "^" => format!("^{}", version()?),
+        other => other.to_string(),
+    })
+}
+
+/// Split pnpm's aliased workspace form `<target>@<range>` (e.g.
+/// `foo@^`, `@scope/foo@~`). Returns `None` for plain ranges, which
+/// contain no `@` past the scope position.
+fn split_workspace_alias(rest: &str) -> Option<(&str, &str)> {
+    let at = rest.rfind('@')?;
+    if at == 0 {
+        return None;
+    }
+    let (target, range) = (&rest[..at], &rest[at + 1..]);
+    if target.is_empty() {
+        return None;
+    }
+    Some((target, range))
 }
 
 fn sibling_version(name: &str, workspace: Option<&Workspace>) -> Result<String> {
@@ -195,6 +223,28 @@ mod tests {
         let mut manifest = json!({ "dependencies": { "@acme/utils": "workspace:^2.0.0" } });
         rewrite_published_manifest(&mut manifest, Some(&ws), None).unwrap();
         assert_eq!(manifest["dependencies"]["@acme/utils"], json!("^2.0.0"));
+    }
+
+    #[test]
+    fn rewrites_aliased_workspace_spec_to_npm_alias() {
+        let ws = workspace_with("@acme/utils", "1.4.2");
+        let mut manifest = json!({
+            "dependencies": {
+                "utils": "workspace:@acme/utils@^",
+                "utils-exact": "workspace:@acme/utils@*"
+            }
+        });
+
+        rewrite_published_manifest(&mut manifest, Some(&ws), None).unwrap();
+
+        assert_eq!(
+            manifest["dependencies"]["utils"],
+            json!("npm:@acme/utils@^1.4.2")
+        );
+        assert_eq!(
+            manifest["dependencies"]["utils-exact"],
+            json!("npm:@acme/utils@1.4.2")
+        );
     }
 
     #[test]

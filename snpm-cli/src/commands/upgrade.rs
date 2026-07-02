@@ -77,6 +77,36 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
     }
 
     if !args.packages.is_empty() || args.latest {
+        // From a workspace root, `--latest` must touch every member's
+        // manifest — silently upgrading only the root package.json would
+        // leave the monorepo half-updated.
+        if args.latest
+            && let Some(workspace) = Workspace::discover(&cwd)?
+            && workspace.root == cwd
+        {
+            for (idx, mut project) in workspace.projects.into_iter().enumerate() {
+                if idx > 0 {
+                    println!();
+                }
+                console::info(&format!(
+                    "upgrade --latest in {}",
+                    workspace_selector::project_label(&project)
+                ));
+                operations::upgrade(
+                    config,
+                    &mut project,
+                    args.packages.clone(),
+                    frozen_lockfile.mode,
+                    frozen_lockfile.strict_no_lockfile,
+                    args.production,
+                    args.force,
+                    true,
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
         let mut project = Project::discover(&cwd)?;
         operations::upgrade(
             config,

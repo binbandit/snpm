@@ -76,7 +76,15 @@ pub async fn outdated(
         &graph.root.dependencies,
     );
 
-    enrich_with_latest(config, &registry_client, &root_protocols, &mut entries).await;
+    enrich_with_latest(
+        config,
+        &registry_client,
+        &root_protocols,
+        &resolved_manifest.dependencies,
+        &resolved_manifest.development_dependencies,
+        &mut entries,
+    )
+    .await;
 
     Ok(entries)
 }
@@ -89,6 +97,8 @@ async fn enrich_with_latest(
     config: &SnpmConfig,
     client: &Client,
     root_protocols: &BTreeMap<String, RegistryProtocol>,
+    dependencies: &BTreeMap<String, String>,
+    development_dependencies: &BTreeMap<String, String>,
     entries: &mut [OutdatedEntry],
 ) {
     let npm = RegistryProtocol::npm();
@@ -97,6 +107,19 @@ async fn enrich_with_latest(
 
         // Only registry-backed protocols carry a meaningful "latest".
         if protocol.name != "npm" && protocol.name != "jsr" {
+            continue;
+        }
+
+        // An aliased spec (`"foo": "npm:bar@^1"`) or other special
+        // protocol means `entry.name` is NOT the registry package name —
+        // fetching by it would report an unrelated package's latest.
+        let spec = dependencies
+            .get(&entry.name)
+            .or_else(|| development_dependencies.get(&entry.name));
+        if spec.is_some_and(|spec| {
+            crate::operations::install::manifest::is_special_protocol_spec(spec)
+                || spec.starts_with("file:")
+        }) {
             continue;
         }
 

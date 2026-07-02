@@ -43,9 +43,16 @@ pub(super) fn load_overrides(
             Some(resolved) => {
                 overrides.insert(name.clone(), resolved);
             }
-            None => crate::console::verbose(&format!(
-                "ignoring override for {name}: reference {raw} does not match a direct dependency"
-            )),
+            // npm hard-errors on an unresolvable $reference. Silently
+            // dropping it could quietly disable a security pin.
+            None => {
+                return Err(crate::SnpmError::ManifestInvalid {
+                    path: project.manifest_path.clone(),
+                    reason: format!(
+                        "override for {name} references {raw}, which does not match any direct dependency"
+                    ),
+                });
+            }
         }
     }
 
@@ -152,10 +159,10 @@ mod tests {
     }
 
     #[test]
-    fn dollar_reference_without_matching_dependency_is_dropped() {
+    fn dollar_reference_without_matching_dependency_is_an_error() {
         let project = project_with(serde_json::json!({ "foo": "$missing" }), &[]);
-        let overrides = load_overrides(&project, None).unwrap();
-        assert!(!overrides.contains_key("foo"));
+        let error = load_overrides(&project, None).unwrap_err();
+        assert!(error.to_string().contains("$missing"));
     }
 
     #[test]

@@ -180,14 +180,30 @@ async fn upgrade_to_latest(
     for name in target_names {
         // Skip deps snpm can't range-resolve (git/file/link/workspace/…):
         // rewriting them to a registry version would break the reference.
-        if current_spec(&manifest, &name).is_none_or(is_special_protocol_spec) {
+        if current_spec(&manifest, &name).is_none_or(is_registry_unresolvable_spec) {
             continue;
         }
 
         match crate::registry::fetch_package(config, &client, &name, &npm).await {
             Ok(package) => {
-                if let Some(latest) = package.dist_tags.get("latest") {
-                    changed |= update_manifest_entry(&mut manifest, &name, latest, production);
+                // Route the dist-tag through select_version so the
+                // configured minimum package age applies here too — writing
+                // a too-young version to the manifest would make the
+                // subsequent reinstall fail *after* the rewrite.
+                match crate::version::select_version(
+                    &name,
+                    "latest",
+                    &package,
+                    config.min_package_age_days,
+                    force,
+                ) {
+                    Ok(meta) => {
+                        changed |=
+                            update_manifest_entry(&mut manifest, &name, &meta.version, production);
+                    }
+                    Err(error) => {
+                        console::warn(&format!("skipping {name}: {error}"));
+                    }
                 }
             }
             Err(error) => {
@@ -238,6 +254,13 @@ fn current_spec<'a>(manifest: &'a crate::project::Manifest, name: &str) -> Optio
         .map(String::as_str)
 }
 
+/// Specs whose target isn't a plain registry range: special protocols
+/// (git/link/workspace/npm-alias/…) plus `file:`, which
+/// `is_special_protocol_spec` doesn't cover.
+fn is_registry_unresolvable_spec(spec: &str) -> bool {
+    is_special_protocol_spec(spec) || spec.starts_with("file:")
+}
+
 fn wanted_versions(entries: Vec<super::super::utils::OutdatedEntry>) -> BTreeMap<String, String> {
     let mut wanted_by_name = BTreeMap::new();
     for entry in entries {
@@ -270,6 +293,18 @@ fn update_manifest_entry(
     {
         let next = rewrite_spec_preserving_operator(current, wanted);
         console::info(&format!("updating {name} (dev) to {next}"));
+        *current = next;
+        updated = true;
+    }
+
+    // Optional deps install in production too, so they are not gated on
+    // the production flag.
+    if !updated
+        && let Some(current) = manifest.optional_dependencies.get_mut(name)
+        && !is_special_protocol_spec(current)
+    {
+        let next = rewrite_spec_preserving_operator(current, wanted);
+        console::info(&format!("updating {name} (optional) to {next}"));
         *current = next;
         updated = true;
     }

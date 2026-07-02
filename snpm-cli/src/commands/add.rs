@@ -15,6 +15,12 @@ pub struct AddArgs {
     /// Ignore cached state and force a full install
     #[arg(short = 'f', long = "force")]
     pub force: bool,
+    /// Save the exact resolved version instead of a range (npm's -E)
+    #[arg(short = 'E', long = "save-exact")]
+    pub save_exact: bool,
+    /// Range prefix to write for added deps (e.g. "^" or "~")
+    #[arg(long = "save-prefix", value_name = "PREFIX")]
+    pub save_prefix: Option<String>,
     /// Packages to add
     pub packages: Vec<String>,
     /// Target a specific workspace project by its package name
@@ -37,12 +43,29 @@ pub async fn run(args: AddArgs, config: &SnpmConfig) -> Result<()> {
         dev,
         global,
         force,
+        save_exact,
+        save_prefix,
         workspace,
         recursive,
         filter,
         filter_prod,
         packages,
     } = args;
+
+    // `-E` / `--save-prefix` override the resolved config for this run so
+    // the recorded range honors what the user asked for on the CLI.
+    let overridden_config;
+    let config = if save_exact || save_prefix.is_some() {
+        overridden_config = SnpmConfig {
+            save_exact: config.save_exact || save_exact,
+            save_prefix: save_prefix.unwrap_or_else(|| config.save_prefix.clone()),
+            ..config.clone()
+        };
+        &overridden_config
+    } else {
+        config
+    };
+
     let frozen_lockfile = super::frozen::resolve_frozen_lockfile_mode(config, None);
 
     if !global

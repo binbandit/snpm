@@ -113,6 +113,30 @@ pub(super) fn apply_install_env(
     }
 }
 
+pub(super) fn apply_save_env(save_exact: &mut bool, save_prefix: &mut String) {
+    if let Some(value) = read_config_env(
+        "save_exact",
+        &[
+            ConfigEnvPrefix::Snpm,
+            ConfigEnvPrefix::Pnpm,
+            ConfigEnvPrefix::Npm,
+        ],
+    ) {
+        *save_exact = env_flag_is_enabled(&value);
+    }
+
+    if let Some(value) = read_config_env(
+        "save_prefix",
+        &[
+            ConfigEnvPrefix::Snpm,
+            ConfigEnvPrefix::Pnpm,
+            ConfigEnvPrefix::Npm,
+        ],
+    ) {
+        *save_prefix = value.trim().to_string();
+    }
+}
+
 pub(super) fn read_logging_env() -> (bool, Option<PathBuf>) {
     let verbose = read_non_empty_env("SNPM_VERBOSE")
         .map(|value| env_flag_is_enabled(&value))

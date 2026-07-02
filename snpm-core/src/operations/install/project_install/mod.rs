@@ -74,6 +74,7 @@ pub async fn install(
         options.dev,
         plan.workspace.as_ref(),
         plan.catalog.as_ref(),
+        config.effective_save_prefix(),
     )?;
 
     let early_exit = matches!(resolved.scenario, InstallScenario::Hot);

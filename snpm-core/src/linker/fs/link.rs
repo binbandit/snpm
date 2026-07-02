@@ -274,6 +274,8 @@ mod tests {
             hoisting: HoistingMode::None,
             link_backend: LinkBackend::Copy,
             strict_peers: false,
+            save_exact: false,
+            save_prefix: "^".to_string(),
             frozen_lockfile_default: false,
             always_auth: false,
             registry_concurrency: 64,

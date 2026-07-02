@@ -34,6 +34,8 @@ fn authorization_header_uses_scoped_basic_auth() {
         hoisting: HoistingMode::SingleVersion,
         link_backend: LinkBackend::Auto,
         strict_peers: false,
+        save_exact: false,
+        save_prefix: "^".to_string(),
         frozen_lockfile_default: false,
         always_auth: false,
         registry_concurrency: 64,

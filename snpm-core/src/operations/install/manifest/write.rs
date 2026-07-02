@@ -10,6 +10,7 @@ pub fn write_manifest(
     dev: bool,
     workspace: Option<&Workspace>,
     catalog: Option<&CatalogConfig>,
+    save_prefix: &str,
 ) -> Result<()> {
     if additions.is_empty() {
         return Ok(());
@@ -30,6 +31,7 @@ pub fn write_manifest(
             &dep.resolved.version,
             workspace,
             catalog,
+            save_prefix,
         );
 
         // The package lands in exactly one section; drop it from the
@@ -59,6 +61,7 @@ fn manifest_spec_for_dependency(
     version: &str,
     workspace: Option<&Workspace>,
     catalog: Option<&CatalogConfig>,
+    save_prefix: &str,
 ) -> String {
     if let Some(selector) = catalog_selector(name, workspace, catalog) {
         return selector;
@@ -67,10 +70,11 @@ fn manifest_spec_for_dependency(
     // Preserve what the user asked for: `snpm add pkg@4.17.20` must pin
     // 4.17.20, `pkg@~1.2.0` must keep the tilde, and git/file/npm-alias
     // specs must survive verbatim. Only a bare `snpm add pkg` (parsed
-    // as "latest") defaults to caret-on-resolved-version.
+    // as "latest") applies the configured save prefix to the resolved
+    // version (caret by default, empty for `save-exact`).
     let requested = requested.trim();
     if requested.is_empty() || requested == "latest" || requested == "*" {
-        format!("^{version}")
+        format!("{save_prefix}{version}")
     } else {
         requested.to_string()
     }
@@ -104,4 +108,35 @@ fn find_catalog_selector(
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::manifest_spec_for_dependency;
+
+    #[test]
+    fn bare_add_uses_caret_prefix_by_default() {
+        let spec = manifest_spec_for_dependency("lodash", "latest", "4.17.21", None, None, "^");
+        assert_eq!(spec, "^4.17.21");
+    }
+
+    #[test]
+    fn bare_add_writes_exact_version_when_prefix_is_empty() {
+        // save-exact => empty prefix.
+        let spec = manifest_spec_for_dependency("lodash", "latest", "4.17.21", None, None, "");
+        assert_eq!(spec, "4.17.21");
+    }
+
+    #[test]
+    fn bare_add_honors_tilde_save_prefix() {
+        let spec = manifest_spec_for_dependency("lodash", "", "4.17.21", None, None, "~");
+        assert_eq!(spec, "~4.17.21");
+    }
+
+    #[test]
+    fn explicit_request_is_preserved_regardless_of_prefix() {
+        // An explicit spec must survive verbatim even under save-exact.
+        let spec = manifest_spec_for_dependency("lodash", "~1.2.0", "1.2.9", None, None, "");
+        assert_eq!(spec, "~1.2.0");
+    }
 }

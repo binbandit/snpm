@@ -60,6 +60,8 @@ fn populate_virtual_store_keeps_workspace_configured_root_packages_local() {
         hoisting: HoistingMode::SingleVersion,
         link_backend: LinkBackend::Auto,
         strict_peers: false,
+        save_exact: false,
+        save_prefix: "^".to_string(),
         frozen_lockfile_default: false,
         always_auth: false,
         registry_concurrency: 64,

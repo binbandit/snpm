@@ -23,6 +23,12 @@ pub struct SnpmConfig {
     pub hoisting: HoistingMode,
     pub link_backend: LinkBackend,
     pub strict_peers: bool,
+    /// Write an exact version (no range prefix) when `snpm add` records a
+    /// newly resolved dependency. Mirrors npm's `save-exact` / `-E`.
+    pub save_exact: bool,
+    /// The range prefix `snpm add` writes for a bare add (e.g. `^` or
+    /// `~`). Mirrors npm's `save-prefix`. Ignored when `save_exact`.
+    pub save_prefix: String,
     pub frozen_lockfile_default: bool,
     pub always_auth: bool,
     pub registry_concurrency: usize,
@@ -42,6 +48,19 @@ pub struct SnpmConfig {
     /// Useful for CI pipelines that should consume but not pollute a
     /// shared cache, or for staging-against-prod scenarios.
     pub remote_cache_read_only: bool,
+}
+
+impl SnpmConfig {
+    /// The range prefix `snpm add` should prepend to a newly resolved
+    /// version: empty when `save_exact` (pin the exact version), otherwise
+    /// the configured `save_prefix` (defaults to `^`).
+    pub fn effective_save_prefix(&self) -> &str {
+        if self.save_exact {
+            ""
+        } else {
+            &self.save_prefix
+        }
+    }
 }
 
 pub fn default_disable_global_virtual_store_for_packages() -> BTreeSet<String> {
@@ -74,6 +93,8 @@ impl SnpmConfig {
             hoisting: HoistingMode::SingleVersion,
             link_backend: LinkBackend::Auto,
             strict_peers: false,
+            save_exact: false,
+            save_prefix: "^".to_string(),
             frozen_lockfile_default: false,
             always_auth: false,
             registry_concurrency: 64,

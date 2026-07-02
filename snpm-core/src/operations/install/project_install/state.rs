@@ -29,7 +29,6 @@ pub(super) async fn resolve_install_state(
     project: &Project,
     plan: &ProjectInstallPlan,
     options: &InstallOptions,
-    registry_client: &reqwest::Client,
 ) -> Result<ResolvedInstall> {
     let planned_root_dependencies = if matches!(options.frozen_lockfile, FrozenLockfileMode::Fix) {
         pinned_root_dependencies_for_fix(plan, config)?
@@ -70,11 +69,33 @@ pub(super) async fn resolve_install_state(
     let mut store_paths = BTreeMap::new();
     let mut wrote_lockfile = false;
 
-    if let Some(seed_graph) = explicit_lockfile_seed.as_ref() {
-        validate_graph_min_package_age(config, registry_client, seed_graph, options.force).await?;
-    }
-    if let Some(graph) = graph.as_ref() {
-        validate_graph_min_package_age(config, registry_client, graph, options.force).await?;
+    // Building a reqwest client sets up rustls + a DNS resolver, which is
+    // a few milliseconds we don't want on the common Hot no-op that never
+    // touches the network. Create it only for scenarios that actually
+    // need it: an age check, or any non-Hot (cache/download/resolve) path.
+    let needs_network =
+        config.min_package_age_days.is_some() || !matches!(scenario, InstallScenario::Hot);
+    let registry_client = if needs_network {
+        Some(crate::http::create_client()?)
+    } else {
+        None
+    };
+    let client = || {
+        registry_client
+            .as_ref()
+            .expect("registry client is initialized for age-checks and non-hot installs")
+    };
+
+    // The age check only reaches the network when a minimum age is
+    // configured; skip it entirely otherwise so the Hot path never
+    // forces the client to exist.
+    if config.min_package_age_days.is_some() {
+        if let Some(seed_graph) = explicit_lockfile_seed.as_ref() {
+            validate_graph_min_package_age(config, client(), seed_graph, options.force).await?;
+        }
+        if let Some(graph) = graph.as_ref() {
+            validate_graph_min_package_age(config, client(), graph, options.force).await?;
+        }
     }
 
     let graph = match scenario {
@@ -113,8 +134,7 @@ pub(super) async fn resolve_install_state(
                 console::step("Downloading missing packages");
                 let materialize_start = Instant::now();
                 let downloaded =
-                    materialize_missing_packages(config, &cache_check.missing, registry_client)
-                        .await?;
+                    materialize_missing_packages(config, &cache_check.missing, client()).await?;
 
                 console::verbose(&format!(
                     "downloaded {} missing packages in {:.3}s",
@@ -132,7 +152,7 @@ pub(super) async fn resolve_install_state(
             let seed_graph = explicit_lockfile_seed.as_ref().or(graph.as_ref());
             let (graph, resolved_store_paths) = resolve_cold_install(
                 config,
-                registry_client,
+                client(),
                 plan,
                 &planned_root_dependencies,
                 options.force,

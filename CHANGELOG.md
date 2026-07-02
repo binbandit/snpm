@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.7.2] - 2026-07-02
+## [2026.7.3] - 2026-07-02
 
 ### <!-- 0 -->🚀 Features
 
@@ -56,6 +56,7 @@ All notable changes to this project will be documented in this file.
 - *(run)* Auto-switch active Node version for run/exec/lifecycle scripts ([e196af8](https://github.com/binbandit/snpm/commit/e196af848feb76ff14d7f2f89d9c6f66ed2500b2))
 - *(lockfile)* Import npm lockfile v1 by flattening nested tree ([8db0a25](https://github.com/binbandit/snpm/commit/8db0a25810c478a8576776b24b6dbc2a7003dec3))
 - *(lifecycle)* Add remote side-effects cache (S3/HTTP backend) ([2b92e47](https://github.com/binbandit/snpm/commit/2b92e47c17c8cdf7092c0467694c4d71f0a0facc))
+- Real global installs, peer-aware virtual store, node_modules convergence, and a working install fast path (#3) ([abe8770](https://github.com/binbandit/snpm/commit/abe8770b37f5336ce4bac1554d35c6c111d41fad))
 
 ### <!-- 1 -->🐛 Bug Fixes
 
@@ -445,7 +446,9 @@ All notable changes to this project will be documented in this file.
 - *(workspace)* Add `profiling` cargo profile ([3eac88e](https://github.com/binbandit/snpm/commit/3eac88e943c326b7588dd157e49d6e0fa68694ad))
 - *(release)* Bump version to 2026.5.26 [skip ci] ([08770cd](https://github.com/binbandit/snpm/commit/08770cd756ee8b6acd517f56e1663ef915380f23))
 - *(release)* Merge 2026.5.26 release [skip ci] ([26e00b5](https://github.com/binbandit/snpm/commit/26e00b553b888c2ba97097484d6ed8ae3f861623))
-- *(release)* Bump version to 2026.7.2 [skip ci] ([642bd15](https://github.com/binbandit/snpm/commit/642bd158c9d37bd0af4d36c84f9df8508c52de04))
+- *(release)* Bump version to 2026.7.2 [skip ci] ([a716f91](https://github.com/binbandit/snpm/commit/a716f914725af0ab29d856c450790730795db961))
+- *(release)* Merge 2026.7.2 release [skip ci] ([070e824](https://github.com/binbandit/snpm/commit/070e8246ea0e0adce15a8b5ef2bf645c135a7462))
+- *(release)* Bump version to 2026.7.3 [skip ci] ([1a2b7da](https://github.com/binbandit/snpm/commit/1a2b7da7c56fdc1e57fa2f36200ff3d4883c1224))
 
 ## [2025.12.24] - 2025-12-24
 

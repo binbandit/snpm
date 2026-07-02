@@ -14,15 +14,26 @@ pub fn insert_workspace_root_dep(
     let resolved_range = resolve_workspace_range(name, range, declaring_package_root)?;
 
     if let Some(existing) = combined.get(name) {
-        if let Some(merged) = merge_workspace_ranges(existing, &resolved_range) {
-            combined.insert(name.to_string(), merged);
-        } else {
-            return Err(SnpmError::WorkspaceConfig {
-                path: workspace_root.to_path_buf(),
-                reason: format!(
-                    "dependency {name} has conflicting ranges {existing} and {resolved_range} across workspace projects"
-                ),
-            });
+        match merge_workspace_ranges(existing, &resolved_range) {
+            Some(RangeMerge::Compatible(merged)) => {
+                combined.insert(name.to_string(), merged);
+            }
+            Some(RangeMerge::Exclusive(winner)) => {
+                crate::console::warn(&format!(
+                    "{name}: workspace projects declare mutually exclusive ranges \
+                     {existing} and {resolved_range}; the workspace root can only \
+                     hold one version, installing {winner}"
+                ));
+                combined.insert(name.to_string(), winner);
+            }
+            None => {
+                return Err(SnpmError::WorkspaceConfig {
+                    path: workspace_root.to_path_buf(),
+                    reason: format!(
+                        "dependency {name} has conflicting ranges {existing} and {resolved_range} across workspace projects"
+                    ),
+                });
+            }
         }
     } else {
         combined.insert(name.to_string(), resolved_range);
@@ -61,9 +72,18 @@ fn resolve_workspace_range(
     Ok(format!("file:{}", canonical.display()))
 }
 
-fn merge_workspace_ranges(existing: &str, incoming: &str) -> Option<String> {
+/// Outcome of merging two members' ranges for the same dependency.
+enum RangeMerge {
+    /// The ranges overlap; the merged range satisfies both members.
+    Compatible(String),
+    /// The ranges are mutually exclusive (e.g. ^1 vs ^2); the winner
+    /// violates one member's declared constraint.
+    Exclusive(String),
+}
+
+fn merge_workspace_ranges(existing: &str, incoming: &str) -> Option<RangeMerge> {
     if existing == incoming {
-        return Some(existing.to_string());
+        return Some(RangeMerge::Compatible(existing.to_string()));
     }
 
     if existing.starts_with("file:") || incoming.starts_with("file:") {
@@ -86,13 +106,19 @@ fn merge_workspace_ranges(existing: &str, incoming: &str) -> Option<String> {
         }
         (true, false) => incoming,
         (false, true) => existing,
-        // Mutually exclusive ranges (e.g. ^1 vs ^2). Picking a winner
-        // here would silently violate one member's declared constraint;
-        // surface the conflict to the user instead.
-        (false, false) => return None,
+        // Mutually exclusive ranges (e.g. ^1 vs ^2). The merged workspace
+        // root holds one version per name, so a winner must be picked;
+        // failing the install outright would make a common monorepo
+        // layout (two members on different majors) uninstallable. The
+        // caller warns so the violated member is visible.
+        (false, false) => {
+            let winner =
+                choose_more_specific(existing, incoming, &existing_floor_raw, &incoming_floor_raw);
+            return Some(RangeMerge::Exclusive(winner.to_string()));
+        }
     };
 
-    Some(merged.to_string())
+    Some(RangeMerge::Compatible(merged.to_string()))
 }
 
 fn range_floor(range: &str) -> Option<String> {

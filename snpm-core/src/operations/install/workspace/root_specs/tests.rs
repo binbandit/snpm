@@ -105,3 +105,30 @@ fn insert_workspace_root_dep_prefers_more_specific_compatible_range() {
         Some("^5.1.3")
     );
 }
+
+#[test]
+fn insert_workspace_root_dep_picks_winner_for_mutually_exclusive_ranges() {
+    // Two members on different majors is a normal monorepo layout; the
+    // install must proceed (with a warning) rather than hard-error.
+    let workspace = make_workspace_with_project("app", Some("1.0.0"));
+    let mut combined = BTreeMap::new();
+
+    insert_workspace_root_dep(
+        &mut combined,
+        &workspace.root,
+        &workspace.root.join("a"),
+        "lodash",
+        "^3.0.0",
+    )
+    .unwrap();
+    insert_workspace_root_dep(
+        &mut combined,
+        &workspace.root,
+        &workspace.root.join("b"),
+        "lodash",
+        "^4.0.0",
+    )
+    .unwrap();
+
+    assert_eq!(combined.get("lodash").map(String::as_str), Some("^4.0.0"));
+}

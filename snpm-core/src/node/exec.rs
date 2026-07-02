@@ -97,6 +97,37 @@ pub async fn ensure_active_for_project(
     }))
 }
 
+/// Make sure the project's pinned Node version is installed before a
+/// script/exec spawns, so the synchronous PATH construction can find
+/// it. Missing pinned versions are downloaded on demand as documented;
+/// `SNPM_NODE_AUTO_INSTALL=0` turns that into a hard error instead of
+/// silently running the system Node against the wrong pin.
+pub async fn prepare_node_for_project(config: &SnpmConfig, project_root: &Path) -> Result<()> {
+    if std::env::var(BIN_OVERRIDE_ENV).is_ok() || !auto_switch_enabled() {
+        return Ok(());
+    }
+
+    let Some(pin) = discover::discover_pinned(project_root)? else {
+        return Ok(());
+    };
+
+    // Satisfied by something already installed — nothing to download.
+    if match_pin_offline(config, &pin)?.is_some() {
+        return Ok(());
+    }
+
+    match ensure_active_for_project(config, project_root).await? {
+        Some(_) => Ok(()),
+        None => Err(crate::SnpmError::Internal {
+            reason: format!(
+                "Node {} is pinned by this project but not installed, and auto-install \
+                 is disabled (SNPM_NODE_AUTO_INSTALL=0). Run `snpm node install {}` first.",
+                pin.spec, pin.spec
+            ),
+        }),
+    }
+}
+
 pub async fn ensure_installed_for_spec(
     config: &SnpmConfig,
     spec: &str,

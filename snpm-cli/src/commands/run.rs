@@ -50,6 +50,8 @@ pub async fn run(args: RunArgs, config: &SnpmConfig) -> Result<()> {
             .await?;
         }
 
+        snpm_core::node::exec::prepare_node_for_project(config, &workspace.root).await?;
+
         operations::run_workspace_scripts(
             &workspace,
             &args.script,
@@ -69,6 +71,8 @@ pub async fn run(args: RunArgs, config: &SnpmConfig) -> Result<()> {
             )
             .await?;
         }
+
+        snpm_core::node::exec::prepare_node_for_project(config, &project.root).await?;
 
         operations::run_script(&project, &args.script, &args.args)?;
     }

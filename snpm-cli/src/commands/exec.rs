@@ -59,6 +59,8 @@ pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
             .await?;
         }
 
+        snpm_core::node::exec::prepare_node_for_project(config, &workspace.root).await?;
+
         operations::exec_workspace_command(&workspace, &options, &args.filter, &args.filter_prod)?;
     } else {
         let mut project = Project::discover(&cwd)?;
@@ -72,6 +74,8 @@ pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
             )
             .await?;
         }
+
+        snpm_core::node::exec::prepare_node_for_project(config, &project.root).await?;
 
         operations::exec_command(&project, &options)?;
     }

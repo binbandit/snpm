@@ -3,6 +3,18 @@ use super::process::{build_path, join_args, make_command};
 use crate::{Project, Result, SnpmError, Workspace, console};
 
 pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()> {
+    run_script_with_node(project, script, args, None)
+}
+
+/// Like [`run_script`], but with an explicit Node `bin/` directory to
+/// prepend to PATH (used by `snpm node run`). Passing it as a parameter
+/// avoids mutating process-wide env vars from a multi-threaded runtime.
+pub fn run_script_with_node(
+    project: &Project,
+    script: &str,
+    args: &[String],
+    node_bin_dir: Option<&std::path::Path>,
+) -> Result<()> {
     let scripts = &project.manifest.scripts;
 
     if !scripts.contains_key(script) {
@@ -13,14 +25,14 @@ pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()
 
     let pre_name = format!("pre{}", script);
     if scripts.contains_key(&pre_name) {
-        run_single_script(project, &pre_name, &[])?;
+        run_single_script(project, &pre_name, &[], node_bin_dir)?;
     }
 
-    run_single_script(project, script, args)?;
+    run_single_script(project, script, args, node_bin_dir)?;
 
     let post_name = format!("post{}", script);
     if scripts.contains_key(&post_name) {
-        run_single_script(project, &post_name, &[])?;
+        run_single_script(project, &post_name, &[], node_bin_dir)?;
     }
 
     Ok(())
@@ -72,7 +84,12 @@ pub fn run_workspace_scripts(
     Ok(())
 }
 
-fn run_single_script(project: &Project, script: &str, args: &[String]) -> Result<()> {
+fn run_single_script(
+    project: &Project,
+    script: &str,
+    args: &[String],
+    node_bin_dir: Option<&std::path::Path>,
+) -> Result<()> {
     let scripts = &project.manifest.scripts;
     let base = scripts
         .get(script)
@@ -96,7 +113,7 @@ fn run_single_script(project: &Project, script: &str, args: &[String]) -> Result
     command.current_dir(&project.root);
 
     let bin_dir = project.root.join("node_modules").join(".bin");
-    let path_value = build_path(bin_dir, script, &project.root)?;
+    let path_value = build_path(bin_dir, script, &project.root, node_bin_dir)?;
     command.env("PATH", path_value);
 
     let status = command.status().map_err(|error| SnpmError::ScriptRun {

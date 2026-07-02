@@ -417,16 +417,22 @@ pub(super) fn populate_virtual_store(
 }
 
 /// Resolve every package's REQUIRED peer dependencies to a concrete
-/// graph package. A package appears in the result only when *all* of its
-/// required peers resolve to exactly one satisfying version in the graph;
-/// packages with a missing peer, or an ambiguous peer (two installed
-/// versions both satisfy the range), are omitted so they stay
-/// project-local, where the peer resolves through the project root.
+/// graph package, deterministically. A package appears in the result
+/// only when *all* of its required peers have at least one satisfying
+/// version in the graph; a package with a genuinely missing peer is
+/// omitted and stays project-local (we can't wire a peer that doesn't
+/// exist).
 ///
-/// This is what makes a peer-having package safe to share globally: with
-/// the peer identity known we can wire it into the entry's own
-/// node_modules and fold it into the entry hash, so `react-dom + react@18`
-/// and `react-dom + react@17` get distinct shared entries.
+/// When more than one installed version satisfies a peer range, we pick
+/// the dominant provider — the version the project root depends on if it
+/// satisfies, else the highest satisfying version. That is the same
+/// version Node's upward walk would bind under the hoisted layout, so
+/// the outcome is identical to the old project-local fallback but the
+/// package can now be shared: the chosen peer is wired into the entry's
+/// own node_modules and folded into the entry hash, so `react-dom +
+/// react@18` and `react-dom + react@17` still get distinct shared
+/// entries. (Fully distinct per-consumer bindings would require node
+/// duplication; that is a separate change.)
 pub(crate) fn resolve_unique_peers(
     graph: &ResolutionGraph,
 ) -> BTreeMap<PackageId, BTreeMap<String, PackageId>> {
@@ -442,42 +448,70 @@ pub(crate) fn resolve_unique_peers(
         }
 
         let mut peer_map = BTreeMap::new();
-        let mut all_unique = true;
+        let mut all_satisfied = true;
         for (peer_name, peer_range) in &package.peer_dependencies {
             let Ok(range) = crate::version::parse_range_set(peer_name, peer_range) else {
-                all_unique = false;
+                all_satisfied = false;
                 break;
             };
-            let mut matches = ids_by_name
-                .get(peer_name.as_str())
-                .into_iter()
-                .flatten()
-                .filter(|candidate| {
-                    snpm_semver::parse_version(&candidate.version)
-                        .map(|version| range.matches(&version))
-                        .unwrap_or(false)
-                });
-
-            match (matches.next(), matches.next()) {
-                (Some(single), None) => {
-                    peer_map.insert(peer_name.clone(), (*single).clone());
+            match select_dominant_peer(peer_name, &range, &ids_by_name, graph) {
+                Some(peer_id) => {
+                    peer_map.insert(peer_name.clone(), peer_id);
                 }
-                _ => {
-                    // Zero satisfying (missing) or more than one
-                    // (ambiguous without per-consumer duplication): keep
-                    // the package project-local.
-                    all_unique = false;
+                None => {
+                    all_satisfied = false;
                     break;
                 }
             }
         }
 
-        if all_unique && !peer_map.is_empty() {
+        if all_satisfied && !peer_map.is_empty() {
             resolved.insert(id.clone(), peer_map);
         }
     }
 
     resolved
+}
+
+/// Pick the concrete peer version for `peer_name` under `range`: the
+/// root-declared version if it satisfies, otherwise the highest
+/// satisfying installed version. `None` when nothing satisfies.
+fn select_dominant_peer(
+    peer_name: &str,
+    range: &snpm_semver::RangeSet,
+    ids_by_name: &BTreeMap<&str, Vec<&PackageId>>,
+    graph: &ResolutionGraph,
+) -> Option<PackageId> {
+    let satisfies = |id: &PackageId| {
+        snpm_semver::parse_version(&id.version)
+            .map(|version| range.matches(&version))
+            .unwrap_or(false)
+    };
+
+    // The root's choice dominates — it is what gets hoisted to the
+    // project root and therefore what Node's upward walk would bind.
+    if let Some(root_dep) = graph.root.dependencies.get(peer_name)
+        && root_dep.resolved.name == peer_name
+        && satisfies(&root_dep.resolved)
+    {
+        return Some(root_dep.resolved.clone());
+    }
+
+    ids_by_name
+        .get(peer_name)
+        .into_iter()
+        .flatten()
+        .filter(|candidate| satisfies(candidate))
+        .max_by(|left, right| {
+            match (
+                snpm_semver::parse_version(&left.version),
+                snpm_semver::parse_version(&right.version),
+            ) {
+                (Ok(left_version), Ok(right_version)) => left_version.cmp(&right_version),
+                _ => left.version.cmp(&right.version),
+            }
+        })
+        .map(|id| (*id).clone())
 }
 
 pub(crate) fn local_global_virtual_store_package_ids(
@@ -1425,18 +1459,57 @@ mod tests {
     }
 
     #[test]
-    fn package_with_ambiguous_peer_stays_project_local() {
-        // Two react versions both satisfy the range: without per-consumer
-        // duplication the peer is ambiguous, so fall back to project-local.
+    fn package_with_multiple_satisfying_peers_picks_highest_and_shares() {
+        // Two react versions satisfy the range and neither is a root dep:
+        // pick the highest (18.2.0) deterministically and share the entry
+        // — the same version the hoisted layout would bind.
         let dir = tempdir().unwrap();
         let config = make_config(dir.path().join("data"));
         let (graph, react_dom_id) = make_peer_graph("^18.0.0", &["18.1.0", "18.2.0"]);
 
-        assert!(!resolve_unique_peers(&graph).contains_key(&react_dom_id));
+        let resolved = resolve_unique_peers(&graph);
+        assert_eq!(
+            resolved.get(&react_dom_id).and_then(|p| p.get("react")),
+            Some(&PackageId {
+                name: "react".to_string(),
+                version: "18.2.0".to_string()
+            })
+        );
 
         let project = make_project(dir.path().join("project"));
         let local_ids = local_global_virtual_store_package_ids(&config, None, &[&project], &graph);
-        assert!(local_ids.contains(&react_dom_id));
+        assert!(
+            !local_ids.contains(&react_dom_id),
+            "a resolvable peer (dominant pick) should let the package share"
+        );
+    }
+
+    #[test]
+    fn peer_resolution_prefers_root_declared_version() {
+        // react@17 and react@18 both satisfy react-dom's `*` peer, but the
+        // root depends on react@17 — the root's choice must win over the
+        // highest version.
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let (mut graph, react_dom_id) = make_peer_graph("*", &["17.0.2", "18.2.0"]);
+        let react_17 = PackageId {
+            name: "react".to_string(),
+            version: "17.0.2".to_string(),
+        };
+        graph.root.dependencies.insert(
+            "react".to_string(),
+            RootDependency {
+                requested: "^17.0.0".to_string(),
+                resolved: react_17.clone(),
+            },
+        );
+
+        let resolved = resolve_unique_peers(&graph);
+        assert_eq!(
+            resolved.get(&react_dom_id).and_then(|p| p.get("react")),
+            Some(&react_17)
+        );
+        let _ = config;
     }
 
     #[cfg(unix)]

@@ -43,6 +43,15 @@ pub fn link_dir(config: &SnpmConfig, source: &Path, dest: &Path) -> Result<()> {
         .try_for_each(|(from, to)| link_file(config, from, to))
 }
 
+// Only compiled where it has callers: the Apple-only clone fast path
+// below and the gating unit test.
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    test
+))]
 fn should_try_clone_store_package_dir(config: &SnpmConfig, source: &Path) -> bool {
     matches!(
         config.link_backend,

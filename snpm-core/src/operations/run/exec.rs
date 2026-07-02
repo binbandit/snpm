@@ -1,6 +1,6 @@
 use super::filters::{format_filters, project_label, select_workspace_projects};
 use super::process::{build_path, join_args, make_command, make_direct_command};
-use crate::{Project, Result, SnpmError, Workspace, console};
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, console};
 
 pub struct ExecOptions<'a> {
     pub command: &'a str,
@@ -46,9 +46,10 @@ pub fn exec_command(project: &Project, options: &ExecOptions) -> Result<()> {
     }
 }
 
-pub fn exec_workspace_command(
+pub async fn exec_workspace_command(
+    config: &SnpmConfig,
     workspace: &Workspace,
-    options: &ExecOptions,
+    options: &ExecOptions<'_>,
     filters: &[String],
     filter_prods: &[String],
 ) -> Result<()> {
@@ -72,6 +73,9 @@ pub fn exec_workspace_command(
         let name = project_label(project);
 
         println!("\n{}", name);
+        // Members may pin their own Node; install missing pins before
+        // the sync PATH construction resolves them offline.
+        crate::node::exec::prepare_node_for_project(config, &project.root).await?;
         exec_command(project, options)?;
     }
 

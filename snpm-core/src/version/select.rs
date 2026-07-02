@@ -88,9 +88,47 @@ pub fn select_version(
         Err(SnpmError::ResolutionFailed {
             name: name.to_string(),
             range: range.to_string(),
-            reason: "Version not found matching range".to_string(),
+            reason: format!(
+                "no published version matches this range. {}",
+                available_versions_hint(package)
+            ),
         })
     }
+}
+
+/// A short hint listing the newest available versions, so a failed
+/// resolve tells the user what they *could* pick instead of a bare
+/// "not found".
+fn available_versions_hint(package: &RegistryPackage) -> String {
+    let mut versions: Vec<Version> = package
+        .versions
+        .keys()
+        .filter_map(|version| parse_version(version).ok())
+        .collect();
+
+    if versions.is_empty() {
+        return "The package has no published versions.".to_string();
+    }
+
+    versions.sort();
+    versions.reverse();
+    let shown: Vec<String> = versions.iter().take(5).map(|v| v.to_string()).collect();
+    let latest_tag = package
+        .dist_tags
+        .get("latest")
+        .map(|latest| format!(" (latest: {latest})"))
+        .unwrap_or_default();
+
+    format!(
+        "Available versions include: {}{}{}.",
+        shown.join(", "),
+        if versions.len() > shown.len() {
+            format!(", … ({} total)", versions.len())
+        } else {
+            String::new()
+        },
+        latest_tag
+    )
 }
 
 pub(crate) fn version_age_days(

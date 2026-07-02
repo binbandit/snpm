@@ -60,6 +60,7 @@ async fn run() -> Result<()> {
 
     match command {
         Command::Install(args) => commands::install::run(args, &config).await?,
+        Command::Ci(args) => commands::ci::run(args, &config).await?,
         Command::Add(args) => commands::add::run(args, &config).await?,
         Command::Remove(args) => commands::remove::run(args, &config).await?,
         Command::Run(args) => commands::run::run(args, &config).await?,

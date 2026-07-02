@@ -37,6 +37,8 @@ pub struct Cli {
 pub enum Command {
     /// Install dependencies for a project or workspace
     Install(commands::install::InstallArgs),
+    /// Clean, reproducible install from the lockfile (like `npm ci`)
+    Ci(commands::ci::CiArgs),
     /// Add packages to dependencies (or devDependencies with -D)
     Add(commands::add::AddArgs),
     /// Remove packages from dependencies

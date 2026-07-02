@@ -4,9 +4,12 @@ mod results;
 
 use crate::console;
 use crate::http;
+use crate::registry::RegistryProtocol;
 use crate::resolve;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 
+use reqwest::Client;
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use config::{load_catalog, load_overrides};
@@ -65,11 +68,44 @@ pub async fn outdated(
     ));
 
     let current_versions = read_current_versions(project, workspace.as_ref())?;
-    Ok(build_outdated_entries(
+    let mut entries = build_outdated_entries(
         include_dev,
         &resolved_manifest.dependencies,
         &resolved_manifest.development_dependencies,
         &current_versions,
         &graph.root.dependencies,
-    ))
+    );
+
+    enrich_with_latest(config, &registry_client, &root_protocols, &mut entries).await;
+
+    Ok(entries)
+}
+
+/// Fill in each entry's `latest` (the registry `latest` dist-tag) so the
+/// report can show upgrades beyond the manifest range. resolve already
+/// warmed the metadata cache, so these lookups are typically cache hits;
+/// failures and non-registry protocols leave `latest` as `None`.
+async fn enrich_with_latest(
+    config: &SnpmConfig,
+    client: &Client,
+    root_protocols: &BTreeMap<String, RegistryProtocol>,
+    entries: &mut [OutdatedEntry],
+) {
+    let npm = RegistryProtocol::npm();
+    for entry in entries.iter_mut() {
+        let protocol = root_protocols.get(&entry.name).unwrap_or(&npm);
+
+        // Only registry-backed protocols carry a meaningful "latest".
+        if protocol.name != "npm" && protocol.name != "jsr" {
+            continue;
+        }
+
+        match crate::registry::fetch_package(config, client, &entry.name, protocol).await {
+            Ok(package) => entry.latest = package.dist_tags.get("latest").cloned(),
+            Err(error) => console::verbose(&format!(
+                "outdated: failed to fetch latest for {}: {error}",
+                entry.name
+            )),
+        }
+    }
 }

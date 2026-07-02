@@ -56,6 +56,7 @@ pub(super) fn build_outdated_entries(
             name,
             current,
             wanted,
+            latest: None,
         });
     }
 

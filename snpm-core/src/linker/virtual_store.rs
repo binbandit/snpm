@@ -42,6 +42,7 @@ pub(crate) fn populate_shared_virtual_store_for_packages(
     })?;
 
     let entry_hashes = global_virtual_store_entry_hashes(graph);
+    let resolved_peers = resolve_unique_peers(graph);
 
     // Pre-compute every shared package's final path. Locations are
     // deterministic from (id, entry_hash); doing this once up front lets
@@ -79,7 +80,8 @@ pub(crate) fn populate_shared_virtual_store_for_packages(
                     name: id.name.clone(),
                     version: id.version.clone(),
                 })?;
-            wire_dep_symlinks_into(package_location, id, package, &shared_paths)
+            let peers = resolved_peers.get(*id);
+            wire_dep_symlinks_into(package_location, id, package, peers, &shared_paths)
         })
         .collect();
 
@@ -169,14 +171,24 @@ fn wire_dep_symlinks_into(
     package_location: &Path,
     id: &PackageId,
     package: &crate::resolve::ResolvedPackage,
+    peers: Option<&BTreeMap<String, PackageId>>,
     dep_locations: &BTreeMap<PackageId, PathBuf>,
 ) -> Result<()> {
-    if package.dependencies.is_empty() {
+    // Resolved peers are wired alongside the package's own dependencies so
+    // that a shared entry is self-contained: Node finds the peer inside
+    // the entry's node_modules without walking up out of the store.
+    let wired: BTreeMap<&String, &PackageId> = package
+        .dependencies
+        .iter()
+        .chain(peers.into_iter().flatten())
+        .collect();
+
+    if wired.is_empty() {
         remove_dependency_state(package_location, &id.name);
         return Ok(());
     }
 
-    let dependency_hash = dependency_state_hash(package, dep_locations)?;
+    let dependency_hash = dependency_state_hash(&wired, dep_locations)?;
     if dependency_state_matches(package_location, &id.name, &dependency_hash) {
         return Ok(());
     }
@@ -189,9 +201,9 @@ fn wire_dep_symlinks_into(
             }
         })?;
 
-    for (dep_name, dep_id) in &package.dependencies {
+    for (dep_name, dep_id) in &wired {
         let dep_target = dep_locations
-            .get(dep_id)
+            .get(*dep_id)
             .ok_or_else(|| SnpmError::GraphMissing {
                 name: dep_id.name.clone(),
                 version: dep_id.version.clone(),
@@ -380,7 +392,10 @@ pub(super) fn populate_virtual_store(
                         name: id.name.clone(),
                         version: id.version.clone(),
                     })?;
-                wire_dep_symlinks_into(package_location, id, package, &project_paths)?;
+                // Project-local packages keep peers unwired: an ambiguous
+                // or unresolved peer is reached through the project root
+                // node_modules by Node's normal upward walk.
+                wire_dep_symlinks_into(package_location, id, package, None, &project_paths)?;
             }
 
             Ok(())
@@ -401,6 +416,70 @@ pub(super) fn populate_virtual_store(
     Ok(project_paths)
 }
 
+/// Resolve every package's REQUIRED peer dependencies to a concrete
+/// graph package. A package appears in the result only when *all* of its
+/// required peers resolve to exactly one satisfying version in the graph;
+/// packages with a missing peer, or an ambiguous peer (two installed
+/// versions both satisfy the range), are omitted so they stay
+/// project-local, where the peer resolves through the project root.
+///
+/// This is what makes a peer-having package safe to share globally: with
+/// the peer identity known we can wire it into the entry's own
+/// node_modules and fold it into the entry hash, so `react-dom + react@18`
+/// and `react-dom + react@17` get distinct shared entries.
+pub(crate) fn resolve_unique_peers(
+    graph: &ResolutionGraph,
+) -> BTreeMap<PackageId, BTreeMap<String, PackageId>> {
+    let mut ids_by_name: BTreeMap<&str, Vec<&PackageId>> = BTreeMap::new();
+    for id in graph.packages.keys() {
+        ids_by_name.entry(id.name.as_str()).or_default().push(id);
+    }
+
+    let mut resolved = BTreeMap::new();
+    for (id, package) in &graph.packages {
+        if package.peer_dependencies.is_empty() {
+            continue;
+        }
+
+        let mut peer_map = BTreeMap::new();
+        let mut all_unique = true;
+        for (peer_name, peer_range) in &package.peer_dependencies {
+            let Ok(range) = crate::version::parse_range_set(peer_name, peer_range) else {
+                all_unique = false;
+                break;
+            };
+            let mut matches = ids_by_name
+                .get(peer_name.as_str())
+                .into_iter()
+                .flatten()
+                .filter(|candidate| {
+                    snpm_semver::parse_version(&candidate.version)
+                        .map(|version| range.matches(&version))
+                        .unwrap_or(false)
+                });
+
+            match (matches.next(), matches.next()) {
+                (Some(single), None) => {
+                    peer_map.insert(peer_name.clone(), (*single).clone());
+                }
+                _ => {
+                    // Zero satisfying (missing) or more than one
+                    // (ambiguous without per-consumer duplication): keep
+                    // the package project-local.
+                    all_unique = false;
+                    break;
+                }
+            }
+        }
+
+        if all_unique && !peer_map.is_empty() {
+            resolved.insert(id.clone(), peer_map);
+        }
+    }
+
+    resolved
+}
+
 pub(crate) fn local_global_virtual_store_package_ids(
     config: &SnpmConfig,
     workspace: Option<&Workspace>,
@@ -408,10 +487,18 @@ pub(crate) fn local_global_virtual_store_package_ids(
     graph: &ResolutionGraph,
 ) -> BTreeSet<PackageId> {
     let patched_package_ids = patched_package_ids(projects);
+    let resolved_peers = resolve_unique_peers(graph);
     let mut local = BTreeSet::new();
 
     for (id, package) in &graph.packages {
-        if package_is_project_local(config, workspace, &patched_package_ids, id, package) {
+        if package_is_project_local(
+            config,
+            workspace,
+            &patched_package_ids,
+            &resolved_peers,
+            id,
+            package,
+        ) {
             local.insert(id.clone());
         }
     }
@@ -423,11 +510,18 @@ pub(crate) fn local_global_virtual_store_package_ids(
             if local.contains(id) {
                 continue;
             }
-            if package
+            let dep_local = package
                 .dependencies
                 .values()
-                .any(|dep_id| local.contains(dep_id))
-            {
+                .any(|dep_id| local.contains(dep_id));
+            // A package whose resolved peer is itself project-local must
+            // also be local: the shared entry would otherwise point its
+            // wired peer symlink at a project-specific path.
+            let peer_local = resolved_peers
+                .get(id)
+                .map(|peers| peers.values().any(|peer_id| local.contains(peer_id)))
+                .unwrap_or(false);
+            if dep_local || peer_local {
                 local.insert(id.clone());
                 changed = true;
             }
@@ -476,6 +570,7 @@ fn package_is_project_local(
     config: &SnpmConfig,
     workspace: Option<&Workspace>,
     patched_package_ids: &BTreeSet<PackageId>,
+    resolved_peers: &BTreeMap<PackageId, BTreeMap<String, PackageId>>,
     id: &PackageId,
     package: &ResolvedPackage,
 ) -> bool {
@@ -486,12 +581,12 @@ fn package_is_project_local(
         // Packages with required peer dependencies resolve those peers
         // from *above* their own subtree at runtime. Inside the shared
         // global store there is nothing above the entry — Node's upward
-        // walk dead-ends in <data>/virtual-store — so peers like
-        // react-dom's `react` become Cannot-find-module at runtime.
-        // Materializing them project-locally keeps the peer reachable
-        // via the project's root node_modules, matching the per-project
-        // layout's behavior.
-        || !package.peer_dependencies.is_empty()
+        // walk dead-ends in <data>/virtual-store. A package is only safe
+        // to share when every required peer resolved to a unique version
+        // (then it is wired into the entry's own node_modules and folded
+        // into the entry hash); otherwise keep it project-local so the
+        // peer resolves through the project root.
+        || (!package.peer_dependencies.is_empty() && !resolved_peers.contains_key(id))
 }
 
 fn package_has_project_local_source(package: &ResolvedPackage) -> bool {
@@ -554,6 +649,7 @@ pub(crate) fn link_selected_virtual_dependencies(
         })
         .collect::<Result<Vec<_>>>()?;
 
+    let resolved_peers = resolve_unique_peers(graph);
     packages
         .par_iter()
         .try_for_each(|(id, package)| -> Result<()> {
@@ -564,7 +660,8 @@ pub(crate) fn link_selected_virtual_dependencies(
                         name: id.name.clone(),
                         version: id.version.clone(),
                     })?;
-            wire_dep_symlinks_into(package_location, id, package, virtual_store_paths)
+            let peers = resolved_peers.get(*id);
+            wire_dep_symlinks_into(package_location, id, package, peers, virtual_store_paths)
         })?;
 
     let ids: Vec<PackageId> = package_ids.iter().cloned().collect();
@@ -613,9 +710,16 @@ fn hashed_virtual_package_location(
 fn global_virtual_store_entry_hashes(graph: &ResolutionGraph) -> BTreeMap<PackageId, String> {
     let mut hashes = BTreeMap::new();
     let mut visiting = BTreeSet::new();
+    let resolved_peers = resolve_unique_peers(graph);
 
     for id in graph.packages.keys() {
-        compute_global_virtual_store_entry_hash(id, graph, &mut hashes, &mut visiting);
+        compute_global_virtual_store_entry_hash(
+            id,
+            graph,
+            &resolved_peers,
+            &mut hashes,
+            &mut visiting,
+        );
     }
 
     hashes
@@ -624,6 +728,7 @@ fn global_virtual_store_entry_hashes(graph: &ResolutionGraph) -> BTreeMap<Packag
 fn compute_global_virtual_store_entry_hash(
     id: &PackageId,
     graph: &ResolutionGraph,
+    resolved_peers: &BTreeMap<PackageId, BTreeMap<String, PackageId>>,
     hashes: &mut BTreeMap<PackageId, String>,
     visiting: &mut BTreeSet<PackageId>,
 ) -> String {
@@ -632,7 +737,7 @@ fn compute_global_virtual_store_entry_hash(
     }
 
     let mut hasher = Sha256::new();
-    hasher.update(b"snpm-global-virtual-store-v1");
+    hasher.update(b"snpm-global-virtual-store-v2");
     hash_package_id(&mut hasher, id);
 
     if !visiting.insert(id.clone()) {
@@ -653,9 +758,35 @@ fn compute_global_virtual_store_entry_hash(
             hasher.update(dep_name.as_bytes());
             hasher.update([0]);
             hash_package_id(&mut hasher, dep_id);
-            let dep_hash = compute_global_virtual_store_entry_hash(dep_id, graph, hashes, visiting);
+            let dep_hash = compute_global_virtual_store_entry_hash(
+                dep_id,
+                graph,
+                resolved_peers,
+                hashes,
+                visiting,
+            );
             hasher.update(dep_hash.as_bytes());
             hasher.update([0]);
+        }
+
+        // Fold resolved peers into the entry identity so the same package
+        // used with different peer versions gets distinct shared entries.
+        if let Some(peers) = resolved_peers.get(id) {
+            for (peer_name, peer_id) in peers {
+                hasher.update(b"peer\0");
+                hasher.update(peer_name.as_bytes());
+                hasher.update([0]);
+                hash_package_id(&mut hasher, peer_id);
+                let peer_hash = compute_global_virtual_store_entry_hash(
+                    peer_id,
+                    graph,
+                    resolved_peers,
+                    hashes,
+                    visiting,
+                );
+                hasher.update(peer_hash.as_bytes());
+                hasher.update([0]);
+            }
         }
     }
 
@@ -702,15 +833,15 @@ fn virtual_package_ready(package_location: &Path) -> bool {
 }
 
 fn dependency_state_hash(
-    package: &crate::resolve::ResolvedPackage,
+    wired: &BTreeMap<&String, &PackageId>,
     virtual_store_paths: &BTreeMap<PackageId, PathBuf>,
 ) -> Result<String> {
     let mut hasher = Sha256::new();
 
-    for (dep_name, dep_id) in &package.dependencies {
+    for (dep_name, dep_id) in wired {
         let dep_target =
             virtual_store_paths
-                .get(dep_id)
+                .get(*dep_id)
                 .ok_or_else(|| SnpmError::GraphMissing {
                     name: dep_id.name.clone(),
                     version: dep_id.version.clone(),
@@ -838,6 +969,7 @@ mod tests {
     use super::{
         dependency_state_hash, dependency_state_matches, dependency_state_path,
         link_virtual_dependencies, local_global_virtual_store_package_ids, populate_virtual_store,
+        resolve_unique_peers,
     };
     use crate::Project;
     use crate::Workspace;
@@ -1214,36 +1346,97 @@ mod tests {
         assert!(local_ids.contains(&root_id));
     }
 
-    #[test]
-    fn packages_with_required_peers_are_materialized_project_locally() {
-        // Regression: a package with a required peer (react-dom -> react)
-        // must never live in the shared global store. Node resolves peers
-        // by walking up from the entry, and above a shared entry there is
-        // only <data>/virtual-store — so the peer would be unreachable and
-        // the install, though "successful", produces a node_modules that
-        // fails at runtime with Cannot-find-module.
-        let dir = tempdir().unwrap();
-        let config = make_config(dir.path().join("data"));
-
-        let peer_pkg_id = PackageId {
+    // Build a graph: react-dom (peer: react @ `react_range`) plus the
+    // given concrete react versions as sibling packages.
+    fn make_peer_graph(react_range: &str, react_versions: &[&str]) -> (ResolutionGraph, PackageId) {
+        let react_dom_id = PackageId {
             name: "react-dom".to_string(),
             version: "18.2.0".to_string(),
         };
-        let mut graph = make_graph(&peer_pkg_id);
+        let mut graph = make_graph(&react_dom_id);
         graph
             .packages
-            .get_mut(&peer_pkg_id)
+            .get_mut(&react_dom_id)
             .unwrap()
             .peer_dependencies
-            .insert("react".to_string(), "^18.0.0".to_string());
+            .insert("react".to_string(), react_range.to_string());
+
+        for version in react_versions {
+            let react_id = PackageId {
+                name: "react".to_string(),
+                version: (*version).to_string(),
+            };
+            graph.packages.insert(
+                react_id.clone(),
+                ResolvedPackage {
+                    id: react_id,
+                    tarball: String::new(),
+                    integrity: None,
+                    dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
+                    bundled_dependencies: None,
+                    has_bin: false,
+                    bin: None,
+                },
+            );
+        }
+        (graph, react_dom_id)
+    }
+
+    #[test]
+    fn package_with_missing_peer_stays_project_local() {
+        // No react in the graph: the peer can't be resolved, so react-dom
+        // must stay project-local (Node reaches the eventual react via the
+        // project root, not the shared store).
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let (graph, react_dom_id) = make_peer_graph("^18.0.0", &[]);
 
         let project = make_project(dir.path().join("project"));
         let local_ids = local_global_virtual_store_package_ids(&config, None, &[&project], &graph);
 
-        assert!(
-            local_ids.contains(&peer_pkg_id),
-            "a package with a required peer must be project-local, not shared"
+        assert!(local_ids.contains(&react_dom_id));
+    }
+
+    #[test]
+    fn package_with_uniquely_resolved_peer_is_shared() {
+        // Exactly one react satisfies the peer range: react-dom's peer is
+        // wired into its entry and folded into the entry hash, so it is
+        // safe to share globally.
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let (graph, react_dom_id) = make_peer_graph("^18.0.0", &["18.2.0"]);
+
+        let resolved = resolve_unique_peers(&graph);
+        assert_eq!(
+            resolved.get(&react_dom_id).and_then(|p| p.get("react")),
+            Some(&PackageId {
+                name: "react".to_string(),
+                version: "18.2.0".to_string()
+            })
         );
+
+        let project = make_project(dir.path().join("project"));
+        let local_ids = local_global_virtual_store_package_ids(&config, None, &[&project], &graph);
+        assert!(
+            !local_ids.contains(&react_dom_id),
+            "a package whose peer resolves uniquely should be shareable"
+        );
+    }
+
+    #[test]
+    fn package_with_ambiguous_peer_stays_project_local() {
+        // Two react versions both satisfy the range: without per-consumer
+        // duplication the peer is ambiguous, so fall back to project-local.
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+        let (graph, react_dom_id) = make_peer_graph("^18.0.0", &["18.1.0", "18.2.0"]);
+
+        assert!(!resolve_unique_peers(&graph).contains_key(&react_dom_id));
+
+        let project = make_project(dir.path().join("project"));
+        let local_ids = local_global_virtual_store_package_ids(&config, None, &[&project], &graph);
+        assert!(local_ids.contains(&react_dom_id));
     }
 
     #[cfg(unix)]
@@ -1339,9 +1532,9 @@ mod tests {
 
         link_virtual_dependencies(&virtual_store_paths, &graph).unwrap();
 
-        let dependency_hash =
-            dependency_state_hash(graph.packages.get(&root_id).unwrap(), &virtual_store_paths)
-                .unwrap();
+        let root_pkg = graph.packages.get(&root_id).unwrap();
+        let wired: BTreeMap<&String, &PackageId> = root_pkg.dependencies.iter().collect();
+        let dependency_hash = dependency_state_hash(&wired, &virtual_store_paths).unwrap();
         assert!(
             dependency_state_path(&root_location, &root_id.name)
                 .unwrap()

@@ -20,6 +20,7 @@ use virtual_store::populate_virtual_store;
 pub(crate) use virtual_store::{
     link_virtual_dependencies, local_global_virtual_store_package_ids,
     log_locally_materialized_packages, populate_shared_virtual_store_for_packages,
+    resolve_unique_peers,
 };
 
 pub fn link(

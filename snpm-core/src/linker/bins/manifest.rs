@@ -16,6 +16,22 @@ pub fn link_bins(dest: &Path, bin_root: &Path, name: &str) -> Result<()> {
     link_known_bins(dest, bin_root, name, &bin)
 }
 
+/// Link a package's bins directly into `bin_dir` — no `.bin` subdirectory.
+/// Used for the global bin dir, where the launchers must sit exactly in
+/// the directory users add to PATH.
+pub fn link_bins_flat(dest: &Path, bin_dir: &Path, name: &str) -> Result<()> {
+    let Some(bin) = read_bin_definition(dest)? else {
+        return Ok(());
+    };
+
+    fs::create_dir_all(bin_dir).map_err(|source| SnpmError::WriteFile {
+        path: bin_dir.to_path_buf(),
+        source,
+    })?;
+
+    link_bin_entries(dest, bin_dir, name, &bin)
+}
+
 pub(in crate::linker::bins) fn link_bins_from_bundled_pkg(
     pkg_path: &Path,
     bin_dir: &Path,

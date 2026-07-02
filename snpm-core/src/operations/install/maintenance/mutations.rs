@@ -25,9 +25,12 @@ pub async fn remove(
         let (name, _) = parse_spec(&spec);
         let removed_runtime = manifest.dependencies.remove(&name).is_some();
         let removed_dev = manifest.dev_dependencies.remove(&name).is_some();
+        let removed_optional = manifest.optional_dependencies.remove(&name).is_some();
 
-        if removed_runtime || removed_dev {
+        if removed_runtime || removed_dev || removed_optional {
             console::removed(&name);
+        } else {
+            console::warn(&format!("{name} is not a dependency of this project"));
         }
     }
 
@@ -124,8 +127,9 @@ fn update_manifest_entry(
     if let Some(current) = manifest.dependencies.get_mut(name)
         && !is_special_protocol_spec(current)
     {
-        *current = format!("^{}", wanted);
-        console::info(&format!("updating {name} to ^{wanted}"));
+        let next = rewrite_spec_preserving_operator(current, wanted);
+        console::info(&format!("updating {name} to {next}"));
+        *current = next;
         updated = true;
     }
 
@@ -134,12 +138,41 @@ fn update_manifest_entry(
         && let Some(current) = manifest.dev_dependencies.get_mut(name)
         && !is_special_protocol_spec(current)
     {
-        *current = format!("^{}", wanted);
-        console::info(&format!("updating {name} (dev) to ^{wanted}"));
+        let next = rewrite_spec_preserving_operator(current, wanted);
+        console::info(&format!("updating {name} (dev) to {next}"));
+        *current = next;
         updated = true;
     }
 
     updated
+}
+
+/// Keep the range operator the user chose: `~1.2.0` upgrades to
+/// `~<wanted>`, an exact pin upgrades to the exact new version, and only
+/// caret (or complex) ranges get the caret default. Blindly writing
+/// `^<wanted>` would silently widen a tilde or exact constraint to all
+/// of the new major.
+fn rewrite_spec_preserving_operator(current: &str, wanted: &str) -> String {
+    let current = current.trim();
+    if let Some(rest) = current.strip_prefix('~')
+        && !rest.is_empty()
+    {
+        return format!("~{wanted}");
+    }
+    if is_plain_version(current) {
+        return wanted.to_string();
+    }
+    format!("^{wanted}")
+}
+
+fn is_plain_version(spec: &str) -> bool {
+    let bare = spec.strip_prefix('v').unwrap_or(spec);
+    !bare.is_empty()
+        && bare.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && bare
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+        && bare.split(['-', '+']).next().unwrap_or("").matches('.').count() == 2
 }
 
 async fn reinstall(

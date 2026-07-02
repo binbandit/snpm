@@ -4,8 +4,12 @@ use std::path::Path;
 use std::process::Command;
 
 pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) -> Result<usize> {
-    let node_modules = root.join("node_modules");
-    let virtual_store = node_modules.join(".snpm");
+    // The linker builds the virtual store at `<root>/.snpm` (workspace
+    // root for workspace installs), not under node_modules.
+    let virtual_store = match workspace {
+        Some(workspace) => workspace.root.join(".snpm"),
+        None => root.join(".snpm"),
+    };
 
     if !virtual_store.is_dir() {
         return Ok(0);
@@ -35,6 +39,8 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
             continue;
         }
 
+        // Scoped packages sit one level deeper (@scope/name).
+        let mut package_paths = Vec::new();
         for package_entry in fs::read_dir(&node_modules_dir)
             .into_iter()
             .flatten()
@@ -44,7 +50,19 @@ pub fn rebuild(config: &SnpmConfig, workspace: Option<&Workspace>, root: &Path) 
             if !package_path.is_dir() {
                 continue;
             }
+            if package_entry.file_name().to_string_lossy().starts_with('@') {
+                for scoped_entry in fs::read_dir(&package_path).into_iter().flatten().flatten() {
+                    let scoped_path = scoped_entry.path();
+                    if scoped_path.is_dir() {
+                        package_paths.push(scoped_path);
+                    }
+                }
+            } else {
+                package_paths.push(package_path);
+            }
+        }
 
+        for package_path in package_paths {
             let manifest_path = package_path.join("package.json");
             if !manifest_path.is_file() {
                 continue;

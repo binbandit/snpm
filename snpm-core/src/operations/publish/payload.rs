@@ -1,4 +1,4 @@
-use crate::{Result, SnpmConfig, SnpmError};
+use crate::{Result, SnpmError};
 
 use base64::Engine;
 use sha1::Digest as _;
@@ -8,19 +8,18 @@ use super::PublishOptions;
 use super::manifest::PackageIdentity;
 
 pub(super) fn build_publish_payload(
-    config: &SnpmConfig,
+    registry: &str,
     package: &PackageIdentity,
     manifest_value: &serde_json::Value,
     tarball_path: &Path,
     options: &PublishOptions,
 ) -> Result<serde_json::Value> {
     let tarball_bytes = read_tarball_bytes(tarball_path)?;
-    let dist = build_dist(config, package, &tarball_bytes);
-    let attachment_name = format!("{}-{}.tgz", package.name, package.version);
-    let access = options.access.as_deref().unwrap_or("public");
+    let dist = build_dist(registry, package, &tarball_bytes);
+    let attachment_name = format!("{}-{}.tgz", tarball_basename(&package.name), package.version);
     let version_meta = build_version_meta(package, manifest_value, &dist);
 
-    Ok(serde_json::json!({
+    let mut payload = serde_json::json!({
         "_id": package.name.as_str(),
         "name": package.name.as_str(),
         "description": manifest_value.get("description").unwrap_or(&serde_json::Value::Null),
@@ -30,7 +29,6 @@ pub(super) fn build_publish_payload(
         "versions": {
             package.version.as_str(): version_meta
         },
-        "access": access,
         "_attachments": {
             attachment_name: {
                 "content_type": "application/octet-stream",
@@ -38,7 +36,22 @@ pub(super) fn build_publish_payload(
                 "length": tarball_bytes.len(),
             }
         }
-    }))
+    });
+
+    // Only send access when the user asked for one: npm's default for
+    // scoped packages is restricted/registry-decided, so hardcoding
+    // "public" would silently expose scoped packages.
+    if let Some(access) = options.access.as_deref() {
+        payload["access"] = serde_json::Value::String(access.to_string());
+    }
+
+    Ok(payload)
+}
+
+/// npm tarball filenames use the name without its scope:
+/// `@scope/pkg` publishes `pkg-<version>.tgz`.
+fn tarball_basename(name: &str) -> &str {
+    name.rsplit_once('/').map(|(_, base)| base).unwrap_or(name)
 }
 
 fn read_tarball_bytes(tarball_path: &Path) -> Result<Vec<u8>> {
@@ -63,13 +76,14 @@ fn build_version_meta(
 }
 
 fn build_dist(
-    config: &SnpmConfig,
+    registry: &str,
     package: &PackageIdentity,
     tarball_bytes: &[u8],
 ) -> serde_json::Value {
     let digest = sha1::Sha1::digest(tarball_bytes);
     let digest_bytes = digest.as_slice();
 
+    // npm tarball URL shape: <registry>/<name>/-/<basename>-<version>.tgz
     serde_json::json!({
         "integrity": format!(
             "sha1-{}",
@@ -77,9 +91,10 @@ fn build_dist(
         ),
         "shasum": hex::encode(digest_bytes),
         "tarball": format!(
-            "{}/-/{}-{}.tgz",
-            config.default_registry.trim_end_matches('/'),
+            "{}/{}/-/{}-{}.tgz",
+            registry.trim_end_matches('/'),
             package.name,
+            tarball_basename(&package.name),
             package.version
         ),
     })

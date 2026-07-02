@@ -6,8 +6,10 @@ use std::path::Path;
 
 use super::parse::{LicenseEntry, read_license_from_directory};
 
-pub fn collect_licenses(node_modules: &Path) -> Result<Vec<LicenseEntry>> {
-    let virtual_store = node_modules.join(".snpm");
+pub fn collect_licenses(project_root: &Path) -> Result<Vec<LicenseEntry>> {
+    // The linker builds the virtual store at `<root>/.snpm`, not under
+    // node_modules.
+    let virtual_store = project_root.join(".snpm");
 
     if !virtual_store.is_dir() {
         return Ok(Vec::new());

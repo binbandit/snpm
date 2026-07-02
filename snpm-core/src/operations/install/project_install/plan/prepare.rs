@@ -13,7 +13,7 @@ pub(in crate::operations::install::project_install) fn prepare_install_plan(
     project: &Project,
     options: &InstallOptions,
 ) -> Result<ProjectInstallPlan> {
-    let (additions, requested_protocols) = collect_additions(project, &options.requested);
+    let (additions, requested_protocols) = collect_additions(&options.requested);
     let workspace = Workspace::discover(&project.root)?;
     let catalog = load_catalog(project, workspace.as_ref())?;
     let overrides = load_overrides(project, workspace.as_ref())?;

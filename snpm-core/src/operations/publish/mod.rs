@@ -48,11 +48,13 @@ pub async fn publish(
     }
 
     let manifest_value = read_manifest_value(project)?;
-    let payload = build_publish_payload(config, &package, &manifest_value, tarball_path, options)?;
+    let registry = publish_registry(config, &manifest_value, &package.name);
+    let payload =
+        build_publish_payload(&registry, &package, &manifest_value, tarball_path, options)?;
 
     console::step(&format!("Publishing {}@{}", package.name, package.version));
 
-    send_publish_request(config, &package, options, payload).await?;
+    send_publish_request(config, &registry, &package, options, payload).await?;
 
     console::info(&format!(
         "Published {}@{} with tag \"{}\"",
@@ -60,6 +62,28 @@ pub async fn publish(
     ));
 
     Ok(())
+}
+
+/// Publishes go to `publishConfig.registry` when set, else the registry
+/// configured for the package's scope, else the default registry.
+/// Publishing a scoped package to the default registry when a scoped
+/// registry is configured would leak private packages.
+fn publish_registry(
+    config: &SnpmConfig,
+    manifest_value: &serde_json::Value,
+    name: &str,
+) -> String {
+    if let Some(registry) = manifest_value
+        .get("publishConfig")
+        .and_then(|publish_config| publish_config.get("registry"))
+        .and_then(|registry| registry.as_str())
+        .map(str::trim)
+        .filter(|registry| !registry.is_empty())
+    {
+        return registry.to_string();
+    }
+
+    config.registry_url_for_package_name(name)
 }
 
 fn log_dry_run(package: &PackageIdentity, options: &PublishOptions) {

@@ -13,9 +13,8 @@ pub struct LicensesArgs {
 pub async fn run(args: LicensesArgs) -> Result<()> {
     let cwd = env::current_dir().context("failed to determine current directory")?;
     let project = Project::discover(&cwd)?;
-    let node_modules = project.root.join("node_modules");
 
-    let entries = operations::collect_licenses(&node_modules)?;
+    let entries = operations::collect_licenses(&project.root)?;
 
     if entries.is_empty() {
         println!("No packages found.");

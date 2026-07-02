@@ -146,15 +146,13 @@ mod tests {
         registry_task_concurrency, store_task_concurrency,
     };
     use crate::config::SnpmConfig;
-    
-    
 
     fn test_config(registry_concurrency: usize) -> SnpmConfig {
-    SnpmConfig {
-        registry_concurrency,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            registry_concurrency,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[test]
     fn extraction_limit_keeps_small_machines_busy_without_oversubscribing() {

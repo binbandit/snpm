@@ -52,15 +52,13 @@ mod tests {
     use super::build_request;
     use crate::config::SnpmConfig;
     use reqwest::header::ACCEPT;
-    
-    
 
     fn make_config(min_package_age_days: Option<u32>) -> SnpmConfig {
-    SnpmConfig {
-        min_package_age_days,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            min_package_age_days,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[test]
     fn min_package_age_requests_full_packument_metadata() {

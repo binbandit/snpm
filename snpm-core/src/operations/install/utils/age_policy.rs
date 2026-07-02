@@ -111,7 +111,7 @@ mod tests {
         PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
     };
     use std::collections::BTreeMap;
-    
+
     use time::format_description::well_known::Rfc3339;
     use time::{Duration, OffsetDateTime};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -164,13 +164,13 @@ mod tests {
     }
 
     fn make_config(registry: String) -> SnpmConfig {
-    SnpmConfig {
-        default_registry: registry,
-        min_package_age_days: Some(7),
-        registry_concurrency: 4,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            default_registry: registry,
+            min_package_age_days: Some(7),
+            registry_concurrency: 4,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     fn graph_with_registry_package(tarball: String) -> ResolutionGraph {
         let id = PackageId {

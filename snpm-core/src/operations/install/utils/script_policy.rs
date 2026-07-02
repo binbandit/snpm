@@ -27,8 +27,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_config() -> SnpmConfig {
-    SnpmConfig::for_tests()
-}
+        SnpmConfig::for_tests()
+    }
 
     #[test]
     fn can_any_scripts_run_false_by_default() {

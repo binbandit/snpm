@@ -115,6 +115,13 @@ fn run_single_script(
     let bin_dir = project.root.join("node_modules").join(".bin");
     let path_value = build_path(bin_dir, script, &project.root, node_bin_dir)?;
     command.env("PATH", path_value);
+    crate::script_env::apply(
+        &mut command,
+        &project.root,
+        project.manifest.name.as_deref(),
+        project.manifest.version.as_deref(),
+        script,
+    );
 
     let status = command.status().map_err(|error| SnpmError::ScriptRun {
         name: script.to_string(),

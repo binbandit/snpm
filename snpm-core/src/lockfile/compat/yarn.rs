@@ -779,15 +779,14 @@ mod tests {
     use super::{is_berry, parse_classic_identity, read, split_berry_header};
     use crate::config::SnpmConfig;
 
-    
     use std::fs;
 
     fn test_config() -> SnpmConfig {
-    SnpmConfig {
-        registry_concurrency: 16,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            registry_concurrency: 16,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[test]
     fn imports_yarn_classic_lockfile() {

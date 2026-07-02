@@ -40,8 +40,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_config() -> SnpmConfig {
-    SnpmConfig::for_tests()
-}
+        SnpmConfig::for_tests()
+    }
 
     fn make_workspace(only_built: Vec<String>, ignored_built: Vec<String>) -> Workspace {
         Workspace {

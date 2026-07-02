@@ -1021,12 +1021,12 @@ mod tests {
     use tempfile::tempdir;
 
     fn make_config(data_dir: PathBuf) -> SnpmConfig {
-    SnpmConfig {
-        cache_dir: data_dir.join("cache"),
-        data_dir,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            cache_dir: data_dir.join("cache"),
+            data_dir,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     fn make_graph(id: &PackageId) -> ResolutionGraph {
         let pkg = ResolvedPackage {

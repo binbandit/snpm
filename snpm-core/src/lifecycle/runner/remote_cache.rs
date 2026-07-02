@@ -326,23 +326,23 @@ pub(super) fn unpack_into_dir(bytes: &[u8], dest_dir: &Path) -> Result<()> {
 mod tests {
     use super::{RemoteCache, pack_dir, unpack_into_dir};
     use crate::config::SnpmConfig;
-    
+
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    
+
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tempfile::tempdir;
 
     fn fake_config(url: Option<String>) -> SnpmConfig {
-    SnpmConfig {
-        registry_concurrency: 16,
-        remote_cache_url: url,
-        remote_cache_auth_token: Some("test-token".to_string()),
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            registry_concurrency: 16,
+            remote_cache_url: url,
+            remote_cache_auth_token: Some("test-token".to_string()),
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[test]
     fn from_config_returns_none_when_no_url() {

@@ -713,13 +713,13 @@ mod tests {
     use tempfile::tempdir;
 
     fn make_config(data_dir: PathBuf) -> SnpmConfig {
-    SnpmConfig {
-        cache_dir: data_dir.join("cache"),
-        data_dir,
-        hoisting: HoistingMode::None,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            cache_dir: data_dir.join("cache"),
+            data_dir,
+            hoisting: HoistingMode::None,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     fn make_project(root: PathBuf) -> Project {
         Project {

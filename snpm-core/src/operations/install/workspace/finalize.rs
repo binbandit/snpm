@@ -114,8 +114,8 @@ mod tests {
     use tempfile::tempdir;
 
     fn make_config() -> SnpmConfig {
-    SnpmConfig::for_tests()
-}
+        SnpmConfig::for_tests()
+    }
 
     fn make_project(root: PathBuf, name: &str) -> Project {
         Project {

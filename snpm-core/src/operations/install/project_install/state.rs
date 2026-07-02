@@ -320,14 +320,14 @@ mod tests {
     use crate::project::Manifest;
     use serde_yaml;
     use std::collections::{BTreeMap, BTreeSet};
-    
+
     use tempfile::tempdir;
 
     type LockfileDep<'a> = (&'a str, (&'a str, Option<&'a str>, bool));
 
     fn make_config() -> SnpmConfig {
-    SnpmConfig::for_tests()
-}
+        SnpmConfig::for_tests()
+    }
 
     fn make_project(root: std::path::PathBuf) -> Project {
         Project {

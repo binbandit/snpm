@@ -478,18 +478,17 @@ mod tests {
     use super::{SideEffectsCacheEntry, SideEffectsCacheRestore};
     use crate::config::SnpmConfig;
 
-    
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn make_config(data_dir: PathBuf) -> SnpmConfig {
-    SnpmConfig {
-        cache_dir: data_dir.join("cache"),
-        data_dir,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            cache_dir: data_dir.join("cache"),
+            data_dir,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[test]
     fn saves_and_restores_side_effects() {

@@ -20,17 +20,16 @@ mod tests {
     use super::{CachedHeaders, load_cached_headers, save_cached_headers};
     use crate::config::SnpmConfig;
 
-    
     use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn make_config(data_dir: PathBuf) -> SnpmConfig {
-    SnpmConfig {
-        cache_dir: data_dir.join("cache"),
-        data_dir,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            cache_dir: data_dir.join("cache"),
+            data_dir,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[test]
     fn save_and_load_cached_headers_roundtrip() {

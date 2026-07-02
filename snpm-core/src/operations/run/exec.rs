@@ -30,6 +30,13 @@ pub fn exec_command(project: &Project, options: &ExecOptions) -> Result<()> {
     process.current_dir(&project.root);
     process.env("PATH", path_value);
     process.env("SNPM_PACKAGE_NAME", package_name);
+    crate::script_env::apply(
+        &mut process,
+        &project.root,
+        project.manifest.name.as_deref(),
+        project.manifest.version.as_deref(),
+        options.command,
+    );
 
     let status = process.status().map_err(|error| SnpmError::ScriptRun {
         name: options.command.to_string(),

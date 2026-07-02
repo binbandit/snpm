@@ -363,7 +363,7 @@ mod tests {
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use sha2::{Digest, Sha512};
-    
+
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -375,12 +375,12 @@ mod tests {
     use tokio::time::{Duration, sleep, timeout};
 
     fn make_config(root: PathBuf) -> SnpmConfig {
-    SnpmConfig {
-        cache_dir: root.join("cache"),
-        data_dir: root.join("data"),
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            cache_dir: root.join("cache"),
+            data_dir: root.join("data"),
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     fn build_tarball() -> Vec<u8> {
         let mut builder = TarBuilder::new(Vec::new());

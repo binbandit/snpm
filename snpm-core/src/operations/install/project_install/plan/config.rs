@@ -29,6 +29,15 @@ pub(super) fn load_overrides(
         overrides.insert(name.clone(), range.clone());
     }
 
+    // npm/Bun top-level `overrides`. Only the flat string form maps onto
+    // snpm's override model; nested per-parent objects are skipped rather
+    // than silently mis-applied.
+    for (name, value) in &project.manifest.overrides {
+        if let serde_json::Value::String(range) = value {
+            overrides.insert(name.clone(), range.clone());
+        }
+    }
+
     if let Some(pnpm) = &project.manifest.pnpm {
         for (name, range) in &pnpm.overrides {
             overrides.insert(name.clone(), range.clone());

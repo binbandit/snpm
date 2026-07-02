@@ -594,14 +594,12 @@ mod tests {
     use super::read;
     use crate::config::SnpmConfig;
 
-    
-
     fn test_config() -> SnpmConfig {
-    SnpmConfig {
-        registry_concurrency: 16,
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            registry_concurrency: 16,
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[test]
     fn imports_simple_pnpm_v9_lockfile() {

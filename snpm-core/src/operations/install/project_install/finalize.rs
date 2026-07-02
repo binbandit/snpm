@@ -95,14 +95,13 @@ mod tests {
     use super::run_install_scripts;
     use crate::config::SnpmConfig;
 
-    
     use std::fs;
-    
+
     use tempfile::tempdir;
 
     fn make_config() -> SnpmConfig {
-    SnpmConfig::for_tests()
-}
+        SnpmConfig::for_tests()
+    }
 
     #[test]
     fn root_postinstall_runs_when_dependency_scripts_are_disallowed() {

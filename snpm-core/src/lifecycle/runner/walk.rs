@@ -306,6 +306,7 @@ fn topological_chunks(jobs: Vec<DepScriptJob>) -> Vec<Vec<DepScriptJob>> {
 fn run_single_job(job: DepScriptJob) -> Result<()> {
     let ran = run_present_scripts(
         &job.name,
+        None,
         &job.pkg_root,
         &job.scripts,
         job.bin.as_ref(),
@@ -445,13 +446,13 @@ mod tests {
     }
 
     fn make_config(data_dir: PathBuf) -> SnpmConfig {
-    SnpmConfig {
-        cache_dir: data_dir.join("cache"),
-        data_dir,
-        allow_scripts: BTreeSet::from(["dep".to_string()]),
-        ..SnpmConfig::for_tests()
+        SnpmConfig {
+            cache_dir: data_dir.join("cache"),
+            data_dir,
+            allow_scripts: BTreeSet::from(["dep".to_string()]),
+            ..SnpmConfig::for_tests()
+        }
     }
-}
 
     #[cfg(unix)]
     #[test]

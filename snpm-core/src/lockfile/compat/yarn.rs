@@ -55,6 +55,7 @@ struct BerryPackageSeed {
     tarball: String,
     has_bin: bool,
     declared_dependencies: BTreeMap<String, String>,
+    peer_dependencies: BTreeMap<String, String>,
 }
 
 fn parse_classic_str(
@@ -143,6 +144,10 @@ fn parse_classic_str(
                 tarball: seed.tarball,
                 integrity: seed.integrity,
                 dependencies: resolve_dependencies(&seed.declared_dependencies, &spec_to_dep_path),
+                // yarn v1 lockfiles do not record peerDependencies, so
+                // there is nothing to import: peer-having packages from a
+                // classic import miss peer-aware store placement until
+                // their subgraph is re-resolved from the registry.
                 peer_dependencies: BTreeMap::new(),
                 bundled_dependencies: None,
                 has_bin: false,
@@ -274,6 +279,10 @@ fn parse_berry_str(
             tarball,
             has_bin: berry_has_bin(block),
             declared_dependencies,
+            peer_dependencies: super::required_peer_dependencies(
+                &collect_dep_map(block, "peerDependencies"),
+                &collect_optional_peer_names(block),
+            ),
         });
     }
 
@@ -290,7 +299,7 @@ fn parse_berry_str(
                     &spec_to_dep_path,
                     berry_candidates,
                 ),
-                peer_dependencies: BTreeMap::new(),
+                peer_dependencies: seed.peer_dependencies,
                 bundled_dependencies: None,
                 has_bin: seed.has_bin,
                 bin: None,
@@ -703,6 +712,27 @@ fn collect_dep_map(block: &serde_yaml::Mapping, key: &str) -> BTreeMap<String, S
                 .iter()
                 .filter_map(|(key, value)| {
                     Some((key.as_str()?.to_string(), yaml_scalar_as_string(value)?))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Peer names a berry block marks optional via peerDependenciesMeta.
+fn collect_optional_peer_names(block: &serde_yaml::Mapping) -> std::collections::BTreeSet<String> {
+    block
+        .get(YamlValue::String("peerDependenciesMeta".to_string()))
+        .and_then(YamlValue::as_mapping)
+        .map(|mapping| {
+            mapping
+                .iter()
+                .filter_map(|(name, meta)| {
+                    let optional = meta
+                        .as_mapping()
+                        .and_then(|meta| meta.get(YamlValue::String("optional".to_string())))
+                        .and_then(YamlValue::as_bool)
+                        .unwrap_or(false);
+                    optional.then(|| name.as_str().map(str::to_string))?
                 })
                 .collect()
         })

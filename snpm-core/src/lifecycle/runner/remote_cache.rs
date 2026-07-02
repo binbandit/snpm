@@ -325,43 +325,24 @@ pub(super) fn unpack_into_dir(bytes: &[u8], dest_dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{RemoteCache, pack_dir, unpack_into_dir};
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
-    use std::collections::{BTreeMap, BTreeSet};
+    use crate::config::SnpmConfig;
+    
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::path::PathBuf;
+    
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tempfile::tempdir;
 
     fn fake_config(url: Option<String>) -> SnpmConfig {
-        SnpmConfig {
-            cache_dir: PathBuf::from("/tmp/cache"),
-            data_dir: PathBuf::from("/tmp/data"),
-            allow_scripts: BTreeSet::new(),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: None,
-            min_package_cache_age_days: None,
-            default_registry: "https://registry.npmjs.org".to_string(),
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
-            hoisting: HoistingMode::SingleVersion,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
-            registry_concurrency: 16,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: url,
-            remote_cache_auth_token: Some("test-token".to_string()),
-            remote_cache_read_only: false,
-        }
+    SnpmConfig {
+        registry_concurrency: 16,
+        remote_cache_url: url,
+        remote_cache_auth_token: Some("test-token".to_string()),
+        ..SnpmConfig::for_tests()
     }
+}
 
     #[test]
     fn from_config_returns_none_when_no_url() {

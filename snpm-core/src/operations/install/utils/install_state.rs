@@ -700,45 +700,26 @@ mod tests {
     };
     use crate::Project;
     use crate::Workspace;
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::config::{HoistingMode, SnpmConfig};
     use crate::project::Manifest;
     use crate::resolve::{
         PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
     };
     use crate::workspace::types::WorkspaceConfig;
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn make_config(data_dir: PathBuf) -> SnpmConfig {
-        SnpmConfig {
-            cache_dir: data_dir.join("cache"),
-            data_dir,
-            allow_scripts: BTreeSet::new(),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: None,
-            min_package_cache_age_days: None,
-            default_registry: "https://registry.npmjs.org".to_string(),
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
-            hoisting: HoistingMode::None,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
-            registry_concurrency: 64,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: None,
-            remote_cache_auth_token: None,
-            remote_cache_read_only: false,
-        }
+    SnpmConfig {
+        cache_dir: data_dir.join("cache"),
+        data_dir,
+        hoisting: HoistingMode::None,
+        ..SnpmConfig::for_tests()
     }
+}
 
     fn make_project(root: PathBuf) -> Project {
         Project {

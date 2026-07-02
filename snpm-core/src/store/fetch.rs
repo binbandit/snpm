@@ -356,14 +356,14 @@ fn create_temp_path(parent: &Path) -> Result<TempPath> {
 mod tests {
     use super::{TarballSource, download_and_extract};
     use crate::SnpmError;
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::config::SnpmConfig;
     use crate::store::limits::{download_concurrency, download_semaphore};
 
     use base64::Engine;
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use sha2::{Digest, Sha512};
-    use std::collections::{BTreeMap, BTreeSet};
+    
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -375,32 +375,12 @@ mod tests {
     use tokio::time::{Duration, sleep, timeout};
 
     fn make_config(root: PathBuf) -> SnpmConfig {
-        SnpmConfig {
-            cache_dir: root.join("cache"),
-            data_dir: root.join("data"),
-            allow_scripts: BTreeSet::new(),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: None,
-            min_package_cache_age_days: None,
-            default_registry: "https://registry.npmjs.org".to_string(),
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
-            hoisting: HoistingMode::SingleVersion,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
-            registry_concurrency: 64,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: None,
-            remote_cache_auth_token: None,
-            remote_cache_read_only: false,
-        }
+    SnpmConfig {
+        cache_dir: root.join("cache"),
+        data_dir: root.join("data"),
+        ..SnpmConfig::for_tests()
     }
+}
 
     fn build_tarball() -> Vec<u8> {
         let mut builder = TarBuilder::new(Vec::new());

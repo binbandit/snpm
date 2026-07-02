@@ -644,38 +644,17 @@ fn display_workspace_path(workspace_path: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::{read, split_ident, strip_jsonc};
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::config::SnpmConfig;
 
-    use std::collections::{BTreeMap, BTreeSet};
+    
     use std::fs;
 
     fn test_config() -> SnpmConfig {
-        SnpmConfig {
-            cache_dir: "/tmp/cache".into(),
-            data_dir: "/tmp/data".into(),
-            allow_scripts: BTreeSet::new(),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: None,
-            min_package_cache_age_days: None,
-            default_registry: "https://registry.npmjs.org".to_string(),
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
-            hoisting: HoistingMode::SingleVersion,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
-            registry_concurrency: 16,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: None,
-            remote_cache_auth_token: None,
-            remote_cache_read_only: false,
-        }
+    SnpmConfig {
+        registry_concurrency: 16,
+        ..SnpmConfig::for_tests()
     }
+}
 
     #[test]
     fn imports_simple_bun_lockfile() {

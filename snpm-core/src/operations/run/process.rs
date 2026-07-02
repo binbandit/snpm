@@ -5,19 +5,42 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Join extra script args into the string appended to the `sh -c` /
+/// `cmd /C` command line. Each arg is shell-quoted: without quoting,
+/// `snpm run lint -- "src/my file.ts"` would re-split into two args and
+/// anything containing `;`, `$(...)`, or `&&` would be executed by the
+/// shell.
 pub(in crate::operations::run) fn join_args(args: &[String]) -> String {
-    let mut result = String::new();
-    let mut first = true;
+    args.iter()
+        .map(|arg| quote_arg(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
-    for arg in args {
-        if !first {
-            result.push(' ');
-        }
-        first = false;
-        result.push_str(arg);
+#[cfg(unix)]
+fn quote_arg(arg: &str) -> String {
+    let safe = !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '@' | '%' | ',' | '+'));
+    if safe {
+        return arg.to_string();
     }
+    // Single quotes disable all shell interpretation; embedded single
+    // quotes become '\'' (close, escaped quote, reopen).
+    format!("'{}'", arg.replace('\'', "'\\''"))
+}
 
-    result
+#[cfg(windows)]
+fn quote_arg(arg: &str) -> String {
+    let safe = !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '@' | '%' | ',' | '+' | '\\'));
+    if safe {
+        return arg.to_string();
+    }
+    format!("\"{}\"", arg.replace('"', "\"\""))
 }
 
 pub(in crate::operations::run) fn build_path(
@@ -84,6 +107,28 @@ mod tests {
         assert_eq!(
             join_args(&["a".to_string(), "b".to_string(), "c".to_string()]),
             "a b c"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn join_args_quotes_spaces_and_metacharacters() {
+        assert_eq!(
+            join_args(&["src/my file.ts".to_string()]),
+            "'src/my file.ts'"
+        );
+        assert_eq!(join_args(&["a;rm -rf x".to_string()]), "'a;rm -rf x'");
+        assert_eq!(join_args(&["$(whoami)".to_string()]), "'$(whoami)'");
+        assert_eq!(join_args(&["it's".to_string()]), "'it'\\''s'");
+        assert_eq!(join_args(&[String::new()]), "''");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn join_args_leaves_plain_flags_untouched() {
+        assert_eq!(
+            join_args(&["--watch".to_string(), "--grep=foo".to_string()]),
+            "--watch --grep=foo"
         );
     }
 }

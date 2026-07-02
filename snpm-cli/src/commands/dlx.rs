@@ -17,7 +17,7 @@ pub struct DlxArgs {
     pub prefer_offline: bool,
 
     /// Arguments to pass to the package's binary
-    #[arg(trailing_var_arg = true)]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
 }
 

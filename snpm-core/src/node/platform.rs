@@ -68,7 +68,8 @@ fn node_os(host: &str) -> Option<&'static str> {
         "macos" => Some("darwin"),
         "linux" => Some("linux"),
         "windows" => Some("win"),
-        "freebsd" => Some("linux"),
+        // No "freebsd" mapping: nodejs.org ships no FreeBSD builds, and
+        // silently downloading Linux binaries there would not run.
         _ => None,
     }
 }

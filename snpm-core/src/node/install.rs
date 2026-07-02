@@ -35,7 +35,12 @@ pub async fn install_version(config: &SnpmConfig, version_with_v: &str) -> Resul
         source,
     })?;
 
-    let temp_dir = version_dir.with_extension("tmp");
+    // Append rather than `with_extension`: that would replace the text
+    // after the last dot, so v20.10.0 and v20.10.5 would stage into the
+    // same temp dir and concurrent installs would clobber each other.
+    let temp_dir = config
+        .node_versions_dir()
+        .join(format!("{version_with_v}.tmp"));
     if temp_dir.exists() {
         fs::remove_dir_all(&temp_dir).map_err(|source| SnpmError::WriteFile {
             path: temp_dir.clone(),

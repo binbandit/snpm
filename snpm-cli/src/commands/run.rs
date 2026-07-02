@@ -21,7 +21,7 @@ pub struct RunArgs {
     #[arg(long = "skip-install")]
     pub skip_install: bool,
     /// Extra arguments passed to the script (use `--` to separate)
-    #[arg(trailing_var_arg = true)]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
 }
 

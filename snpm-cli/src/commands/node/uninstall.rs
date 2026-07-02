@@ -41,11 +41,16 @@ pub fn run(args: UninstallArgs, config: &SnpmConfig) -> Result<()> {
 
 fn match_installed(config: &SnpmConfig, spec: &str) -> Option<String> {
     let installed = uninstall::list_installed_versions(config).ok()?;
-    for version in installed {
-        let candidate = version.strip_prefix('v').unwrap_or(&version);
-        if candidate.starts_with(spec.trim_start_matches('v')) {
-            return Some(version);
-        }
-    }
-    None
+    let spec_parts: Vec<&str> = spec.trim_start_matches('v').split('.').collect();
+    installed.into_iter().find(|version| {
+        let candidate = version.strip_prefix('v').unwrap_or(version);
+        // Compare whole version components: a raw string prefix match
+        // would let "20.1" remove v20.10.0.
+        let candidate_parts: Vec<&str> = candidate.split('.').collect();
+        spec_parts.len() <= candidate_parts.len()
+            && spec_parts
+                .iter()
+                .zip(&candidate_parts)
+                .all(|(spec_part, candidate_part)| spec_part == candidate_part)
+    })
 }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Args;
-use snpm_core::node::{aliases, current, install, resolve};
+use anyhow::bail;
+use snpm_core::node::{aliases, current, install, resolve, uninstall};
 use snpm_core::{SnpmConfig, console};
 
 #[derive(Args, Debug)]
@@ -30,8 +31,15 @@ pub async fn run(args: UseArgs, config: &SnpmConfig) -> Result<()> {
     let resolved = resolve::resolve_spec(config, &spec, true).await?;
     let normalized = resolved.normalized.clone();
 
+    if !args.install && !uninstall::is_version_installed(config, &normalized) {
+        bail!(
+            "Node {normalized} is not installed; run `snpm node install {normalized}` \
+             or pass --install"
+        );
+    }
+
     let summary = install::install_version(config, &normalized).await?;
-    if !summary.already_installed && !args.install && !args.silent {
+    if !summary.already_installed && !args.silent {
         console::info(&format!("Installed Node {} on demand", normalized));
     }
 

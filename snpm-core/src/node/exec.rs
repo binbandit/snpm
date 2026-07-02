@@ -143,7 +143,35 @@ fn match_pin_offline(config: &SnpmConfig, pin: &PinnedNode) -> Result<Option<Act
         )));
     }
 
+    // Partial pins (".nvmrc" containing `20` or `20.10`) and
+    // engines.node ranges (`>=18 <21`, `^20`) are not exact versions;
+    // match them against what's already installed and take the newest
+    // satisfying version.
+    if let Some(normalized) = newest_installed_matching(config, &pin.spec) {
+        return Ok(Some(active_from(
+            config,
+            &normalized,
+            ActiveNodeSource::Pin(pin.source.clone()),
+        )));
+    }
+
     Ok(None)
+}
+
+fn newest_installed_matching(config: &SnpmConfig, spec: &str) -> Option<String> {
+    let range = snpm_semver::RangeSet::parse(spec).ok()?;
+    let installed = super::uninstall::list_installed_versions(config).ok()?;
+    installed
+        .into_iter()
+        .filter_map(|version| {
+            let bare = version.strip_prefix('v').unwrap_or(&version);
+            snpm_semver::Version::parse(bare)
+                .ok()
+                .filter(|parsed| range.matches(parsed))
+                .map(|parsed| (parsed, version.clone()))
+        })
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, version)| version)
 }
 
 fn resolve_default(config: &SnpmConfig) -> Result<Option<ActiveNode>> {

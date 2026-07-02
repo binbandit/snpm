@@ -33,8 +33,8 @@ Top-level commands in `snpm-cli/src/cli.rs`:
 - `exec` (lazy install when stale)
 - `init`
 - `dlx` (`--offline`, `--prefer-offline`)
-- `upgrade`
-- `outdated`
+- `upgrade` (alias `update`; `--latest` rewrites manifest ranges to each dependency's newest published version, beyond the current constraint)
+- `outdated` (shows current/wanted/latest columns; `--json` for machine-readable output)
 - `licenses`
 - `link`
 - `list`

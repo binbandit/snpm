@@ -52,6 +52,7 @@ pub enum Command {
     /// Download and run a package without installing
     Dlx(commands::dlx::DlxArgs),
     /// Upgrade dependencies and refresh the lockfile
+    #[command(visible_alias = "update")]
     Upgrade(commands::upgrade::UpgradeArgs),
     /// Check for outdated dependencies
     Outdated(commands::outdated::OutdatedArgs),

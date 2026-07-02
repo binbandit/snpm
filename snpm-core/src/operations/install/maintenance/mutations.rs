@@ -1,4 +1,5 @@
 use crate::console;
+use crate::registry::RegistryProtocol;
 use crate::{Project, Result, SnpmConfig};
 
 use std::collections::BTreeMap;
@@ -58,6 +59,7 @@ pub async fn remove(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upgrade(
     config: &SnpmConfig,
     project: &mut Project,
@@ -66,8 +68,26 @@ pub async fn upgrade(
     strict_no_lockfile: bool,
     production: bool,
     force: bool,
+    latest: bool,
 ) -> Result<()> {
     let include_dev = !production;
+
+    // `--latest` bumps manifest ranges to each dependency's newest
+    // published version (beyond the current range), so it can't reuse the
+    // in-range `outdated` report — a dep already at the newest in-range
+    // version is filtered out of that report but may still trail `latest`.
+    if latest {
+        return upgrade_to_latest(
+            config,
+            project,
+            packages,
+            frozen_lockfile,
+            strict_no_lockfile,
+            production,
+            force,
+        )
+        .await;
+    }
 
     if packages.is_empty() {
         return reinstall(
@@ -124,6 +144,98 @@ pub async fn upgrade(
         force,
     )
     .await
+}
+
+/// Upgrade the manifest ranges of the target dependencies (or every
+/// upgradable dependency when none are named) to each package's newest
+/// published version, then reinstall.
+#[allow(clippy::too_many_arguments)]
+async fn upgrade_to_latest(
+    config: &SnpmConfig,
+    project: &mut Project,
+    packages: Vec<String>,
+    frozen_lockfile: FrozenLockfileMode,
+    strict_no_lockfile: bool,
+    production: bool,
+    force: bool,
+) -> Result<()> {
+    if matches!(frozen_lockfile, FrozenLockfileMode::Frozen) {
+        return Err(crate::SnpmError::Internal {
+            reason: "cannot upgrade packages when using frozen-lockfile".to_string(),
+        });
+    }
+
+    let include_dev = !production;
+    let target_names = if packages.is_empty() {
+        collect_upgradable_names(&project.manifest, include_dev)
+    } else {
+        packages.iter().map(|spec| parse_spec(spec).0).collect()
+    };
+
+    let client = crate::http::create_client()?;
+    let npm = RegistryProtocol::npm();
+    let mut manifest = project.manifest.clone();
+    let mut changed = false;
+
+    for name in target_names {
+        // Skip deps snpm can't range-resolve (git/file/link/workspace/…):
+        // rewriting them to a registry version would break the reference.
+        if current_spec(&manifest, &name).is_none_or(is_special_protocol_spec) {
+            continue;
+        }
+
+        match crate::registry::fetch_package(config, &client, &name, &npm).await {
+            Ok(package) => {
+                if let Some(latest) = package.dist_tags.get("latest") {
+                    changed |= update_manifest_entry(&mut manifest, &name, latest, production);
+                }
+            }
+            Err(error) => {
+                console::warn(&format!("could not fetch latest for {name}: {error}"));
+            }
+        }
+    }
+
+    if changed {
+        project.write_manifest(&manifest)?;
+        project.manifest = manifest;
+    }
+
+    reinstall(
+        config,
+        project,
+        include_dev,
+        frozen_lockfile,
+        strict_no_lockfile,
+        force,
+    )
+    .await
+}
+
+/// The names of manifest dependencies eligible for `--latest`: runtime and
+/// optional deps always, dev deps unless production-only.
+fn collect_upgradable_names(manifest: &crate::project::Manifest, include_dev: bool) -> Vec<String> {
+    let mut names: Vec<String> = manifest
+        .dependencies
+        .keys()
+        .chain(manifest.optional_dependencies.keys())
+        .cloned()
+        .collect();
+    if include_dev {
+        names.extend(manifest.dev_dependencies.keys().cloned());
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn current_spec<'a>(manifest: &'a crate::project::Manifest, name: &str) -> Option<&'a str> {
+    manifest
+        .dependencies
+        .get(name)
+        .or_else(|| manifest.dev_dependencies.get(name))
+        .or_else(|| manifest.optional_dependencies.get(name))
+        .map(String::as_str)
 }
 
 fn wanted_versions(entries: Vec<super::super::utils::OutdatedEntry>) -> BTreeMap<String, String> {

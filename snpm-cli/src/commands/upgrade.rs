@@ -22,6 +22,10 @@ pub struct UpgradeArgs {
     /// Production-only filter (same selector syntax as --filter)
     #[arg(long)]
     pub filter_prod: Vec<String>,
+    /// Upgrade to each dependency's newest version, rewriting manifest
+    /// ranges beyond the current constraint (npm's `update --latest`)
+    #[arg(long)]
+    pub latest: bool,
     /// Packages to upgrade (omit to refresh the lockfile and reinstall)
     pub packages: Vec<String>,
 }
@@ -65,13 +69,14 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
                 frozen_lockfile.strict_no_lockfile,
                 args.production,
                 args.force,
+                args.latest,
             )
             .await?;
         }
         return Ok(());
     }
 
-    if !args.packages.is_empty() {
+    if !args.packages.is_empty() || args.latest {
         let mut project = Project::discover(&cwd)?;
         operations::upgrade(
             config,
@@ -81,6 +86,7 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
             frozen_lockfile.strict_no_lockfile,
             args.production,
             args.force,
+            args.latest,
         )
         .await?;
         return Ok(());

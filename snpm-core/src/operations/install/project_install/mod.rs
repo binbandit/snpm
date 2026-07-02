@@ -107,12 +107,17 @@ pub async fn install(
         &project.manifest.optional_dependencies,
         options.include_dev,
     );
-    // On the Hot early-exit path the on-disk install-state already
-    // matched (that is what made it Hot), so rewriting the identical
-    // graph snapshot + layout checks is pure waste — skip it. Any other
-    // scenario changed node_modules and must refresh the state.
+    // On the Hot early-exit path the on-disk install-state usually
+    // already matched (that is what made it Hot), so rewriting the
+    // identical graph snapshot + layout checks is pure waste — skip it.
+    // But Hot can also be reached through the lockfile-parse fallback
+    // when no readable state file exists (fresh checkout of a valid
+    // node_modules, or a state format change): write it then, or the
+    // fast path never engages for this project. Any other scenario
+    // changed node_modules and must refresh the state.
+    let skip_state_write = early_exit && resolved.hot_install_state_current;
     let lockfile_source_path = plan.lockfile_source_path();
-    if !early_exit && lockfile_source_path.is_file() {
+    if !skip_state_write && lockfile_source_path.is_file() {
         super::utils::write_project_install_state(
             config,
             project,

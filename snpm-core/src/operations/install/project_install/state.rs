@@ -22,6 +22,7 @@ pub(super) struct ResolvedInstall {
     pub store_paths: BTreeMap<PackageId, PathBuf>,
     pub integrity_state: Option<IntegrityState>,
     pub wrote_lockfile: bool,
+    pub hot_install_state_current: bool,
 }
 
 pub(super) async fn resolve_install_state(
@@ -64,6 +65,7 @@ pub(super) async fn resolve_install_state(
         graph,
         integrity_state,
         scenario,
+        hot_install_state_current,
         ..
     } = scenario_result;
     let mut store_paths = BTreeMap::new();
@@ -191,6 +193,7 @@ pub(super) async fn resolve_install_state(
         store_paths,
         integrity_state,
         wrote_lockfile,
+        hot_install_state_current,
     })
 }
 

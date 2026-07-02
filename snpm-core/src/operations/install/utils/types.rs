@@ -215,6 +215,12 @@ pub struct ScenarioResult {
     pub cache_check: Option<CacheCheckResult>,
     pub graph: Option<ResolutionGraph>,
     pub integrity_state: Option<IntegrityState>,
+    /// True only when a Hot classification came from a valid on-disk
+    /// install-state file. A Hot reached through the lockfile-parse
+    /// fallback (state file absent or unreadable, e.g. right after an
+    /// upgrade changed the state format) must still write a fresh state
+    /// file or the fast path never engages for that project.
+    pub hot_install_state_current: bool,
 }
 
 impl ScenarioResult {
@@ -224,6 +230,7 @@ impl ScenarioResult {
             cache_check: None,
             graph: None,
             integrity_state: None,
+            hot_install_state_current: false,
         }
     }
 }

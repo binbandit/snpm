@@ -5,6 +5,7 @@ mod integrity;
 mod layout_state;
 mod scenario;
 mod script_policy;
+mod snapshot_graph;
 mod store;
 mod types;
 

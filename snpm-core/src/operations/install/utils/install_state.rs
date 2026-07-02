@@ -3,6 +3,7 @@ use super::layout_state::{
     LayoutCheck, build_project_layout_hash, build_workspace_layout_hash, capture_project_checks,
     capture_workspace_checks, install_state_path, package_path_ready,
 };
+use super::snapshot_graph::SnapshotGraph;
 use crate::resolve::ResolutionGraph;
 use crate::{Project, Result, SnpmConfig, SnpmError, Workspace};
 
@@ -13,22 +14,61 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
-const INSTALL_STATE_VERSION: u32 = 1;
+// v2: switched on-disk encoding from bincode to JSON (bincode cannot
+// round-trip the untagged enums embedded in the graph snapshot).
+const INSTALL_STATE_VERSION: u32 = 2;
 const LEGACY_GRAPH_SNAPSHOT_FILE: &str = ".snpm-graph-snapshot.bin";
 static NEXT_TMP_WRITE_ID: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct InstallStateFile {
     version: u32,
     graph_snapshot: GraphSnapshotState,
     layout: LayoutSnapshot,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct GraphSnapshotState {
     source: SnapshotSource,
     root_specs_hash: String,
     graph: ResolutionGraph,
+}
+
+/// On-disk mirror of [`InstallStateFile`]. Kept separate from the
+/// in-memory type so every consumer keeps working with a real
+/// `ResolutionGraph`, while the bytes on disk use [`SnapshotGraph`] —
+/// bincode cannot deserialize the untagged enums the real graph embeds.
+#[derive(Debug, Serialize, Deserialize)]
+struct DiskInstallStateFile {
+    version: u32,
+    source: SnapshotSource,
+    root_specs_hash: String,
+    graph: SnapshotGraph,
+    layout: LayoutSnapshot,
+}
+
+impl DiskInstallStateFile {
+    fn from_memory(state: &InstallStateFile) -> Self {
+        Self {
+            version: state.version,
+            source: state.graph_snapshot.source.clone(),
+            root_specs_hash: state.graph_snapshot.root_specs_hash.clone(),
+            graph: SnapshotGraph::from(&state.graph_snapshot.graph),
+            layout: state.layout.clone(),
+        }
+    }
+
+    fn into_memory(self) -> InstallStateFile {
+        InstallStateFile {
+            version: self.version,
+            graph_snapshot: GraphSnapshotState {
+                source: self.source,
+                root_specs_hash: self.root_specs_hash,
+                graph: self.graph.into(),
+            },
+            layout: self.layout,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,13 +343,17 @@ fn read_valid_install_state(path: &Path, source_path: &Path) -> Option<InstallSt
 
 fn read_install_state(path: &Path) -> Option<InstallStateFile> {
     let bytes = fs::read(path).ok()?;
-    bincode::deserialize(&bytes).ok()
+    bincode::deserialize::<DiskInstallStateFile>(&bytes)
+        .ok()
+        .map(DiskInstallStateFile::into_memory)
 }
 
 fn write_install_state(path: &Path, state: &InstallStateFile) -> Result<()> {
-    let data = bincode::serialize(state).map_err(|source| SnpmError::SerializeJson {
-        path: path.to_path_buf(),
-        reason: source.to_string(),
+    let data = bincode::serialize(&DiskInstallStateFile::from_memory(state)).map_err(|source| {
+        SnpmError::SerializeJson {
+            path: path.to_path_buf(),
+            reason: source.to_string(),
+        }
     })?;
     let parent = path.parent().ok_or_else(|| SnpmError::Internal {
         reason: format!("install state path has no parent: {}", path.display()),
@@ -745,8 +789,11 @@ mod tests {
                     dependencies: BTreeMap::new(),
                     peer_dependencies: BTreeMap::new(),
                     bundled_dependencies: None,
-                    has_bin: false,
-                    bin: None,
+                    // A bin (an `#[serde(untagged)]` enum) must survive the
+                    // on-disk round-trip: with the old bincode encoding this
+                    // failed to deserialize, silently killing the fast path.
+                    has_bin: true,
+                    bin: Some(crate::project::BinField::Single("cli.js".to_string())),
                 },
             )]),
         }

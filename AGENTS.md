@@ -46,7 +46,7 @@ Top-level commands in `snpm-cli/src/cli.rs`:
 - `rebuild`
 - `patch` (`edit`, `commit`, `remove`, `list`)
 - `clean`
-- `audit` (`--fix` path available)
+- `audit` (`--fix` reports advisories with patched versions available and how to apply them; it does not mutate the manifest)
 - `why`
 - `store` (`status`, `prune`, `path`)
 - `unlink`
@@ -82,8 +82,9 @@ Public module exports in `snpm-core/src/lib.rs`:
 5. Resolver computes/loads dependency graph and lockfile inputs.
 6. Store layer ensures tarballs are materialized into cache and extracted with `.snpm_complete` markers.
 7. Linker builds `node_modules/.snpm` virtual store and root links (`link_dir` / symlink/copy/back-end behavior).
-8. Integrity markers are computed and written; hot-path checks use them to short-circuit install work.
-9. Lifecycle scripts run according to policy (`SNPM_ALLOW_SCRIPTS` and workspace overrides).
+8. Root linking converges `node_modules` to the resolved graph: stale root links that point into a snpm virtual store (removed/dev-omitted packages) are pruned along with their dangling `.bin` launchers; entries from `snpm link`, `file:`/`link:` deps, and workspace cross-links are never touched.
+9. Integrity markers are computed and written; hot-path checks use them to short-circuit install work.
+10. Lifecycle scripts run according to policy (`SNPM_ALLOW_SCRIPTS` and workspace overrides).
 
 ## Workspace, Catalogs, Overrides, and Filtering
 
@@ -104,8 +105,10 @@ Public module exports in `snpm-core/src/lib.rs`:
 
 - Lockfile path: `snpm-lock.yaml`.
 - Schema version currently supported: `1`.
-- Root entries store `requested` plus `version`/`optional` metadata.
-- Package entries include name/version/tarball/integrity/dependencies/bundledDependencies/hasBin.
+- Root entries store `requested` plus `version`/`optional` metadata, and `package` when the entry is an npm alias (edge name differs from the resolved package).
+- Package entries include name/version/tarball/integrity/dependencies/peerDependencies/bundledDependencies/hasBin. Packages are keyed by their *resolved* identity (`real-name@version`); alias names live only on edges.
+- Peer ranges are persisted so `SNPM_STRICT_PEERS` validation also works for graphs rebuilt from the lockfile, not just cold resolves.
+- A binary sidecar (`snpm-lock.bin`, format v3) is written beside the YAML for fast loads; it embeds a SHA-256 of the YAML and falls back to YAML parsing on any mismatch.
 - Lockfile writes occur for install-plan paths where `include_dev = true`; production-only paths skip dev resolution and avoid writing dev-inclusive lockfile updates.
 - Integrity file: `node_modules/.snpm-integrity` at project root and per-project in workspace installs.
 - Hot install path validates cached install state against lockfile-derived integrity.
@@ -133,7 +136,7 @@ Derived data directories from `SnpmConfig`:
 - Node current pointer: `<data_dir>/node/current` (plain-text active version)
 - Node release-index cache: `<cache_dir>/node/index.json` (6h TTL)
 
-Global install storage is managed via `snpm add -g` and `snpm remove -g` and symlinked into `<data_dir>/bin`.
+Global installs are a managed snpm project at `<data_dir>/global`: its `package.json` dependencies are the globally installed packages, and `snpm add -g` / `snpm remove -g` run the standard install pipeline against it (full dependency tree, lockfile, virtual store, hot path). Each installed package's bins are linked flat into `<data_dir>/bin` (the directory users put on PATH); removal prunes launchers whose targets vanished. `snpm list -g` reads the managed manifest.
 
 ## Config and Auth Sources
 
@@ -184,7 +187,7 @@ Auth persistence is written to:
 - `link` supports local/project linking and global symlink flows.
 - `store status/path/prune` expose cache health and cleanup hooks.
 - `snpm-switch` is a separate binary intended for pin-aware launcher behavior and is not the primary CLI path for package operations.
-- `snpm node` manages Node.js versions (downloads from `nodejs.org/dist`, verifies SHASUMS256.txt) and pins via `.node-version`, `.nvmrc`, or `engines.node`. `snpm run`/`snpm exec`/lifecycle scripts prepend the matching Node `bin/` directory to `PATH` automatically; missing pinned versions are downloaded on demand unless `SNPM_NODE_AUTO_INSTALL=0`. `snpm node env --shell <sh>` emits a hook for interactive `cd` auto-switching.
+- `snpm node` manages Node.js versions (downloads from `nodejs.org/dist`, verifies SHASUMS256.txt) and pins via `.node-version`, `.nvmrc`, or `engines.node` (exact versions, partials like `20`, and ranges all match installed versions). `snpm run`/`snpm exec` prepend the matching Node `bin/` directory to `PATH` automatically and download a missing pinned version on demand; `SNPM_NODE_AUTO_INSTALL=0` makes an unsatisfied pin a hard error instead. Lifecycle scripts use the offline pin lookup only. The release-index cache is served stale when the network is down. `snpm node env --shell <sh>` emits a hook for interactive `cd` auto-switching.
 
 ## Code Style / Operating Notes
 

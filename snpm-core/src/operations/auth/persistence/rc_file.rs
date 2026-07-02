@@ -32,5 +32,20 @@ pub(super) fn write_rc_file(path: &Path, lines: &[String]) -> Result<()> {
     fs::write(path, content).map_err(|source| SnpmError::WriteFile {
         path: path.to_path_buf(),
         source,
-    })
+    })?;
+
+    // The rc file can hold _authToken lines; keep it out of reach of
+    // other local users (npm does the same for credentials files).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|source| {
+            SnpmError::WriteFile {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+    }
+
+    Ok(())
 }

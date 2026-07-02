@@ -31,10 +31,10 @@ fn remove_package(global_dir: &Path, global_bin_dir: &Path, package_name: &str) 
         })?;
     }
 
-    remove_package_bins(package_name, global_bin_dir)
+    remove_package_bins(global_dir, package_name, global_bin_dir)
 }
 
-fn remove_package_bins(package_name: &str, bin_dir: &Path) -> Result<()> {
+fn remove_package_bins(global_dir: &Path, package_name: &str, bin_dir: &Path) -> Result<()> {
     if !bin_dir.exists() {
         return Ok(());
     }
@@ -44,6 +44,11 @@ fn remove_package_bins(package_name: &str, bin_dir: &Path) -> Result<()> {
         source,
     })?;
 
+    // Only remove launchers that point inside this package's global
+    // dir. A substring match would delete unrelated bins (removing
+    // "ts" would match anything under .../typescript/...).
+    let package_root = global_dir.join(package_name);
+
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_symlink() {
@@ -51,7 +56,7 @@ fn remove_package_bins(package_name: &str, bin_dir: &Path) -> Result<()> {
         }
 
         if let Ok(target) = fs::read_link(&path)
-            && target.to_string_lossy().contains(package_name)
+            && target.starts_with(&package_root)
         {
             fs::remove_file(&path).ok();
         }

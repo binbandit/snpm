@@ -1,4 +1,3 @@
-use crate::console;
 use crate::{Result, SnpmError};
 use base64::Engine;
 use sha1::Sha1;
@@ -237,11 +236,15 @@ impl IntegrityVerifier {
 
     pub(super) fn finish(self, url: &str) -> Result<Option<IntegrityCacheKey>> {
         if !self.spec.saw_supported {
-            console::warn(&format!(
-                "Skipping integrity verification for {}: unsupported algorithm",
-                url
-            ));
-            return Ok(None);
+            // Integrity metadata was present but named no algorithm we
+            // can check. Silently accepting the tarball would turn a
+            // downgraded/unknown algorithm into a full verification
+            // bypass, so fail hard instead.
+            return Err(SnpmError::Tarball {
+                url: url.to_string(),
+                reason: "integrity value uses no supported algorithm (sha512/sha256/sha1)"
+                    .to_string(),
+            });
         }
 
         let actual_sha512 = self.sha512.map(|hasher| hasher.finalize().to_vec());
@@ -342,6 +345,19 @@ mod tests {
     #[test]
     fn verify_integrity_whitespace_only_is_ok() {
         assert!(verify_integrity("https://example.com/pkg.tgz", Some("   "), b"anything").is_ok());
+    }
+
+    #[test]
+    fn verify_integrity_unsupported_algorithm_only_is_rejected() {
+        // md5-only integrity must not silently skip verification.
+        assert!(
+            verify_integrity(
+                "https://example.com/pkg.tgz",
+                Some("md5-CY9rzUYh03PK3k6DJie09g=="),
+                b"anything"
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::linker::bins::link_bins;
+use crate::linker::bins::link_bins_flat;
 use crate::linker::fs::link_dir;
 use crate::resolve;
 use crate::store;
@@ -94,7 +94,7 @@ async fn install_package(
     }
 
     link_dir(config, &store_path, &package_dir)?;
-    link_bins(&package_dir, global_bin_dir, &name)?;
+    link_bins_flat(&package_dir, global_bin_dir, &name)?;
 
     console::added(&name, &root_dep.resolved.version, false);
     Ok(())

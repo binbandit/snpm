@@ -3,18 +3,21 @@ use snpm_core::operations;
 use super::style::{paint, severity_badge};
 
 pub(crate) fn render_fix_report(result: &operations::FixResult) {
-    if !result.fixed.is_empty() {
+    if !result.fixable.is_empty() {
         println!();
         println!(
             "{}",
             paint(
                 "32;1",
-                &format!("Fixed {} vulnerabilities:", result.fixed.len())
+                &format!(
+                    "{} vulnerabilities have a patched version available:",
+                    result.fixable.len()
+                )
             )
         );
         println!();
 
-        for fix in &result.fixed {
+        for fix in &result.fixable {
             println!(
                 "  {} {} {} -> {}",
                 severity_badge(fix.severity),

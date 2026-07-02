@@ -180,6 +180,48 @@ fn npm_protocol_no_version() {
 }
 
 #[test]
+fn bare_major_minor_matches_like_npm_partial_range() {
+    // npm: "1.2" === "1.2.x" (>=1.2.0 <1.3.0), NOT cargo's ^1.2.
+    let set = RangeSet::parse("1.2").unwrap();
+    assert!(set.matches(&Version::parse("1.2.0").unwrap()));
+    assert!(set.matches(&Version::parse("1.2.99").unwrap()));
+    assert!(!set.matches(&Version::parse("1.3.0").unwrap()));
+    assert!(!set.matches(&Version::parse("1.9.0").unwrap()));
+    assert!(!set.matches(&Version::parse("1.1.9").unwrap()));
+}
+
+#[test]
+fn bare_major_still_matches_whole_major() {
+    let set = RangeSet::parse("1").unwrap();
+    assert!(set.matches(&Version::parse("1.0.0").unwrap()));
+    assert!(set.matches(&Version::parse("1.9.9").unwrap()));
+    assert!(!set.matches(&Version::parse("2.0.0").unwrap()));
+}
+
+#[test]
+fn v_prefixed_exact_version() {
+    let set = RangeSet::parse("v1.2.3").unwrap();
+    assert!(set.matches(&Version::parse("1.2.3").unwrap()));
+    assert!(!set.matches(&Version::parse("1.2.4").unwrap()));
+}
+
+#[test]
+fn v_prefixed_version_after_operator() {
+    let set = RangeSet::parse(">=v1.2.3").unwrap();
+    assert!(set.matches(&Version::parse("1.2.3").unwrap()));
+    assert!(set.matches(&Version::parse("2.0.0").unwrap()));
+    assert!(!set.matches(&Version::parse("1.2.2").unwrap()));
+}
+
+#[test]
+fn v_prefix_does_not_mangle_prerelease_tags() {
+    // "1.2.3-v5" ends with a tag starting with 'v'; only leading token
+    // positions may strip.
+    let set = RangeSet::parse("1.2.3-v5").unwrap();
+    assert!(set.matches(&Version::parse("1.2.3-v5").unwrap()));
+}
+
+#[test]
 fn is_plain_exact_version_true() {
     assert!(is_plain_exact_version("1.2.3"));
     assert!(is_plain_exact_version("0.0.0"));

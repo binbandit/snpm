@@ -17,13 +17,26 @@ pub fn write_manifest(
 
     let mut new_dependencies = project.manifest.dependencies.clone();
     let mut new_dev_dependencies = project.manifest.dev_dependencies.clone();
+    let mut new_optional_dependencies = project.manifest.optional_dependencies.clone();
 
     for (name, dep) in &graph.root.dependencies {
-        if !additions.contains_key(name) {
+        let Some(requested) = additions.get(name) else {
             continue;
-        }
+        };
 
-        let spec = manifest_spec_for_dependency(name, &dep.resolved.version, workspace, catalog);
+        let spec = manifest_spec_for_dependency(
+            name,
+            requested,
+            &dep.resolved.version,
+            workspace,
+            catalog,
+        );
+
+        // The package lands in exactly one section; drop it from the
+        // others so `snpm add -D x` moves an existing prod entry.
+        new_dependencies.remove(name);
+        new_dev_dependencies.remove(name);
+        new_optional_dependencies.remove(name);
 
         if dev {
             new_dev_dependencies.insert(name.clone(), spec);
@@ -34,6 +47,7 @@ pub fn write_manifest(
 
     project.manifest.dependencies = new_dependencies;
     project.manifest.dev_dependencies = new_dev_dependencies;
+    project.manifest.optional_dependencies = new_optional_dependencies;
     project.write_manifest(&project.manifest)?;
 
     Ok(())
@@ -41,6 +55,7 @@ pub fn write_manifest(
 
 fn manifest_spec_for_dependency(
     name: &str,
+    requested: &str,
     version: &str,
     workspace: Option<&Workspace>,
     catalog: Option<&CatalogConfig>,
@@ -49,7 +64,16 @@ fn manifest_spec_for_dependency(
         return selector;
     }
 
-    format!("^{version}")
+    // Preserve what the user asked for: `snpm add pkg@4.17.20` must pin
+    // 4.17.20, `pkg@~1.2.0` must keep the tilde, and git/file/npm-alias
+    // specs must survive verbatim. Only a bare `snpm add pkg` (parsed
+    // as "latest") defaults to caret-on-resolved-version.
+    let requested = requested.trim();
+    if requested.is_empty() || requested == "latest" || requested == "*" {
+        format!("^{version}")
+    } else {
+        requested.to_string()
+    }
 }
 
 fn catalog_selector(

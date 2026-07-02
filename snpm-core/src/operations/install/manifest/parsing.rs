@@ -28,6 +28,19 @@ pub fn parse_requested_with_protocol(
 }
 
 pub fn parse_requested_spec(spec: &str) -> ParsedSpec {
+    // `alias@npm:real@range` (and jsr aliases) keep the alias as the
+    // dependency name and the whole `npm:...` tail as its range — the
+    // same shape a manifest alias entry uses. Without this, the text
+    // before the colon ("alias@npm") was mistaken for a protocol and
+    // the alias name was lost.
+    if let Some((name, range)) = split_alias_spec(spec) {
+        return ParsedSpec {
+            name,
+            range,
+            protocol: None,
+        };
+    }
+
     let (protocol, rest) = split_protocol_prefix(spec);
     let (name, range) = split_package_spec(rest);
 
@@ -36,6 +49,17 @@ pub fn parse_requested_spec(spec: &str) -> ParsedSpec {
         range,
         protocol,
     }
+}
+
+fn split_alias_spec(spec: &str) -> Option<(String, String)> {
+    for marker in ["@npm:", "@jsr:"] {
+        if let Some(index) = spec.find(marker)
+            && index > 0
+        {
+            return Some((spec[..index].to_string(), spec[index + 1..].to_string()));
+        }
+    }
+    None
 }
 
 pub fn parse_spec(spec: &str) -> (String, String) {
@@ -121,5 +145,29 @@ mod tests {
         let parsed = parse_requested_spec("lodash@^4.0.0");
         assert_eq!(parsed.name, "lodash");
         assert_eq!(parsed.range, "^4.0.0");
+    }
+
+    #[test]
+    fn parse_requested_spec_alias() {
+        let parsed = parse_requested_spec("my-alias@npm:lodash@^4.0.0");
+        assert_eq!(parsed.protocol, None);
+        assert_eq!(parsed.name, "my-alias");
+        assert_eq!(parsed.range, "npm:lodash@^4.0.0");
+    }
+
+    #[test]
+    fn parse_requested_spec_scoped_alias() {
+        let parsed = parse_requested_spec("@myorg/tool@npm:@scope/pkg@^1.0.0");
+        assert_eq!(parsed.protocol, None);
+        assert_eq!(parsed.name, "@myorg/tool");
+        assert_eq!(parsed.range, "npm:@scope/pkg@^1.0.0");
+    }
+
+    #[test]
+    fn parse_requested_spec_bare_protocol_still_works() {
+        let parsed = parse_requested_spec("npm:@scope/pkg@^1.0.0");
+        assert_eq!(parsed.protocol.as_deref(), Some("npm"));
+        assert_eq!(parsed.name, "@scope/pkg");
+        assert_eq!(parsed.range, "^1.0.0");
     }
 }

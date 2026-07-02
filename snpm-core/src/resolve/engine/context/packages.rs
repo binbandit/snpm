@@ -21,6 +21,10 @@ impl<'a> ResolverContext<'a> {
         true
     }
 
+    pub(in crate::resolve) async fn remove_package(&self, id: &PackageId) {
+        self.state.packages.lock().await.remove(id);
+    }
+
     pub(in crate::resolve) async fn update_dependencies(
         &self,
         id: &PackageId,

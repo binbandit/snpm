@@ -13,8 +13,15 @@ pub(super) fn is_fresh(config: &SnpmConfig, updated_at_unix_secs: u64) -> bool {
         return false;
     };
 
-    let age_days = now.saturating_sub(std::time::Duration::from_secs(updated_at_unix_secs));
-    age_days.as_secs() / 86400 < max_age_days as u64
+    // A timestamp from the future (clock rollback, restored backup, NFS
+    // skew) would otherwise saturate to age 0 and read as fresh for the
+    // whole window; treat it as stale instead.
+    let now_secs = now.as_secs();
+    if updated_at_unix_secs > now_secs {
+        return false;
+    }
+
+    (now_secs - updated_at_unix_secs) / 86400 < max_age_days as u64
 }
 
 pub(super) fn log_cache_hit(name: &str, cache_path: &Path, fresh: bool) {

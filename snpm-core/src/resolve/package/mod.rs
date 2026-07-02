@@ -76,7 +76,21 @@ impl<'a> ResolverContext<'a> {
         self.notify_prefetch(placeholder);
         self.prefetch_dependency_frontier(&version_meta).await;
 
-        let dependencies = self.resolve_dependencies(&id, &version_meta).await?;
+        // If the dependency subtree fails to resolve, drop the
+        // placeholder before propagating: under an optional edge the
+        // caller swallows the error, and a surviving placeholder with
+        // empty `dependencies` would be persisted to the lockfile as a
+        // complete package — installed forever without its transitive
+        // deps. A removed entry at worst leaves a dangling edge in a
+        // concurrent consumer, which the next install detects as an
+        // incomplete subgraph and re-resolves.
+        let dependencies = match self.resolve_dependencies(&id, &version_meta).await {
+            Ok(dependencies) => dependencies,
+            Err(error) => {
+                self.remove_package(&id).await;
+                return Err(error);
+            }
+        };
         self.update_dependencies(&id, dependencies).await;
 
         Ok(id)

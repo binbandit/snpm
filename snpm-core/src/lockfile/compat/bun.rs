@@ -517,7 +517,12 @@ fn is_integrity_hash(value: &str) -> bool {
 }
 
 fn strip_jsonc(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
+    // Build the output as bytes: every decision point is an ASCII byte,
+    // and multi-byte UTF-8 sequences are either copied verbatim or
+    // replaced wholesale with ASCII, so the result stays valid UTF-8.
+    // (Pushing `byte as char` would reinterpret continuation bytes as
+    // Latin-1 and mojibake any non-ASCII string content.)
+    let mut output: Vec<u8> = Vec::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut index = 0;
     let mut in_string = false;
@@ -527,7 +532,7 @@ fn strip_jsonc(input: &str) -> String {
         let byte = bytes[index];
 
         if in_string {
-            output.push(byte as char);
+            output.push(byte);
             if escaped {
                 escaped = false;
             } else if byte == b'\\' {
@@ -541,28 +546,28 @@ fn strip_jsonc(input: &str) -> String {
 
         if byte == b'/' && index + 1 < bytes.len() && bytes[index + 1] == b'/' {
             while index < bytes.len() && bytes[index] != b'\n' {
-                output.push(' ');
+                output.push(b' ');
                 index += 1;
             }
             continue;
         }
 
         if byte == b'/' && index + 1 < bytes.len() && bytes[index + 1] == b'*' {
-            output.push(' ');
-            output.push(' ');
+            output.push(b' ');
+            output.push(b' ');
             index += 2;
             while index + 1 < bytes.len() && !(bytes[index] == b'*' && bytes[index + 1] == b'/') {
-                output.push(if bytes[index] == b'\n' { '\n' } else { ' ' });
+                output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
                 index += 1;
             }
 
             if index + 1 < bytes.len() {
-                output.push(' ');
-                output.push(' ');
+                output.push(b' ');
+                output.push(b' ');
                 index += 2;
             } else {
                 while index < bytes.len() {
-                    output.push(if bytes[index] == b'\n' { '\n' } else { ' ' });
+                    output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
                     index += 1;
                 }
             }
@@ -571,12 +576,12 @@ fn strip_jsonc(input: &str) -> String {
 
         if byte == b',' {
             let mut lookahead = index + 1;
-            while lookahead < bytes.len() && (bytes[lookahead] as char).is_whitespace() {
+            while lookahead < bytes.len() && bytes[lookahead].is_ascii_whitespace() {
                 lookahead += 1;
             }
 
             if lookahead < bytes.len() && (bytes[lookahead] == b'}' || bytes[lookahead] == b']') {
-                output.push(' ');
+                output.push(b' ');
                 index += 1;
                 continue;
             }
@@ -586,11 +591,11 @@ fn strip_jsonc(input: &str) -> String {
             in_string = true;
         }
 
-        output.push(byte as char);
+        output.push(byte);
         index += 1;
     }
 
-    output
+    String::from_utf8(output).expect("strip_jsonc preserves UTF-8 validity")
 }
 
 fn derive_registry_tarball(config: &SnpmConfig, name: &str, version: &str) -> Option<String> {
@@ -867,5 +872,14 @@ mod tests {
         assert_eq!(output.len(), input.len());
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert_eq!(parsed["a"], 1);
+    }
+
+    #[test]
+    fn strip_jsonc_preserves_non_ascii_strings() {
+        let input = "{\n  // café ☕ comment\n  \"name\": \"café-pkg\", \"path\": \"日本語\"\n}\n";
+        let output = strip_jsonc(input);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["name"], "café-pkg");
+        assert_eq!(parsed["path"], "日本語");
     }
 }

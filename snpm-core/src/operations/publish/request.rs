@@ -5,11 +5,12 @@ use super::manifest::PackageIdentity;
 
 pub(super) async fn send_publish_request(
     config: &SnpmConfig,
+    registry: &str,
     package: &PackageIdentity,
     options: &PublishOptions,
     payload: serde_json::Value,
 ) -> Result<()> {
-    let url = publish_url(config, &package.name);
+    let url = publish_url(registry, &package.name);
     let client = http::create_client()?;
     let mut request = client.put(&url).json(&payload);
 
@@ -40,11 +41,7 @@ pub(super) async fn send_publish_request(
     })
 }
 
-fn publish_url(config: &SnpmConfig, name: &str) -> String {
+fn publish_url(registry: &str, name: &str) -> String {
     let encoded_name = crate::protocols::encode_package_name(name);
-    format!(
-        "{}/{}",
-        config.default_registry.trim_end_matches('/'),
-        encoded_name
-    )
+    format!("{}/{}", registry.trim_end_matches('/'), encoded_name)
 }

@@ -5,7 +5,7 @@ mod wire;
 
 pub use counts::VulnerabilityCounts;
 pub use results::{
-    AuditOptions, AuditResult, FixResult, FixedVulnerability, UnfixableVulnerability,
+    AuditOptions, AuditResult, FixResult, FixableVulnerability, UnfixableVulnerability,
 };
 pub use severity::Severity;
 pub use wire::{

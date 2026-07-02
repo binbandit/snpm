@@ -26,12 +26,12 @@ pub struct AuditResult {
 
 #[derive(Debug, Clone)]
 pub struct FixResult {
-    pub fixed: Vec<FixedVulnerability>,
+    pub fixable: Vec<FixableVulnerability>,
     pub unfixable: Vec<UnfixableVulnerability>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FixedVulnerability {
+pub struct FixableVulnerability {
     pub package: String,
     pub from_version: String,
     pub to_version: String,

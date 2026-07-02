@@ -11,15 +11,18 @@ pub(super) async fn run_fix(
     let project = Project::discover(cwd)?;
     let result = operations::fix(config, &project, options).await?;
 
-    if result.fixed.is_empty() && result.unfixable.is_empty() {
+    if result.fixable.is_empty() && result.unfixable.is_empty() {
         console::info("No vulnerabilities found.");
         return Ok(());
     }
 
     render_fix_report(&result);
 
-    if !result.fixed.is_empty() {
-        console::info("Run `snpm install` to apply fixes.");
+    if !result.fixable.is_empty() {
+        console::info(
+            "Update the listed dependencies (e.g. `snpm upgrade <package>` or edit \
+             package.json to a patched range) and reinstall to resolve them.",
+        );
     }
 
     Ok(())

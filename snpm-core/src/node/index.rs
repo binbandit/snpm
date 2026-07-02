@@ -59,27 +59,17 @@ pub async fn fetch_index(config: &SnpmConfig, force_refresh: bool) -> Result<Vec
     }
 
     let url = format!("{}{}", distro_url(), DIST_INDEX_PATH);
-    let client = http::create_client()?;
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|source| SnpmError::Http {
-            url: url.clone(),
-            source,
-        })?;
-
-    if !response.status().is_success() {
-        return Err(SnpmError::Tarball {
-            url,
-            reason: format!("HTTP {}", response.status()),
-        });
-    }
-
-    let bytes = response.bytes().await.map_err(|source| SnpmError::Http {
-        url: url.clone(),
-        source,
-    })?;
+    let bytes = match download_index(&url).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            // A stale cached index beats a hard failure when the
+            // network is down — the releases it lists still exist.
+            if let Some(releases) = read_cached(&cache_path) {
+                return Ok(releases);
+            }
+            return Err(error);
+        }
+    };
 
     let releases: Vec<NodeRelease> =
         serde_json::from_slice(&bytes).map_err(|source| SnpmError::ParseJson {
@@ -100,6 +90,34 @@ pub async fn fetch_index(config: &SnpmConfig, force_refresh: bool) -> Result<Vec
     })?;
 
     Ok(releases)
+}
+
+async fn download_index(url: &str) -> Result<Vec<u8>> {
+    let client = http::create_client()?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|source| SnpmError::Http {
+            url: url.to_string(),
+            source,
+        })?;
+
+    if !response.status().is_success() {
+        return Err(SnpmError::Tarball {
+            url: url.to_string(),
+            reason: format!("HTTP {}", response.status()),
+        });
+    }
+
+    response
+        .bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .map_err(|source| SnpmError::Http {
+            url: url.to_string(),
+            source,
+        })
 }
 
 pub fn read_cached_index(config: &SnpmConfig) -> Option<Vec<NodeRelease>> {

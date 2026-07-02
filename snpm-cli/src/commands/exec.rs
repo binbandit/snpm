@@ -24,7 +24,7 @@ pub struct ExecArgs {
     #[arg(long = "skip-install")]
     pub skip_install: bool,
     /// Arguments passed to the command
-    #[arg(trailing_var_arg = true)]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
 }
 

@@ -109,8 +109,12 @@ pub async fn install(
     );
     // On the Hot early-exit path the on-disk install-state already
     // matched (that is what made it Hot), so rewriting the identical
-    // graph snapshot + layout checks is pure waste — skip it. Any other
-    // scenario changed node_modules and must refresh the state.
+    // graph snapshot + layout checks would almost always be redundant —
+    // skip it. The one edge: a root lifecycle script (prepare/postinstall)
+    // that mutates node_modules leaves the captured boundary mtimes stale,
+    // so the next run re-links once (WarmLinkOnly) and refreshes the state.
+    // That is self-healing and cheaper than re-capturing on every hot run.
+    // Any other scenario changed node_modules and must refresh the state.
     let lockfile_source_path = plan.lockfile_source_path();
     if !early_exit && lockfile_source_path.is_file() {
         super::utils::write_project_install_state(

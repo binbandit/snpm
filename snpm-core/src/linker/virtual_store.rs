@@ -177,6 +177,8 @@ fn wire_dep_symlinks_into(
     // Resolved peers are wired alongside the package's own dependencies so
     // that a shared entry is self-contained: Node finds the peer inside
     // the entry's node_modules without walking up out of the store.
+    // `resolve_unique_peers` guarantees peer names are disjoint from
+    // dependency names, so this merge never overwrites a dependency edge.
     let wired: BTreeMap<&String, &PackageId> = package
         .dependencies
         .iter()
@@ -450,6 +452,15 @@ pub(crate) fn resolve_unique_peers(
         let mut peer_map = BTreeMap::new();
         let mut all_satisfied = true;
         for (peer_name, peer_range) in &package.peer_dependencies {
+            // A peer that is also a direct dependency is already provided
+            // by that dependency edge. Resolving it as an external peer
+            // could pick a different version and, once wired, clobber the
+            // concretely-resolved dependency — so treat it as satisfied
+            // and leave it out of the peer map (the dep does the wiring).
+            if package.dependencies.contains_key(peer_name) {
+                continue;
+            }
+
             let Ok(range) = crate::version::parse_range_set(peer_name, peer_range) else {
                 all_satisfied = false;
                 break;
@@ -465,7 +476,11 @@ pub(crate) fn resolve_unique_peers(
             }
         }
 
-        if all_satisfied && !peer_map.is_empty() {
+        // Insert even when `peer_map` is empty (every required peer was a
+        // dependency): the package is self-contained for its peers and so
+        // stays shareable — the presence of the key is what marks it as
+        // "peers resolved" for the project-local decision.
+        if all_satisfied {
             resolved.insert(id.clone(), peer_map);
         }
     }
@@ -1490,6 +1505,60 @@ mod tests {
             Some(&react_17)
         );
         let _ = config;
+    }
+
+    #[test]
+    fn peer_that_is_also_a_dependency_does_not_clobber_the_dependency() {
+        // A package listing `foo` in BOTH dependencies and peerDependencies
+        // must keep its resolved dependency edge (foo@1.0.0). The peer must
+        // not be resolved to a different dominant version (foo@2.0.0) and
+        // wired over the dependency.
+        let foo1 = PackageId {
+            name: "foo".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let foo2 = PackageId {
+            name: "foo".to_string(),
+            version: "2.0.0".to_string(),
+        };
+        let p_id = PackageId {
+            name: "p".to_string(),
+            version: "1.0.0".to_string(),
+        };
+
+        let mut graph = make_graph(&p_id);
+        {
+            let p = graph.packages.get_mut(&p_id).unwrap();
+            p.dependencies.insert("foo".to_string(), foo1.clone());
+            p.peer_dependencies
+                .insert("foo".to_string(), ">=1.0.0".to_string());
+        }
+        for id in [&foo1, &foo2] {
+            graph.packages.insert(
+                id.clone(),
+                ResolvedPackage {
+                    id: id.clone(),
+                    tarball: String::new(),
+                    integrity: None,
+                    dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
+                    bundled_dependencies: None,
+                    has_bin: false,
+                    bin: None,
+                },
+            );
+        }
+
+        let resolved = resolve_unique_peers(&graph);
+        // P stays shareable (self-contained for its peer)...
+        let peers = resolved
+            .get(&p_id)
+            .expect("a package whose only peer is also a dependency stays shareable");
+        // ...but `foo` is not wired as a peer: the dependency edge provides it.
+        assert!(
+            !peers.contains_key("foo"),
+            "a peer that is also a dependency must not override the dependency edge"
+        );
     }
 
     #[cfg(unix)]

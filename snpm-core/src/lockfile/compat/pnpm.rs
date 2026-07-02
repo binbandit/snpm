@@ -154,8 +154,10 @@ fn extract_main_document(content: &str) -> &str {
         return content;
     }
 
+    // A leading marker with no second separator is just a plain
+    // single-document file; the document is everything after it.
     let Some(idx) = content[START.len()..].find(SEP) else {
-        return "";
+        return &content[START.len()..];
     };
 
     &content[idx + START.len() + SEP.len()..]
@@ -655,6 +657,37 @@ snapshots:
             "https://registry.npmjs.org/is-positive/-/is-positive-1.0.0.tgz"
         );
         assert_eq!(pkg.integrity.as_deref(), Some("sha512-abc"));
+    }
+
+    #[test]
+    fn imports_lockfile_with_leading_document_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pnpm-lock.yaml");
+        std::fs::write(
+            &path,
+            r#"---
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      is-positive:
+        specifier: ^1.0.0
+        version: 1.0.0
+packages:
+  is-positive@1.0.0:
+    resolution:
+      integrity: sha512-abc
+snapshots:
+  is-positive@1.0.0: {}
+"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+        assert_eq!(
+            lockfile.root.dependencies["is-positive"].version.as_deref(),
+            Some("1.0.0")
+        );
     }
 
     #[test]

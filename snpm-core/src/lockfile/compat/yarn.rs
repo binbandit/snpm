@@ -501,7 +501,13 @@ fn tokenize_classic_blocks(content: &str) -> std::result::Result<Vec<ClassicBloc
             in_dependencies = false;
             let body = line.trim_start();
             if body.ends_with(':') {
-                in_dependencies = body.trim_end_matches(':').trim() == "dependencies";
+                // Optional deps are still edges of this package; merge
+                // them into the same dependency map like the berry path
+                // does.
+                in_dependencies = matches!(
+                    body.trim_end_matches(':').trim(),
+                    "dependencies" | "optionalDependencies"
+                );
                 continue;
             }
 
@@ -859,6 +865,53 @@ mod tests {
             lockfile.packages["is-odd@3.0.1"].dependencies["is-number"],
             "is-number@6.0.0"
         );
+    }
+
+    #[test]
+    fn imports_yarn_classic_optional_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "optional-deps-test",
+  "version": "1.0.0",
+  "dependencies": {
+    "chokidar": "^3.5.0"
+  }
+}"#,
+        )
+        .unwrap();
+        let path = dir.path().join("yarn.lock");
+        fs::write(
+            &path,
+            r#"# yarn lockfile v1
+
+"chokidar@^3.5.0":
+  version "3.5.3"
+  resolved "https://registry.yarnpkg.com/chokidar/-/chokidar-3.5.3.tgz#hash"
+  integrity sha512-abc
+  dependencies:
+    braces "~3.0.2"
+  optionalDependencies:
+    fsevents "~2.3.2"
+
+"braces@~3.0.2":
+  version "3.0.2"
+  resolved "https://registry.yarnpkg.com/braces/-/braces-3.0.2.tgz#hash"
+  integrity sha512-def
+
+"fsevents@~2.3.2":
+  version "2.3.2"
+  resolved "https://registry.yarnpkg.com/fsevents/-/fsevents-2.3.2.tgz#hash"
+  integrity sha512-ghi
+"#,
+        )
+        .unwrap();
+
+        let lockfile = read(&path, &test_config()).unwrap();
+        let chokidar = &lockfile.packages["chokidar@3.5.3"];
+        assert_eq!(chokidar.dependencies["braces"], "braces@3.0.2");
+        assert_eq!(chokidar.dependencies["fsevents"], "fsevents@2.3.2");
     }
 
     #[test]

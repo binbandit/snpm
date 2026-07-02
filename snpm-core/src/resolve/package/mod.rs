@@ -56,8 +56,24 @@ impl<'a> ResolverContext<'a> {
 
         ensure_platform_compatible(name, range, &version_meta)?;
 
+        // Identity is the *resolved* package, not the edge name: an
+        // aliased dep ("foo": "npm:bar@^1") resolves to bar's content
+        // and must be keyed as bar. Keying by the edge name would
+        // collide with a real package also called "foo" at the same
+        // version — whichever resolved first would silently serve the
+        // wrong tarball to the other consumer. Edge names live in the
+        // parent's dependency map (and the lockfile root's `package`
+        // field), so nothing is lost. Git/file/custom sources keep the
+        // edge name: their `source` is a URL or path, not a name.
+        let resolved_name =
+            if matches!(request.protocol.name.as_str(), "npm" | "jsr") && request.source != name {
+                request.source.clone()
+            } else {
+                name.to_string()
+            };
+
         let id = PackageId {
-            name: name.to_string(),
+            name: resolved_name,
             version: version_meta.version.clone(),
         };
 

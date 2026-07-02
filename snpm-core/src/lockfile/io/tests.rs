@@ -51,6 +51,56 @@ fn write_and_read_round_trip() {
 }
 
 #[test]
+fn aliased_root_dependency_round_trips_with_real_package_identity() {
+    // "my-alias": "npm:real-pkg@^2.0.0" — the node is keyed by the real
+    // package, the edge keeps the alias, and the root entry records the
+    // mapping in `package`.
+    let real_id = PackageId {
+        name: "real-pkg".to_string(),
+        version: "2.1.0".to_string(),
+    };
+    let pkg = ResolvedPackage {
+        id: real_id.clone(),
+        tarball: "https://example.com/real-pkg-2.1.0.tgz".to_string(),
+        integrity: None,
+        dependencies: BTreeMap::new(),
+        peer_dependencies: BTreeMap::new(),
+        bundled_dependencies: None,
+        has_bin: false,
+        bin: None,
+    };
+
+    let graph = ResolutionGraph {
+        root: ResolutionRoot {
+            dependencies: BTreeMap::from([(
+                "my-alias".to_string(),
+                RootDependency {
+                    requested: "npm:real-pkg@^2.0.0".to_string(),
+                    resolved: real_id.clone(),
+                },
+            )]),
+        },
+        packages: BTreeMap::from([(real_id, pkg)]),
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("snpm-lock.yaml");
+
+    write(&path, &graph, &BTreeMap::new()).unwrap();
+    let lockfile = read(&path).unwrap();
+
+    let root_dep = &lockfile.root.dependencies["my-alias"];
+    assert_eq!(root_dep.package.as_deref(), Some("real-pkg"));
+    assert!(lockfile.packages.contains_key("real-pkg@2.1.0"));
+
+    let rebuilt = crate::lockfile::to_graph(&lockfile);
+    assert_eq!(
+        rebuilt.root.dependencies["my-alias"].resolved.name,
+        "real-pkg"
+    );
+}
+
+#[test]
 fn read_rejects_wrong_version() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("snpm-lock.yaml");

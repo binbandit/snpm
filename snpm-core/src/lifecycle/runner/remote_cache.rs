@@ -55,6 +55,10 @@ impl RemoteCache {
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10))
             .user_agent(concat!("snpm/", env!("CARGO_PKG_VERSION")))
+            // Never follow redirects: the bearer token is attached to
+            // every request, and a redirecting (or malicious) endpoint
+            // must not be able to bounce it to another host.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|source| SnpmError::HttpClient { source })
     }
@@ -146,7 +150,7 @@ impl RemoteCache {
 }
 
 /// Pack `package_dir`'s contents (including the side-effects marker)
-/// into a gzipped tar. Skips dot-prefixed staging files we use ourselves.
+/// into a gzipped tar.
 pub(super) fn pack_dir(package_dir: &Path) -> Result<ArchiveBytes> {
     let mut buffer: Vec<u8> = Vec::new();
     {
@@ -271,27 +275,50 @@ fn pack_dir_inner(
     Ok(())
 }
 
-/// Unpack a gzipped tar from `bytes` into `dest_dir`. Clears `dest_dir`
-/// first so the unpack is the authoritative state.
+/// Unpack a gzipped tar from `bytes` into `dest_dir`, replacing its
+/// previous contents. The archive is fully decoded into a staging
+/// sibling first: a corrupt payload (truncated body, proxy error page
+/// served with a 200) must leave the live package directory untouched.
 pub(super) fn unpack_into_dir(bytes: &[u8], dest_dir: &Path) -> Result<()> {
-    if dest_dir.exists() {
-        // Best-effort: don't fail if the slot is missing.
-        let _ = fs::remove_dir_all(dest_dir);
+    let file_name = dest_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "package".to_string());
+    let staging = dest_dir.with_file_name(format!(
+        ".{file_name}.remote-restore.{}.tmp",
+        std::process::id()
+    ));
+    if staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
     }
-    fs::create_dir_all(dest_dir).map_err(|source| SnpmError::WriteFile {
-        path: dest_dir.to_path_buf(),
+    fs::create_dir_all(&staging).map_err(|source| SnpmError::WriteFile {
+        path: staging.clone(),
         source,
     })?;
 
     let mut archive = Archive::new(GzDecoder::new(Cursor::new(bytes)));
     archive.set_preserve_permissions(true);
     archive.set_overwrite(true);
-    archive
-        .unpack(dest_dir)
-        .map_err(|source| SnpmError::WriteFile {
+    if let Err(source) = archive.unpack(&staging) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(SnpmError::WriteFile {
             path: dest_dir.to_path_buf(),
             source,
-        })?;
+        });
+    }
+
+    // Decode succeeded — now the swap. Losing the old dir here is fine:
+    // the staged tree fully replaces it.
+    if dest_dir.exists() {
+        let _ = fs::remove_dir_all(dest_dir);
+    }
+    if let Err(source) = fs::rename(&staging, dest_dir) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(SnpmError::WriteFile {
+            path: dest_dir.to_path_buf(),
+            source,
+        });
+    }
     Ok(())
 }
 
@@ -504,6 +531,22 @@ mod tests {
         assert_eq!(
             fs::read_to_string(dest.join("nested/inner.txt")).unwrap(),
             "world"
+        );
+    }
+
+    #[test]
+    fn corrupt_archive_leaves_existing_destination_untouched() {
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("keep.txt"), "still here").unwrap();
+
+        // Not a gzip stream — decode must fail before dest is touched.
+        let result = unpack_into_dir(b"<html>captive portal</html>", &dest);
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(dest.join("keep.txt")).unwrap(),
+            "still here"
         );
     }
 

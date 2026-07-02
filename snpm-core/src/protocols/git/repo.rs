@@ -10,6 +10,16 @@ pub(super) fn repo_cache_dir(config: &SnpmConfig, url: &str) -> PathBuf {
 }
 
 pub(super) async fn prepare_repo(cache_dir: &Path, spec: &GitSpec, raw: &str) -> Result<PathBuf> {
+    // Repo and committish come from dependency specs (possibly a
+    // transitive dependency's lockfile). A value starting with `-`
+    // would be parsed by git as an option — `--upload-pack=<cmd>`
+    // executes arbitrary commands during resolve, before any lifecycle
+    // script policy applies. Refuse them outright.
+    reject_option_like(&spec.repo, raw)?;
+    if let Some(committish) = spec.committish.as_deref() {
+        reject_option_like(committish, raw)?;
+    }
+
     ensure_cache_dir(cache_dir)?;
 
     let repo_dir = cache_dir.join("repo");
@@ -21,6 +31,17 @@ pub(super) async fn prepare_repo(cache_dir: &Path, spec: &GitSpec, raw: &str) ->
 
     checkout_repo(&repo_dir, spec.committish.as_deref(), raw).await?;
     Ok(repo_dir)
+}
+
+fn reject_option_like(value: &str, raw: &str) -> Result<()> {
+    if value.starts_with('-') {
+        return Err(SnpmError::ResolutionFailed {
+            name: raw.to_string(),
+            range: value.to_string(),
+            reason: "git repository/committish must not start with '-'".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn ensure_cache_dir(cache_dir: &Path) -> Result<()> {
@@ -70,7 +91,7 @@ async fn clone_repo(
             cache_dir,
             raw,
             revision,
-            ["clone", "--depth", "1", "--branch", revision, repo, "repo"],
+            ["clone", "--depth", "1", "--branch", revision, "--", repo, "repo"],
             "clone",
         )
         .await
@@ -79,7 +100,14 @@ async fn clone_repo(
         return Ok(());
     }
 
-    run_git_command(cache_dir, raw, "latest", ["clone", repo, "repo"], "clone").await
+    run_git_command(
+        cache_dir,
+        raw,
+        "latest",
+        ["clone", "--", repo, "repo"],
+        "clone",
+    )
+    .await
 }
 
 async fn checkout_repo(repo_dir: &Path, committish: Option<&str>, raw: &str) -> Result<()> {

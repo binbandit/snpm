@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::bins::{link_bins, link_known_bins};
-use super::fs::{copy_dir, ensure_parent_dir, symlink_dir_entry, symlink_is_correct};
+use super::fs::{
+    copy_dir, ensure_parent_dir, remove_symlink, symlink_dir_entry, symlink_is_correct,
+};
 
 pub(super) fn link_root_dependencies(
     root_deps: &[(&String, &RootDependency)],
@@ -78,7 +80,10 @@ pub(super) fn link_root_bins(
 ///
 /// Only symlinks pointing into one of snpm's virtual-store roots are
 /// candidates: entries created by `snpm link`, `file:`/`link:` deps, and
-/// workspace cross-links point elsewhere and are never touched.
+/// workspace cross-links point elsewhere and are never touched. Real
+/// directories from the copy_dir fallback (filesystems without symlink
+/// support) carry no provenance and are also left alone — pruning there
+/// would risk deleting user-created directories.
 pub(super) fn prune_stale_root_entries(
     root_node_modules: &Path,
     keep: &std::collections::BTreeSet<String>,
@@ -137,7 +142,7 @@ fn prune_entry_if_stale(
         .iter()
         .any(|root| target.starts_with(root))
     {
-        std::fs::remove_file(path).ok();
+        remove_symlink(path);
     }
 }
 
@@ -151,7 +156,7 @@ fn prune_dangling_bin_launchers(bin_dir: &Path) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_symlink() && std::fs::metadata(&path).is_err() {
-            std::fs::remove_file(&path).ok();
+            remove_symlink(&path);
         }
     }
 }

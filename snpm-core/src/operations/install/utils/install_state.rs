@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
-// v2: switched on-disk encoding from bincode to JSON (bincode cannot
-// round-trip the untagged enums embedded in the graph snapshot).
+// v2: the graph is stored as the bincode-safe SnapshotGraph mirror —
+// v1 serialized the raw ResolutionGraph, whose untagged enums bincode
+// can write but never read back, so v1 files were unreadable.
 const INSTALL_STATE_VERSION: u32 = 2;
 const LEGACY_GRAPH_SNAPSHOT_FILE: &str = ".snpm-graph-snapshot.bin";
 static NEXT_TMP_WRITE_ID: AtomicU64 = AtomicU64::new(0);

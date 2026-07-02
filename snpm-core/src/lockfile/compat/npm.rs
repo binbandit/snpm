@@ -1302,7 +1302,11 @@ mod tests {
             !react_dom.peer_dependencies.contains_key("styling"),
             "optional peers must be excluded, matching the resolver"
         );
-        assert!(lockfile.packages["react@18.3.1"].peer_dependencies.is_empty());
+        assert!(
+            lockfile.packages["react@18.3.1"]
+                .peer_dependencies
+                .is_empty()
+        );
     }
 
     #[test]

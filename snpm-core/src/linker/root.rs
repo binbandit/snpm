@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::bins::{link_bins, link_known_bins};
-use super::fs::{copy_dir, ensure_parent_dir, symlink_dir_entry, symlink_is_correct};
+use super::fs::{
+    copy_dir, ensure_parent_dir, remove_symlink, symlink_dir_entry, symlink_is_correct,
+};
 
 pub(super) fn link_root_dependencies(
     root_deps: &[(&String, &RootDependency)],
@@ -69,6 +71,94 @@ pub(super) fn link_root_bins(
     });
 
     Ok(())
+}
+
+/// Remove root `node_modules` entries that snpm created for packages no
+/// longer part of the install set. Without this, `snpm remove` (and a
+/// prod-only install after adding dev deps) leaves stale links behind
+/// forever — node_modules only ever grows.
+///
+/// Only symlinks pointing into one of snpm's virtual-store roots are
+/// candidates: entries created by `snpm link`, `file:`/`link:` deps, and
+/// workspace cross-links point elsewhere and are never touched. Real
+/// directories from the copy_dir fallback (filesystems without symlink
+/// support) carry no provenance and are also left alone — pruning there
+/// would risk deleting user-created directories.
+pub(super) fn prune_stale_root_entries(
+    root_node_modules: &Path,
+    keep: &std::collections::BTreeSet<String>,
+    virtual_store_roots: &[PathBuf],
+) {
+    let Ok(entries) = std::fs::read_dir(root_node_modules) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+
+        if file_name.starts_with('@') && path.is_dir() && !path.is_symlink() {
+            if let Ok(scoped) = std::fs::read_dir(&path) {
+                for scoped_entry in scoped.flatten() {
+                    let scoped_name = format!(
+                        "{}/{}",
+                        file_name,
+                        scoped_entry.file_name().to_string_lossy()
+                    );
+                    prune_entry_if_stale(
+                        &scoped_entry.path(),
+                        &scoped_name,
+                        keep,
+                        virtual_store_roots,
+                    );
+                }
+            }
+            // Drop the scope dir once it's empty.
+            let _ = std::fs::remove_dir(&path);
+            continue;
+        }
+
+        prune_entry_if_stale(&path, &file_name, keep, virtual_store_roots);
+    }
+
+    prune_dangling_bin_launchers(&root_node_modules.join(".bin"));
+}
+
+fn prune_entry_if_stale(
+    path: &Path,
+    name: &str,
+    keep: &std::collections::BTreeSet<String>,
+    virtual_store_roots: &[PathBuf],
+) {
+    if keep.contains(name) || !path.is_symlink() {
+        return;
+    }
+
+    let Ok(target) = std::fs::read_link(path) else {
+        return;
+    };
+
+    if virtual_store_roots
+        .iter()
+        .any(|root| target.starts_with(root))
+    {
+        remove_symlink(path);
+    }
+}
+
+/// Launchers whose target vanished (because the package's root link was
+/// just pruned) are dead weight; drop them.
+fn prune_dangling_bin_launchers(bin_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(bin_dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_symlink() && std::fs::metadata(&path).is_err() {
+            remove_symlink(&path);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -387,6 +387,7 @@ mod tests {
                     tarball: String::new(),
                     integrity: None,
                     dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
                     bundled_dependencies: None,
                     has_bin: false,
                     bin: None,

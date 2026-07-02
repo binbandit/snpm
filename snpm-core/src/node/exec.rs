@@ -9,7 +9,7 @@ use super::uninstall::is_version_installed;
 
 use std::path::{Path, PathBuf};
 
-const BIN_OVERRIDE_ENV: &str = "SNPM_NODE_BIN_OVERRIDE";
+pub const BIN_OVERRIDE_ENV: &str = "SNPM_NODE_BIN_OVERRIDE";
 
 pub fn node_bin_dir_for_subprocess(project_root: &Path) -> Option<PathBuf> {
     if let Ok(value) = std::env::var(BIN_OVERRIDE_ENV) {
@@ -97,6 +97,47 @@ pub async fn ensure_active_for_project(
     }))
 }
 
+/// Make sure the project's pinned Node version is installed before a
+/// script/exec spawns, so the synchronous PATH construction can find
+/// it. Missing pinned versions are downloaded on demand as documented;
+/// `SNPM_NODE_AUTO_INSTALL=0` turns that into a hard error instead of
+/// silently running the system Node against the wrong pin.
+pub async fn prepare_node_for_project(config: &SnpmConfig, project_root: &Path) -> Result<()> {
+    let override_set = std::env::var(BIN_OVERRIDE_ENV).is_ok_and(|value| !value.trim().is_empty());
+    if override_set || !auto_switch_enabled() {
+        return Ok(());
+    }
+
+    let Some(pin) = discover::discover_pinned(project_root)? else {
+        return Ok(());
+    };
+
+    // Satisfied by something already installed — nothing to download.
+    if match_pin_offline(config, &pin)?.is_some() {
+        return Ok(());
+    }
+
+    // engines.node declares a compatibility range, not a version
+    // request: when no managed Node matches but the Node already on
+    // PATH satisfies the range, leave the environment alone instead of
+    // downloading a fresh release and silently switching the script's
+    // runtime (or hard-failing offline).
+    if matches!(pin.source, PinnedNodeSource::EnginesNode(_)) && system_node_satisfies(&pin.spec) {
+        return Ok(());
+    }
+
+    match ensure_active_for_project(config, project_root).await? {
+        Some(_) => Ok(()),
+        None => Err(crate::SnpmError::Internal {
+            reason: format!(
+                "Node {} is pinned by this project but not installed, and auto-install \
+                 is disabled (SNPM_NODE_AUTO_INSTALL=0). Run `snpm node install {}` first.",
+                pin.spec, pin.spec
+            ),
+        }),
+    }
+}
+
 pub async fn ensure_installed_for_spec(
     config: &SnpmConfig,
     spec: &str,
@@ -156,6 +197,27 @@ fn match_pin_offline(config: &SnpmConfig, pin: &PinnedNode) -> Result<Option<Act
     }
 
     Ok(None)
+}
+
+/// Whether the `node` currently on PATH satisfies `spec`. False when no
+/// system Node exists or the spec is not a parseable range — callers
+/// fall through to auto-install in that case.
+fn system_node_satisfies(spec: &str) -> bool {
+    let Ok(range) = snpm_semver::RangeSet::parse(spec) else {
+        return false;
+    };
+    let Ok(output) = std::process::Command::new("node").arg("--version").output() else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+
+    let version = String::from_utf8_lossy(&output.stdout);
+    let bare = version.trim().trim_start_matches('v');
+    snpm_semver::Version::parse(bare)
+        .map(|parsed| range.matches(&parsed))
+        .unwrap_or(false)
 }
 
 fn newest_installed_matching(config: &SnpmConfig, spec: &str) -> Option<String> {

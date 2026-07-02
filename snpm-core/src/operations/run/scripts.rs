@@ -1,8 +1,20 @@
 use super::filters::{format_filters, project_label, select_workspace_projects};
 use super::process::{build_path, join_args, make_command};
-use crate::{Project, Result, SnpmError, Workspace, console};
+use crate::{Project, Result, SnpmConfig, SnpmError, Workspace, console};
 
 pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()> {
+    run_script_with_node(project, script, args, None)
+}
+
+/// Like [`run_script`], but with an explicit Node `bin/` directory to
+/// prepend to PATH (used by `snpm node run`). Passing it as a parameter
+/// avoids mutating process-wide env vars from a multi-threaded runtime.
+pub fn run_script_with_node(
+    project: &Project,
+    script: &str,
+    args: &[String],
+    node_bin_dir: Option<&std::path::Path>,
+) -> Result<()> {
     let scripts = &project.manifest.scripts;
 
     if !scripts.contains_key(script) {
@@ -13,20 +25,21 @@ pub fn run_script(project: &Project, script: &str, args: &[String]) -> Result<()
 
     let pre_name = format!("pre{}", script);
     if scripts.contains_key(&pre_name) {
-        run_single_script(project, &pre_name, &[])?;
+        run_single_script(project, &pre_name, &[], node_bin_dir)?;
     }
 
-    run_single_script(project, script, args)?;
+    run_single_script(project, script, args, node_bin_dir)?;
 
     let post_name = format!("post{}", script);
     if scripts.contains_key(&post_name) {
-        run_single_script(project, &post_name, &[])?;
+        run_single_script(project, &post_name, &[], node_bin_dir)?;
     }
 
     Ok(())
 }
 
-pub fn run_workspace_scripts(
+pub async fn run_workspace_scripts(
+    config: &SnpmConfig,
     workspace: &Workspace,
     script: &str,
     filters: &[String],
@@ -60,6 +73,11 @@ pub fn run_workspace_scripts(
 
         any_ran = true;
         println!("\n{}", name);
+        // Each member may pin its own Node (pin discovery walks up from
+        // the member root, so this also covers a workspace-root pin);
+        // the sync PATH construction below can only match installed
+        // versions, so missing pins are downloaded here.
+        crate::node::exec::prepare_node_for_project(config, &project.root).await?;
         run_script(project, script, args)?;
     }
 
@@ -72,7 +90,12 @@ pub fn run_workspace_scripts(
     Ok(())
 }
 
-fn run_single_script(project: &Project, script: &str, args: &[String]) -> Result<()> {
+fn run_single_script(
+    project: &Project,
+    script: &str,
+    args: &[String],
+    node_bin_dir: Option<&std::path::Path>,
+) -> Result<()> {
     let scripts = &project.manifest.scripts;
     let base = scripts
         .get(script)
@@ -96,8 +119,17 @@ fn run_single_script(project: &Project, script: &str, args: &[String]) -> Result
     command.current_dir(&project.root);
 
     let bin_dir = project.root.join("node_modules").join(".bin");
-    let path_value = build_path(bin_dir, script, &project.root)?;
+    let path_value = build_path(bin_dir, script, &project.root, node_bin_dir)?;
     command.env("PATH", path_value);
+
+    // An explicit Node override (`snpm node run <version> <script>`) must
+    // reach nested snpm invocations inside the script, or they would
+    // rediscover the project pin and switch Node back. Set it on the
+    // child only — mutating this process's env is unsound under the
+    // multi-threaded runtime.
+    if let Some(node_dir) = node_bin_dir {
+        command.env(crate::node::exec::BIN_OVERRIDE_ENV, node_dir);
+    }
 
     let status = command.status().map_err(|error| SnpmError::ScriptRun {
         name: script.to_string(),

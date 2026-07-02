@@ -1,53 +1,69 @@
-use crate::{Result, SnpmConfig, SnpmError, console};
+use crate::linker::bins::link_bins_flat;
+use crate::linker::fs::remove_symlink;
+use crate::{Result, SnpmConfig};
 
 use std::fs;
 use std::path::Path;
 
-use super::super::install::manifest::parse_spec;
+use super::super::install;
+use super::super::install::manifest::parse_requested_spec;
+use super::super::install::utils::FrozenLockfileMode;
+use super::project::{global_project, migrate_legacy_global_packages};
 
 pub async fn remove_global(config: &SnpmConfig, packages: Vec<String>) -> Result<()> {
     if packages.is_empty() {
         return Ok(());
     }
 
-    let global_dir = config.global_dir();
+    // Route through the standard remove path against the managed global
+    // project: the manifest entries are dropped and the reinstall prunes
+    // node_modules and the lockfile. Migrating first makes packages from
+    // the pre-project layout removable through the same path.
+    let mut project = global_project(config)?;
+    migrate_legacy_global_packages(&mut project)?;
+    install::remove(
+        config,
+        &mut project,
+        packages.clone(),
+        FrozenLockfileMode::Prefer,
+        false,
+    )
+    .await?;
+
     let global_bin_dir = config.global_bin_dir();
 
+    // Drop the removed packages' launchers by ownership: a launcher whose
+    // target lives under the removed package's root link must go even if
+    // the target still resolves — hoisting can keep node_modules/<name>
+    // alive as another global package's transitive dep, and such a
+    // launcher would otherwise keep a removed command on PATH forever.
+    let global_node_modules = project.root.join("node_modules");
     for spec in &packages {
-        let (name, _) = parse_spec(spec);
-        remove_package(&global_dir, &global_bin_dir, &name)?;
-        console::removed(&name);
+        let name = parse_requested_spec(spec).name;
+        prune_bins_owned_by(&global_bin_dir, &global_node_modules.join(&name));
+    }
+
+    // The removed packages' remaining root links are gone now, so their
+    // launchers dangle — prune every dangling symlink rather than
+    // guessing bin names.
+    prune_dangling_bins(&global_bin_dir);
+
+    // Surviving packages keep their launchers healthy (a migrated legacy
+    // package's launchers point at its deleted pre-project copy until
+    // they are re-linked here).
+    for name in project.manifest.dependencies.keys() {
+        let package_dir = global_node_modules.join(name);
+        link_bins_flat(&package_dir, &global_bin_dir, name).ok();
     }
 
     Ok(())
 }
 
-fn remove_package(global_dir: &Path, global_bin_dir: &Path, package_name: &str) -> Result<()> {
-    let package_dir = global_dir.join(package_name);
-    if package_dir.exists() {
-        fs::remove_dir_all(&package_dir).map_err(|source| SnpmError::WriteFile {
-            path: package_dir.clone(),
-            source,
-        })?;
-    }
-
-    remove_package_bins(global_dir, package_name, global_bin_dir)
-}
-
-fn remove_package_bins(global_dir: &Path, package_name: &str, bin_dir: &Path) -> Result<()> {
-    if !bin_dir.exists() {
-        return Ok(());
-    }
-
-    let entries = fs::read_dir(bin_dir).map_err(|source| SnpmError::ReadFile {
-        path: bin_dir.to_path_buf(),
-        source,
-    })?;
-
-    // Only remove launchers that point inside this package's global
-    // dir. A substring match would delete unrelated bins (removing
-    // "ts" would match anything under .../typescript/...).
-    let package_root = global_dir.join(package_name);
+/// Remove launchers whose symlink target lives under `package_root`.
+fn prune_bins_owned_by(bin_dir: &Path, package_root: &Path) {
+    let Ok(entries) = fs::read_dir(bin_dir) else {
+        return;
+    };
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -56,11 +72,22 @@ fn remove_package_bins(global_dir: &Path, package_name: &str, bin_dir: &Path) ->
         }
 
         if let Ok(target) = fs::read_link(&path)
-            && target.starts_with(&package_root)
+            && target.starts_with(package_root)
         {
-            fs::remove_file(&path).ok();
+            remove_symlink(&path);
         }
     }
+}
 
-    Ok(())
+pub(super) fn prune_dangling_bins(bin_dir: &Path) {
+    let Ok(entries) = fs::read_dir(bin_dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_symlink() && fs::metadata(&path).is_err() {
+            remove_symlink(&path);
+        }
+    }
 }

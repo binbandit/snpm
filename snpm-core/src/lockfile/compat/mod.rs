@@ -119,6 +119,34 @@ fn pnpm_branch_lockfile_name(branch: &str) -> String {
     format!("pnpm-lock.{}.yaml", branch.replace('/', "!"))
 }
 
+/// Required peers for an imported package: declared peerDependencies
+/// minus the names marked optional. Matches what the resolver stores for
+/// natively resolved graphs, so peer-aware virtual-store placement works
+/// the same for graphs seeded from foreign lockfiles.
+fn required_peer_dependencies(
+    peer_dependencies: &std::collections::BTreeMap<String, String>,
+    optional_names: &std::collections::BTreeSet<String>,
+) -> std::collections::BTreeMap<String, String> {
+    peer_dependencies
+        .iter()
+        .filter(|(name, _)| !optional_names.contains(*name))
+        .map(|(name, range)| (name.clone(), range.clone()))
+        .collect()
+}
+
+/// Same, for formats that carry an npm-style peerDependenciesMeta map.
+fn required_peer_dependencies_with_meta(
+    peer_dependencies: &std::collections::BTreeMap<String, String>,
+    meta: &std::collections::BTreeMap<String, crate::registry::PeerDependencyMeta>,
+) -> std::collections::BTreeMap<String, String> {
+    let optional_names = meta
+        .iter()
+        .filter(|(_, meta)| meta.optional)
+        .map(|(name, _)| name.clone())
+        .collect();
+    required_peer_dependencies(peer_dependencies, &optional_names)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CompatibleLockfileKind, detect_compatible_lockfile, pnpm_branch_lockfile_name};

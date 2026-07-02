@@ -23,28 +23,8 @@ pub async fn run(args: RunArgs, config: &SnpmConfig) -> Result<()> {
     let (_, summary) = node_exec::ensure_installed_for_spec(config, &args.version).await?;
     let bin_dir = config.node_version_bin_dir(&summary.version);
 
-    let _override = SnpmNodeOverride::set(bin_dir.to_string_lossy().to_string());
-    operations::run_script(&project, &args.script, &args.args)?;
+    // Pass the Node bin dir explicitly instead of mutating process env:
+    // env::set_var is unsound under the multi-threaded runtime.
+    operations::run_script_with_node(&project, &args.script, &args.args, Some(&bin_dir))?;
     Ok(())
-}
-
-struct SnpmNodeOverride {
-    prior: Option<std::ffi::OsString>,
-}
-
-impl SnpmNodeOverride {
-    fn set(value: String) -> Self {
-        let prior = env::var_os("SNPM_NODE_BIN_OVERRIDE");
-        unsafe { env::set_var("SNPM_NODE_BIN_OVERRIDE", value) };
-        Self { prior }
-    }
-}
-
-impl Drop for SnpmNodeOverride {
-    fn drop(&mut self) {
-        match &self.prior {
-            Some(value) => unsafe { env::set_var("SNPM_NODE_BIN_OVERRIDE", value) },
-            None => unsafe { env::remove_var("SNPM_NODE_BIN_OVERRIDE") },
-        }
-    }
 }

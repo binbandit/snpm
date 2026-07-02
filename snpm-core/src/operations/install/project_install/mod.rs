@@ -6,7 +6,7 @@ mod report;
 mod state;
 
 use crate::console;
-use crate::{Project, Result, SnpmConfig, http};
+use crate::{Project, Result, SnpmConfig};
 
 use std::time::Instant;
 
@@ -62,9 +62,7 @@ pub async fn install(
 
     validate_frozen_lockfile(config, &options, &plan)?;
 
-    let registry_client = http::create_client()?;
-    let resolved =
-        resolve_install_state(config, project, &plan, &options, &registry_client).await?;
+    let resolved = resolve_install_state(config, project, &plan, &options).await?;
     if let Err(error) = crate::store::persist_store_residency_index(config, &resolved.store_paths) {
         console::verbose(&format!("failed to persist store residency index: {error}"));
     }
@@ -109,8 +107,17 @@ pub async fn install(
         &project.manifest.optional_dependencies,
         options.include_dev,
     );
+    // On the Hot early-exit path the on-disk install-state usually
+    // already matched (that is what made it Hot), so rewriting the
+    // identical graph snapshot + layout checks is pure waste — skip it.
+    // But Hot can also be reached through the lockfile-parse fallback
+    // when no readable state file exists (fresh checkout of a valid
+    // node_modules, or a state format change): write it then, or the
+    // fast path never engages for this project. Any other scenario
+    // changed node_modules and must refresh the state.
+    let skip_state_write = early_exit && resolved.hot_install_state_current;
     let lockfile_source_path = plan.lockfile_source_path();
-    if lockfile_source_path.is_file() {
+    if !skip_state_write && lockfile_source_path.is_file() {
         super::utils::write_project_install_state(
             config,
             project,

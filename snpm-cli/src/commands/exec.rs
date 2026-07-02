@@ -59,7 +59,17 @@ pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
             .await?;
         }
 
-        operations::exec_workspace_command(&workspace, &options, &args.filter, &args.filter_prod)?;
+        // Node preparation happens per member inside exec_workspace_command:
+        // members can pin their own versions, and pin discovery walks up so
+        // a workspace-root pin still applies.
+        operations::exec_workspace_command(
+            config,
+            &workspace,
+            &options,
+            &args.filter,
+            &args.filter_prod,
+        )
+        .await?;
     } else {
         let mut project = Project::discover(&cwd)?;
 
@@ -72,6 +82,8 @@ pub async fn run(args: ExecArgs, config: &SnpmConfig) -> Result<()> {
             )
             .await?;
         }
+
+        snpm_core::node::exec::prepare_node_for_project(config, &project.root).await?;
 
         operations::exec_command(&project, &options)?;
     }

@@ -19,6 +19,16 @@ pub async fn remove(
         return Ok(());
     }
 
+    // Removing a dependency requires a lockfile update, which frozen
+    // mode forbids. Refuse up front — mutating package.json first and
+    // failing later would leave the manifest out of sync with the
+    // lockfile and node_modules.
+    if matches!(frozen_lockfile, FrozenLockfileMode::Frozen) {
+        return Err(crate::SnpmError::Internal {
+            reason: "cannot remove packages when using frozen-lockfile".to_string(),
+        });
+    }
+
     let mut manifest = project.manifest.clone();
 
     for spec in specs {
@@ -69,6 +79,14 @@ pub async fn upgrade(
             force,
         )
         .await;
+    }
+
+    // Same ordering concern as `remove`: fail before touching the
+    // manifest when the lockfile is frozen.
+    if matches!(frozen_lockfile, FrozenLockfileMode::Frozen) {
+        return Err(crate::SnpmError::Internal {
+            reason: "cannot upgrade packages when using frozen-lockfile".to_string(),
+        });
     }
 
     let entries = outdated(config, project, include_dev, force).await?;

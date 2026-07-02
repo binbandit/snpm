@@ -52,11 +52,21 @@ pub(in crate::operations::run) fn build_path(
     bin_dir: PathBuf,
     script: &str,
     project_root: &Path,
+    node_bin_override: Option<&Path>,
 ) -> Result<OsString> {
     let mut parts = Vec::new();
 
-    if let Some(node_dir) = crate::node::exec::node_bin_dir_for_subprocess(project_root) {
-        parts.push(node_dir);
+    // An explicit override (e.g. `snpm node run`) wins; otherwise fall
+    // back to the project's pinned/active Node discovery. Threading the
+    // override as a parameter instead of mutating the process env keeps
+    // this safe under the multi-threaded runtime.
+    match node_bin_override {
+        Some(node_dir) => parts.push(node_dir.to_path_buf()),
+        None => {
+            if let Some(node_dir) = crate::node::exec::node_bin_dir_for_subprocess(project_root) {
+                parts.push(node_dir);
+            }
+        }
     }
 
     parts.push(bin_dir);

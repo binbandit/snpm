@@ -76,6 +76,10 @@ struct RawBunMeta {
     #[serde(default)]
     optional_dependencies: BTreeMap<String, String>,
     #[serde(default)]
+    peer_dependencies: BTreeMap<String, String>,
+    #[serde(default)]
+    optional_peers: Vec<String>,
+    #[serde(default)]
     bin: BTreeMap<String, String>,
 }
 
@@ -214,6 +218,10 @@ fn build_packages(
             tarball: derive_registry_tarball(config, name, version).unwrap_or_default(),
             integrity: entry.integrity.clone(),
             dependencies,
+            peer_dependencies: super::required_peer_dependencies(
+                &entry.meta.peer_dependencies,
+                &entry.meta.optional_peers.iter().cloned().collect(),
+            ),
             bundled_dependencies: None,
             has_bin: !entry.meta.bin.is_empty(),
             bin: (!entry.meta.bin.is_empty()).then(|| BinField::Map(entry.meta.bin.clone())),

@@ -49,6 +49,7 @@ pub fn detect_install_scenario(
                 cache_check: None,
                 graph: Some(state.graph),
                 integrity_state: None,
+                hot_install_state_current: false,
             };
         }
 
@@ -76,6 +77,7 @@ pub fn detect_install_scenario(
                 cache_check: None,
                 graph: Some(snapshot.graph),
                 integrity_state: None,
+                hot_install_state_current: false,
             };
         }
 
@@ -106,6 +108,7 @@ pub fn detect_install_scenario(
             cache_check: None,
             graph: Some(graph),
             integrity_state: None,
+            hot_install_state_current: false,
         };
     }
 
@@ -141,6 +144,9 @@ fn detect_from_graph(
             cache_check: None,
             graph: Some(graph),
             integrity_state: Some(integrity_state),
+            // Some(..) here means the classification came from a valid
+            // install-state file; None means the lockfile fallback.
+            hot_install_state_current: cached_layout_valid.is_some(),
         };
     }
 
@@ -176,6 +182,7 @@ fn detect_from_graph(
             cache_check: Some(cache_check),
             graph: Some(graph),
             integrity_state: Some(integrity_state),
+            hot_install_state_current: false,
         };
     }
 
@@ -191,6 +198,7 @@ fn detect_from_graph(
         cache_check: Some(cache_check),
         graph: Some(graph),
         integrity_state: Some(integrity_state),
+        hot_install_state_current: false,
     }
 }
 

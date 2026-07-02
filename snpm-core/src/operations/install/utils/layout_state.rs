@@ -156,6 +156,7 @@ fn append_virtual_store_entries(
 ) {
     let locally_materialized_ids =
         crate::linker::local_global_virtual_store_package_ids(config, workspace, projects, graph);
+    let resolved_peers = crate::linker::resolve_unique_peers(graph);
 
     for id in graph.packages.keys() {
         let locality = if locally_materialized_ids.contains(id) {
@@ -164,6 +165,18 @@ fn append_virtual_store_entries(
             "shared"
         };
         entries.push(format!("package:{locality}:{}@{}", id.name, id.version));
+
+        // A shared entry's identity depends on its resolved peers, so a
+        // peer version change must invalidate the cached layout even when
+        // the package's own version is unchanged.
+        if let Some(peers) = resolved_peers.get(id) {
+            for (peer_name, peer_id) in peers {
+                entries.push(format!(
+                    "peer:{}@{}:{peer_name}={}@{}",
+                    id.name, id.version, peer_id.name, peer_id.version
+                ));
+            }
+        }
     }
 }
 

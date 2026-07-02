@@ -19,7 +19,11 @@ fn matches_auth_line(line: &str, host: &str) -> bool {
         .unwrap_or("")
         .trim_end_matches('/');
 
-    host_part == host
+    // npm allows path-qualified auth lines like
+    // `//gitlab.com/api/v4/projects/npm/:_authToken=x`; treat any line
+    // whose host component matches as belonging to this host so logout
+    // and re-login manage them instead of accumulating stale entries.
+    host_part == host || host_part.starts_with(&format!("{host}/"))
 }
 
 fn matches_scope_line(line: &str, scope: Option<&str>) -> bool {
@@ -52,6 +56,18 @@ mod tests {
         assert!(!matches_auth_line(
             "//other/:_authToken=abc",
             "registry.npmjs.org"
+        ));
+    }
+
+    #[test]
+    fn matches_auth_line_supports_path_qualified_registries() {
+        assert!(matches_auth_line(
+            "//gitlab.com/api/v4/projects/123/packages/npm/:_authToken=abc",
+            "gitlab.com"
+        ));
+        assert!(!matches_auth_line(
+            "//gitlab.company.com/api/:_authToken=abc",
+            "gitlab.com"
         ));
     }
 

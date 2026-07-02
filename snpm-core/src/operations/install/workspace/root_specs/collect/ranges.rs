@@ -86,9 +86,10 @@ fn merge_workspace_ranges(existing: &str, incoming: &str) -> Option<String> {
         }
         (true, false) => incoming,
         (false, true) => existing,
-        (false, false) => {
-            choose_more_specific(existing, incoming, &existing_floor_raw, &incoming_floor_raw)
-        }
+        // Mutually exclusive ranges (e.g. ^1 vs ^2). Picking a winner
+        // here would silently violate one member's declared constraint;
+        // surface the conflict to the user instead.
+        (false, false) => return None,
     };
 
     Some(merged.to_string())

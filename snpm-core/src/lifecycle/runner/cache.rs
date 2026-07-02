@@ -154,7 +154,11 @@ impl SideEffectsCacheEntry {
     pub(super) fn save(&self, package_dir: &Path) -> Result<()> {
         if self.path.is_dir() {
             write_marker(package_dir, &self.input_hash)?;
-            self.push_remote(package_dir);
+            // The local slot already existed: this artifact was either
+            // produced by an earlier run (which uploaded it then) or
+            // promoted from a remote hit. Re-PUTting the whole tree on
+            // every warm install would multiply upload traffic across a
+            // fleet for no benefit.
             return Ok(());
         }
 

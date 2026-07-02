@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use hoist::{effective_hoisting, hoist_packages};
-use root::{link_root_bins, link_root_dependencies};
+use root::{link_root_bins, link_root_dependencies, prune_stale_root_entries};
 use selection::filter_root_dependencies;
 use virtual_store::populate_virtual_store;
 pub(crate) use virtual_store::{
@@ -61,6 +61,20 @@ pub fn link(
     )?;
 
     let root_deps_to_link = filter_root_dependencies(project, graph, include_dev);
+
+    // Converge node_modules to the resolved graph: drop root links (and
+    // their launchers) for packages that are no longer part of the
+    // install set before wiring the current ones. Hoisting runs after
+    // and re-creates any hoisted links it still wants.
+    let keep: std::collections::BTreeSet<String> = root_deps_to_link
+        .iter()
+        .map(|(name, _)| (*name).clone())
+        .collect();
+    let mut virtual_store_roots = vec![virtual_store_dir.clone(), config.virtual_store_dir()];
+    if let Some(workspace) = workspace {
+        virtual_store_roots.push(workspace.root.join(".snpm"));
+    }
+    prune_stale_root_entries(&root_node_modules, &keep, &virtual_store_roots);
 
     link_root_dependencies(&root_deps_to_link, &virtual_store_paths, &root_node_modules)?;
     link_root_bins(&root_deps_to_link, &root_node_modules, graph)?;

@@ -63,19 +63,22 @@ fn list_global(config: &SnpmConfig) -> Result<()> {
     let global_dir = config.global_dir();
     let global_bin_dir = config.global_bin_dir();
 
-    if !global_dir.exists() {
-        println!("No global packages installed");
-        println!();
-        println!("Install with: snpm add -g <package>");
-        return Ok(());
-    }
+    // The global space is a managed snpm project: its package.json
+    // dependencies are the globally installed packages.
+    let manifest_path = global_dir.join("package.json");
+    let dependencies: Vec<(String, String)> = if manifest_path.is_file() {
+        let project = Project::from_manifest_path(manifest_path)?;
+        project
+            .manifest
+            .dependencies
+            .iter()
+            .map(|(name, range)| (name.clone(), range.clone()))
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-    let entries: Vec<_> = fs::read_dir(&global_dir)?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_dir())
-        .collect();
-
-    if entries.is_empty() {
+    if dependencies.is_empty() {
         println!("No global packages installed");
         println!();
         println!("Install with: snpm add -g <package>");
@@ -85,14 +88,11 @@ fn list_global(config: &SnpmConfig) -> Result<()> {
     println!("Global packages ({}):", global_dir.display());
     println!();
 
-    for entry in entries {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-
-        let version = read_package_version(&entry.path());
-        match version {
-            Some(v) => println!("  {} @ {}", name_str, v),
-            None => println!("  {}", name_str),
+    for (name, range) in dependencies {
+        let installed = read_package_version(&global_dir.join("node_modules").join(&name));
+        match installed {
+            Some(version) => println!("  {} @ {}", name, version),
+            None => println!("  {} @ {} (not linked)", name, range),
         }
     }
 

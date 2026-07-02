@@ -1,4 +1,5 @@
 mod install;
+mod project;
 mod remove;
 mod shell;
 

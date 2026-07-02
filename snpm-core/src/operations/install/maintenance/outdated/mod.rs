@@ -86,7 +86,33 @@ pub async fn outdated(
     )
     .await;
 
+    // A dep whose installed version already satisfies the range is only
+    // worth reporting when the registry has something newer than the
+    // range allows — that is the whole point of the `latest` column. An
+    // exactly-pinned dep would otherwise never surface its newer major:
+    // the pre-latest report skipped it before the enrichment could run.
+    entries.retain(|entry| {
+        let satisfied = entry.current.as_deref() == Some(entry.wanted.as_str());
+        if !satisfied {
+            return true;
+        }
+        entry
+            .latest
+            .as_deref()
+            .is_some_and(|latest| version_is_newer(latest, &entry.wanted))
+    });
+
     Ok(entries)
+}
+
+fn version_is_newer(candidate: &str, baseline: &str) -> bool {
+    match (
+        snpm_semver::parse_version(candidate),
+        snpm_semver::parse_version(baseline),
+    ) {
+        (Ok(candidate), Ok(baseline)) => candidate > baseline,
+        _ => false,
+    }
 }
 
 /// Fill in each entry's `latest` (the registry `latest` dist-tag) so the

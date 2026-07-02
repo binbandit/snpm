@@ -214,6 +214,7 @@ fn build_packages(
             tarball: derive_registry_tarball(config, name, version).unwrap_or_default(),
             integrity: entry.integrity.clone(),
             dependencies,
+            peer_dependencies: BTreeMap::new(),
             bundled_dependencies: None,
             has_bin: !entry.meta.bin.is_empty(),
             bin: (!entry.meta.bin.is_empty()).then(|| BinField::Map(entry.meta.bin.clone())),

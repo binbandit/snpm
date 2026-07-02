@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 const MAGIC: [u8; 4] = *b"SNPB";
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 const HEADER_LEN: usize = 4 + 4 + 32;
 
 #[derive(Serialize, Deserialize)]
@@ -53,6 +53,7 @@ struct BinPackage {
     tarball: String,
     integrity: Option<String>,
     dependencies: BTreeMap<String, String>,
+    peer_dependencies: BTreeMap<String, String>,
     bundled_dependencies: Option<BinBundledDependencies>,
     has_bin: bool,
     bin: Option<BinBinField>,
@@ -102,6 +103,7 @@ impl From<&Lockfile> for BinLockfile {
                             tarball: package.tarball.clone(),
                             integrity: package.integrity.clone(),
                             dependencies: package.dependencies.clone(),
+                            peer_dependencies: package.peer_dependencies.clone(),
                             bundled_dependencies: package.bundled_dependencies.as_ref().map(
                                 |bundled| match bundled {
                                     BundledDependencies::List(list) => {
@@ -158,6 +160,7 @@ impl From<BinLockfile> for Lockfile {
                             tarball: package.tarball,
                             integrity: package.integrity,
                             dependencies: package.dependencies,
+                            peer_dependencies: package.peer_dependencies,
                             bundled_dependencies: package.bundled_dependencies.map(|bundled| {
                                 match bundled {
                                     BinBundledDependencies::List(list) => {
@@ -281,6 +284,7 @@ mod tests {
                     "is-number".to_string(),
                     "is-number@6.0.0".to_string(),
                 )]),
+                peer_dependencies: BTreeMap::new(),
                 bundled_dependencies: None,
                 has_bin: false,
                 bin: None,
@@ -294,6 +298,7 @@ mod tests {
                 tarball: "https://registry.npmjs.org/tool/-/tool-1.0.0.tgz".to_string(),
                 integrity: None,
                 dependencies: BTreeMap::new(),
+                peer_dependencies: BTreeMap::new(),
                 bundled_dependencies: Some(BundledDependencies::List(vec!["vendored".to_string()])),
                 has_bin: true,
                 bin: Some(BinField::Single("cli.js".to_string())),
@@ -307,6 +312,7 @@ mod tests {
                 tarball: "https://registry.npmjs.org/multi/-/multi-2.0.0.tgz".to_string(),
                 integrity: Some("sha512-def".to_string()),
                 dependencies: BTreeMap::new(),
+                peer_dependencies: BTreeMap::new(),
                 bundled_dependencies: Some(BundledDependencies::All(true)),
                 has_bin: true,
                 bin: Some(BinField::Map(BTreeMap::from([(

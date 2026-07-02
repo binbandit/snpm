@@ -302,6 +302,7 @@ fn build_packages(
                 .unwrap_or_default(),
             integrity: package_info.and_then(|info| info.resolution.integrity.clone()),
             dependencies,
+            peer_dependencies: BTreeMap::new(),
             bundled_dependencies: package_info.and_then(|info| info.bundled_dependencies.clone()),
             has_bin: package_info.map(|info| info.has_bin).unwrap_or(false),
             bin: None,

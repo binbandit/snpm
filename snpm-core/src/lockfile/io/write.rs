@@ -91,6 +91,7 @@ fn build_packages(graph: &ResolutionGraph) -> BTreeMap<String, LockPackage> {
                 tarball: package.tarball.clone(),
                 integrity: package.integrity.clone(),
                 dependencies,
+                peer_dependencies: package.peer_dependencies.clone(),
                 bundled_dependencies: package.bundled_dependencies.clone(),
                 has_bin: package.has_bin,
                 bin: package.bin.clone(),

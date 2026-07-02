@@ -29,6 +29,15 @@ pub struct LockPackage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub integrity: Option<String>,
     pub dependencies: BTreeMap<String, String>,
+    /// Peer ranges declared by this package. Persisted so peer
+    /// validation (SNPM_STRICT_PEERS) still has data when a graph is
+    /// rebuilt from the lockfile instead of a fresh resolve.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        rename = "peerDependencies"
+    )]
+    pub peer_dependencies: BTreeMap<String, String>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "bundledDependencies"

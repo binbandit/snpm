@@ -67,6 +67,7 @@ fn to_graph_reconstructs_dependencies() {
                         "body-parser".to_string(),
                         "body-parser@1.20.0".to_string(),
                     )]),
+                    peer_dependencies: BTreeMap::from([("react".to_string(), ">=17".to_string())]),
                     bundled_dependencies: None,
                     has_bin: true,
                     bin: Some(BinField::Single("cli.js".to_string())),
@@ -81,6 +82,7 @@ fn to_graph_reconstructs_dependencies() {
                         .to_string(),
                     integrity: None,
                     dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
                     bundled_dependencies: None,
                     has_bin: false,
                     bin: None,
@@ -106,4 +108,7 @@ fn to_graph_reconstructs_dependencies() {
     assert!(matches!(express.bin, Some(BinField::Single(ref script)) if script == "cli.js"));
     assert!(express.dependencies.contains_key("body-parser"));
     assert_eq!(express.dependencies["body-parser"].version, "1.20.0");
+    // Peers persisted in the lockfile must survive graph reconstruction
+    // so strict-peer validation still has data on seeded installs.
+    assert_eq!(express.peer_dependencies["react"], ">=17");
 }

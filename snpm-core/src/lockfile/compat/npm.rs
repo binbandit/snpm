@@ -607,6 +607,7 @@ fn build_packages(
             tarball: build_package_tarball(project_root, config, entry, raw),
             integrity: raw.integrity.clone(),
             dependencies,
+            peer_dependencies: BTreeMap::new(),
             bundled_dependencies: raw
                 .bundled_dependencies
                 .clone()

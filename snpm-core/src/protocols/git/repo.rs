@@ -91,7 +91,9 @@ async fn clone_repo(
             cache_dir,
             raw,
             revision,
-            ["clone", "--depth", "1", "--branch", revision, "--", repo, "repo"],
+            [
+                "clone", "--depth", "1", "--branch", revision, "--", repo, "repo",
+            ],
             "clone",
         )
         .await

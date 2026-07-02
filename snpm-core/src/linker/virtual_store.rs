@@ -119,7 +119,46 @@ fn materialize_one_package(
         }
     }
 
-    link_dir(config, store_path, package_location)
+    // Link into a staging sibling and rename into place. `link_dir`
+    // writes files in parallel with no ordering guarantee, so linking
+    // directly into `package_location` could leave a partial tree that
+    // `virtual_package_ready` (metadata file present, or legacy
+    // non-empty-dir check) later mistakes for a warm hit. A rename is
+    // atomic: the final location is either absent or complete.
+    let staging = staging_location_for(package_location);
+    if staging.exists() {
+        fs::remove_dir_all(&staging).ok();
+    }
+
+    if let Err(error) = link_dir(config, store_path, &staging) {
+        fs::remove_dir_all(&staging).ok();
+        return Err(error);
+    }
+
+    match fs::rename(&staging, package_location) {
+        Ok(()) => Ok(()),
+        Err(source) => {
+            // A concurrent install may have won the rename; that's a
+            // success as far as this materialization is concerned.
+            fs::remove_dir_all(&staging).ok();
+            if virtual_package_ready(package_location) {
+                Ok(())
+            } else {
+                Err(SnpmError::WriteFile {
+                    path: package_location.to_path_buf(),
+                    source,
+                })
+            }
+        }
+    }
+}
+
+fn staging_location_for(package_location: &Path) -> PathBuf {
+    let file_name = package_location
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "package".to_string());
+    package_location.with_file_name(format!(".{file_name}.linking.{}", std::process::id()))
 }
 
 /// Create one symlink per dep inside `package_location`'s sibling

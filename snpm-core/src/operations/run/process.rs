@@ -20,9 +20,10 @@ pub(in crate::operations::run) fn join_args(args: &[String]) -> String {
 #[cfg(unix)]
 fn quote_arg(arg: &str) -> String {
     let safe = !arg.is_empty()
-        && arg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '@' | '%' | ',' | '+'));
+        && arg.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '@' | '%' | ',' | '+')
+        });
     if safe {
         return arg.to_string();
     }
@@ -34,9 +35,13 @@ fn quote_arg(arg: &str) -> String {
 #[cfg(windows)]
 fn quote_arg(arg: &str) -> String {
     let safe = !arg.is_empty()
-        && arg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '@' | '%' | ',' | '+' | '\\'));
+        && arg.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    '_' | '-' | '.' | '/' | ':' | '=' | '@' | '%' | ',' | '+' | '\\'
+                )
+        });
     if safe {
         return arg.to_string();
     }

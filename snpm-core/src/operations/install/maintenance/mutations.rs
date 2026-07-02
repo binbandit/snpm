@@ -172,7 +172,13 @@ fn is_plain_version(spec: &str) -> bool {
         && bare
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
-        && bare.split(['-', '+']).next().unwrap_or("").matches('.').count() == 2
+        && bare
+            .split(['-', '+'])
+            .next()
+            .unwrap_or("")
+            .matches('.')
+            .count()
+            == 2
 }
 
 async fn reinstall(

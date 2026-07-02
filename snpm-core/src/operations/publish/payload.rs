@@ -16,7 +16,11 @@ pub(super) fn build_publish_payload(
 ) -> Result<serde_json::Value> {
     let tarball_bytes = read_tarball_bytes(tarball_path)?;
     let dist = build_dist(registry, package, &tarball_bytes);
-    let attachment_name = format!("{}-{}.tgz", tarball_basename(&package.name), package.version);
+    let attachment_name = format!(
+        "{}-{}.tgz",
+        tarball_basename(&package.name),
+        package.version
+    );
     let version_meta = build_version_meta(package, manifest_value, &dist);
 
     let mut payload = serde_json::json!({

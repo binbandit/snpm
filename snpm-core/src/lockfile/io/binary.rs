@@ -294,9 +294,7 @@ mod tests {
                 tarball: "https://registry.npmjs.org/tool/-/tool-1.0.0.tgz".to_string(),
                 integrity: None,
                 dependencies: BTreeMap::new(),
-                bundled_dependencies: Some(BundledDependencies::List(vec![
-                    "vendored".to_string()
-                ])),
+                bundled_dependencies: Some(BundledDependencies::List(vec!["vendored".to_string()])),
                 has_bin: true,
                 bin: Some(BinField::Single("cli.js".to_string())),
             },

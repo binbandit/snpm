@@ -1,6 +1,6 @@
 use anyhow::Result;
-use clap::Args;
 use anyhow::bail;
+use clap::Args;
 use snpm_core::node::{aliases, current, install, resolve, uninstall};
 use snpm_core::{SnpmConfig, console};
 

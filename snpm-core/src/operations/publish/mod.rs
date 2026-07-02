@@ -68,11 +68,7 @@ pub async fn publish(
 /// configured for the package's scope, else the default registry.
 /// Publishing a scoped package to the default registry when a scoped
 /// registry is configured would leak private packages.
-fn publish_registry(
-    config: &SnpmConfig,
-    manifest_value: &serde_json::Value,
-    name: &str,
-) -> String {
+fn publish_registry(config: &SnpmConfig, manifest_value: &serde_json::Value, name: &str) -> String {
     if let Some(registry) = manifest_value
         .get("publishConfig")
         .and_then(|publish_config| publish_config.get("registry"))

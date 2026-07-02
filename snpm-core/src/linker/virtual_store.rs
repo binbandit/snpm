@@ -483,6 +483,15 @@ fn package_is_project_local(
         || patched_package_ids.contains(id)
         || lifecycle::is_dep_script_allowed(config, workspace, &id.name)
         || package_has_project_local_source(package)
+        // Packages with required peer dependencies resolve those peers
+        // from *above* their own subtree at runtime. Inside the shared
+        // global store there is nothing above the entry — Node's upward
+        // walk dead-ends in <data>/virtual-store — so peers like
+        // react-dom's `react` become Cannot-find-module at runtime.
+        // Materializing them project-locally keeps the peer reachable
+        // via the project's root node_modules, matching the per-project
+        // layout's behavior.
+        || !package.peer_dependencies.is_empty()
 }
 
 fn package_has_project_local_source(package: &ResolvedPackage) -> bool {
@@ -1203,6 +1212,38 @@ mod tests {
 
         assert!(local_ids.contains(&child_id));
         assert!(local_ids.contains(&root_id));
+    }
+
+    #[test]
+    fn packages_with_required_peers_are_materialized_project_locally() {
+        // Regression: a package with a required peer (react-dom -> react)
+        // must never live in the shared global store. Node resolves peers
+        // by walking up from the entry, and above a shared entry there is
+        // only <data>/virtual-store — so the peer would be unreachable and
+        // the install, though "successful", produces a node_modules that
+        // fails at runtime with Cannot-find-module.
+        let dir = tempdir().unwrap();
+        let config = make_config(dir.path().join("data"));
+
+        let peer_pkg_id = PackageId {
+            name: "react-dom".to_string(),
+            version: "18.2.0".to_string(),
+        };
+        let mut graph = make_graph(&peer_pkg_id);
+        graph
+            .packages
+            .get_mut(&peer_pkg_id)
+            .unwrap()
+            .peer_dependencies
+            .insert("react".to_string(), "^18.0.0".to_string());
+
+        let project = make_project(dir.path().join("project"));
+        let local_ids = local_global_virtual_store_package_ids(&config, None, &[&project], &graph);
+
+        assert!(
+            local_ids.contains(&peer_pkg_id),
+            "a package with a required peer must be project-local, not shared"
+        );
     }
 
     #[cfg(unix)]

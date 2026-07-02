@@ -136,6 +136,8 @@ Derived data directories from `SnpmConfig`:
 - Node current pointer: `<data_dir>/node/current` (plain-text active version)
 - Node release-index cache: `<cache_dir>/node/index.json` (6h TTL)
 
+Packages are materialized project-locally (in `<root>/.snpm`) instead of in the shared global virtual store when they are not global-store-safe: patched packages, packages whose lifecycle scripts are allowlisted, `file:`-sourced packages, and **any package with a required peer dependency**. A shared global-store entry has nothing above it in the module tree, so Node's upward resolution walk for a peer (`react-dom` → `react`) would dead-end in `<data_dir>/virtual-store`; keeping peer-having packages project-local preserves the peer via the project's root `node_modules`. This locality decision propagates to dependents (a package depending on a project-local package is itself project-local) and is folded into the install layout hash, so a node_modules produced by an older build self-heals on the next `snpm install`.
+
 Global installs are a managed snpm project at `<data_dir>/global`: its `package.json` dependencies are the globally installed packages, and `snpm add -g` / `snpm remove -g` run the standard install pipeline against it (full dependency tree, lockfile, virtual store, hot path). Each installed package's bins are linked flat into `<data_dir>/bin` (the directory users put on PATH); removal prunes launchers whose targets vanished. `snpm list -g` reads the managed manifest.
 
 ## Config and Auth Sources

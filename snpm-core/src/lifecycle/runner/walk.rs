@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 /// will look in.
 struct DepScriptJob {
     name: String,
+    version: Option<String>,
     pkg_root: PathBuf,
     scripts: serde_json::Map<String, serde_json::Value>,
     bin: Option<BinField>,
@@ -180,7 +181,10 @@ fn inspect_package(
         return Ok(());
     }
 
-    let cache_entry = match package_version(&value).filter(|version| !version.is_empty()) {
+    let version = package_version(&value)
+        .filter(|version| !version.is_empty())
+        .map(str::to_string);
+    let cache_entry = match version.as_deref() {
         Some(version) => Some(SideEffectsCacheEntry::new(config, name, version, pkg_root)?),
         None => None,
     };
@@ -202,6 +206,7 @@ fn inspect_package(
 
     jobs.push(DepScriptJob {
         name: name.to_string(),
+        version,
         pkg_root: pkg_root.to_path_buf(),
         scripts: scripts.clone(),
         bin: package_bin(&value),
@@ -304,9 +309,12 @@ fn topological_chunks(jobs: Vec<DepScriptJob>) -> Vec<Vec<DepScriptJob>> {
 }
 
 fn run_single_job(job: DepScriptJob) -> Result<()> {
+    // The version feeds npm_package_version in the script environment;
+    // npm always sets it, and dependency postinstalls use it (prebuilt
+    // binary URLs, version stamps).
     let ran = run_present_scripts(
         &job.name,
-        None,
+        job.version.as_deref(),
         &job.pkg_root,
         &job.scripts,
         job.bin.as_ref(),
@@ -356,6 +364,7 @@ mod tests {
     fn make_job(name: &str, deps: &[&str]) -> DepScriptJob {
         DepScriptJob {
             name: name.to_string(),
+            version: None,
             pkg_root: PathBuf::from("/dev/null"),
             scripts: serde_json::Map::new(),
             bin: None,

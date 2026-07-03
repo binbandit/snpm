@@ -3,7 +3,7 @@ use clap::Args;
 use snpm_core::{Project, SnpmConfig, Workspace, console};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 
 use super::install::InstallArgs;
 
@@ -39,13 +39,21 @@ pub async fn run(args: CiArgs, config: &SnpmConfig) -> Result<()> {
                     .iter()
                     .find(|project| project.manifest.name.as_deref() == Some(name.as_str()))
                     .with_context(|| {
-                        format!("workspace project {name} not found in {}", workspace.root.display())
+                        format!(
+                            "workspace project {name} not found in {}",
+                            workspace.root.display()
+                        )
                     })?;
                 (vec![member.root.clone()], workspace.root.clone())
             }
             None => {
                 let mut roots = vec![workspace.root.clone()];
-                roots.extend(workspace.projects.iter().map(|project| project.root.clone()));
+                roots.extend(
+                    workspace
+                        .projects
+                        .iter()
+                        .map(|project| project.root.clone()),
+                );
                 (roots, workspace.root.clone())
             }
         },
@@ -87,7 +95,7 @@ pub async fn run(args: CiArgs, config: &SnpmConfig) -> Result<()> {
     super::install::run(install_args, config).await
 }
 
-fn remove_node_modules(root: &PathBuf) -> Result<()> {
+fn remove_node_modules(root: &Path) -> Result<()> {
     let node_modules = root.join("node_modules");
     if node_modules.is_dir() {
         fs::remove_dir_all(&node_modules)

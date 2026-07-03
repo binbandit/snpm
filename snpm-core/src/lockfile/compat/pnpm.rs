@@ -605,7 +605,6 @@ mod tests {
     use super::read;
     use crate::config::SnpmConfig;
 
-
     fn test_config() -> SnpmConfig {
         SnpmConfig {
             registry_concurrency: 16,

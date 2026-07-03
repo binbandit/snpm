@@ -2,6 +2,7 @@ mod maintenance;
 mod project_install;
 
 pub mod manifest;
+pub(crate) mod overrides;
 pub mod utils;
 pub mod workspace;
 

@@ -4,31 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 fn make_config() -> SnpmConfig {
-    SnpmConfig {
-        cache_dir: PathBuf::from("/tmp/cache"),
-        data_dir: PathBuf::from("/tmp/data"),
-        allow_scripts: BTreeSet::new(),
-        disable_global_virtual_store_for_packages: BTreeSet::new(),
-        min_package_age_days: None,
-        min_package_cache_age_days: None,
-        default_registry: "https://registry.npmjs.org".to_string(),
-        scoped_registries: BTreeMap::new(),
-        registry_auth: BTreeMap::new(),
-        default_registry_auth_token: None,
-        default_registry_auth_scheme: AuthScheme::Bearer,
-        registry_auth_schemes: BTreeMap::new(),
-        hoisting: HoistingMode::SingleVersion,
-        link_backend: LinkBackend::Auto,
-        strict_peers: false,
-        frozen_lockfile_default: false,
-        always_auth: false,
-        registry_concurrency: 64,
-        verbose: false,
-        log_file: None,
-        remote_cache_url: None,
-        remote_cache_auth_token: None,
-        remote_cache_read_only: false,
-    }
+    SnpmConfig::for_tests()
 }
 
 #[test]
@@ -58,6 +34,8 @@ fn authorization_header_uses_scoped_basic_auth() {
         hoisting: HoistingMode::SingleVersion,
         link_backend: LinkBackend::Auto,
         strict_peers: false,
+        save_exact: false,
+        save_prefix: "^".to_string(),
         frozen_lockfile_default: false,
         always_auth: false,
         registry_concurrency: 64,

@@ -1,4 +1,4 @@
-use super::{PackFileReason, inspect_pack};
+use super::{PackFileReason, inspect_pack, pack};
 use crate::Project;
 
 use std::fs;
@@ -226,6 +226,78 @@ fn inspect_pack_flags_secret_like_files() {
             .iter()
             .any(|finding| finding.code == "SECRET_FILE"
                 && finding.path.as_deref() == Some(".env.production"))
+    );
+}
+
+#[test]
+fn pack_rewrites_workspace_protocol_in_tarball_manifest() {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+    use tar::Archive;
+
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Workspace root declaring two members.
+    write_manifest(
+        root,
+        serde_json::json!({
+            "name": "root",
+            "version": "0.0.0",
+            "private": true,
+            "workspaces": ["packages/*"]
+        }),
+    );
+
+    // The published library sibling and the app that depends on it via
+    // the workspace: protocol.
+    let lib = root.join("packages/lib");
+    fs::create_dir_all(&lib).unwrap();
+    write_manifest(
+        &lib,
+        serde_json::json!({ "name": "@acme/lib", "version": "2.3.4" }),
+    );
+
+    let app = root.join("packages/app");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(app.join("index.js"), "module.exports = 1;\n").unwrap();
+    write_manifest(
+        &app,
+        serde_json::json!({
+            "name": "@acme/app",
+            "version": "1.0.0",
+            "dependencies": { "@acme/lib": "workspace:^", "left-pad": "^1.0.0" }
+        }),
+    );
+
+    let output = root.join("out");
+    let result = pack(&load_project(&app), &output).unwrap();
+
+    // The workspace: spec must be a concrete registry range inside the
+    // tarball; untouched deps stay as-is.
+    let bytes = fs::read(&result.tarball_path).unwrap();
+    let mut archive = Archive::new(GzDecoder::new(bytes.as_slice()));
+    let mut manifest_json = None;
+    for entry in archive.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        let path = entry.path().unwrap().to_path_buf();
+        if path == std::path::Path::new("package/package.json") {
+            let mut contents = String::new();
+            entry.read_to_string(&mut contents).unwrap();
+            manifest_json = Some(contents);
+            break;
+        }
+    }
+
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_json.expect("package.json present in tarball")).unwrap();
+    assert_eq!(
+        manifest["dependencies"]["@acme/lib"],
+        serde_json::json!("^2.3.4")
+    );
+    assert_eq!(
+        manifest["dependencies"]["left-pad"],
+        serde_json::json!("^1.0.0")
     );
 }
 

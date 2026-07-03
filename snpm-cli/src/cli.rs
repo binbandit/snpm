@@ -37,6 +37,8 @@ pub struct Cli {
 pub enum Command {
     /// Install dependencies for a project or workspace
     Install(commands::install::InstallArgs),
+    /// Clean, reproducible install from the lockfile (like `npm ci`)
+    Ci(commands::ci::CiArgs),
     /// Add packages to dependencies (or devDependencies with -D)
     Add(commands::add::AddArgs),
     /// Remove packages from dependencies
@@ -50,6 +52,7 @@ pub enum Command {
     /// Download and run a package without installing
     Dlx(commands::dlx::DlxArgs),
     /// Upgrade dependencies and refresh the lockfile
+    #[command(visible_alias = "update")]
     Upgrade(commands::upgrade::UpgradeArgs),
     /// Check for outdated dependencies
     Outdated(commands::outdated::OutdatedArgs),

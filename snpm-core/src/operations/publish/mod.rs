@@ -1,6 +1,7 @@
 mod manifest;
 mod payload;
 mod request;
+pub(crate) mod rewrite;
 
 use crate::{Project, Result, SnpmConfig, console};
 
@@ -8,7 +9,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::pack::PackInspection;
-use manifest::{PackageIdentity, publish_identity, read_manifest_value};
+use manifest::{PackageIdentity, publish_identity};
 use payload::build_publish_payload;
 use request::send_publish_request;
 
@@ -47,7 +48,7 @@ pub async fn publish(
         return Ok(());
     }
 
-    let manifest_value = read_manifest_value(project)?;
+    let manifest_value = rewrite::prepare_manifest_for_publish(project)?;
     let registry = publish_registry(config, &manifest_value, &package.name);
     let payload =
         build_publish_payload(&registry, &package, &manifest_value, tarball_path, options)?;

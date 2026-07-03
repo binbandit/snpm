@@ -54,6 +54,14 @@ pub(super) fn apply_rc_entry(config: &mut RegistryConfig, key: &str, value: Stri
         "always-auth" | "always_auth" | "always.auth" => {
             config.always_auth = is_enabled(&value);
         }
+        "save-exact" | "save_exact" => {
+            config.save_exact = Some(is_enabled(&value));
+        }
+        "save-prefix" | "save_prefix" => {
+            // An empty save-prefix is meaningful: it pins exact versions,
+            // exactly like npm. Preserve it verbatim.
+            config.save_prefix = Some(value.trim().to_string());
+        }
         _ => {}
     }
 }

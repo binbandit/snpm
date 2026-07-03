@@ -34,6 +34,30 @@ fn parses_scoped_basic_auth_entries() {
 }
 
 #[test]
+fn apply_rc_file_parses_save_exact_and_save_prefix() {
+    let file = NamedTempFile::new().unwrap();
+    fs::write(file.path(), "save-exact=true\nsave-prefix=~\n").unwrap();
+
+    let mut config = RegistryConfig::default();
+    apply_rc_file(file.path(), &mut config);
+
+    assert_eq!(config.save_exact, Some(true));
+    assert_eq!(config.save_prefix.as_deref(), Some("~"));
+}
+
+#[test]
+fn apply_rc_file_treats_bare_flag_line_as_true() {
+    // npm's ini parser reads a bare `save-exact` line as save-exact=true.
+    let file = NamedTempFile::new().unwrap();
+    fs::write(file.path(), "save-exact\n").unwrap();
+
+    let mut config = RegistryConfig::default();
+    apply_rc_file(file.path(), &mut config);
+
+    assert_eq!(config.save_exact, Some(true));
+}
+
+#[test]
 fn apply_rc_file_parses_registry() {
     let file = NamedTempFile::new().unwrap();
     fs::write(file.path(), "registry=https://custom.registry.com/\n").unwrap();

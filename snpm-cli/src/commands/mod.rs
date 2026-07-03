@@ -1,5 +1,6 @@
 pub mod add;
 pub mod audit;
+pub mod ci;
 pub mod clean;
 pub mod completions;
 pub mod config;

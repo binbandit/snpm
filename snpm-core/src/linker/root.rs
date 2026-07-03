@@ -79,11 +79,14 @@ pub(super) fn link_root_bins(
 /// forever — node_modules only ever grows.
 ///
 /// Only symlinks pointing into one of snpm's virtual-store roots are
-/// candidates: entries created by `snpm link`, `file:`/`link:` deps, and
-/// workspace cross-links point elsewhere and are never touched. Real
-/// directories from the copy_dir fallback (filesystems without symlink
-/// support) carry no provenance and are also left alone — pruning there
-/// would risk deleting user-created directories.
+/// candidates. `snpm link` targets live under `<data>/global`, outside
+/// every virtual-store root, so they are never candidates. `file:`/`link:`
+/// deps and workspace cross-links can materialize into `<root>/.snpm`
+/// (which *is* a prune root), so they are kept safe by the `keep` set —
+/// not by their link target. Real directories from the copy_dir fallback
+/// (filesystems without symlink support) carry no provenance and are
+/// left alone — pruning there would risk deleting user-created
+/// directories.
 pub(super) fn prune_stale_root_entries(
     root_node_modules: &Path,
     keep: &std::collections::BTreeSet<String>,

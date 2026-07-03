@@ -65,6 +65,12 @@ pub struct Manifest {
     pub scripts: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resolutions: BTreeMap<String, String>,
+    /// npm/Bun top-level `overrides`. Values may be a plain version
+    /// string (the common flat form) or a nested object (npm's scoped
+    /// form); stored as raw JSON so a nested value never fails manifest
+    /// parsing, and the flat string entries are honored during resolve.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub overrides: BTreeMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

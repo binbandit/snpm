@@ -33,8 +33,8 @@ Top-level commands in `snpm-cli/src/cli.rs`:
 - `exec` (lazy install when stale)
 - `init`
 - `dlx` (`--offline`, `--prefer-offline`)
-- `upgrade`
-- `outdated`
+- `upgrade` (alias `update`; `--latest` rewrites manifest ranges to each dependency's newest published version, beyond the current constraint)
+- `outdated` (shows current/wanted/latest columns; `--json` for machine-readable output)
 - `licenses`
 - `link`
 - `list`
@@ -169,8 +169,9 @@ Environment keys currently in use:
 - `NPM_CONFIG__AUTH` / `npm_config__auth`
 - `NODE_AUTH_TOKEN` / `NPM_TOKEN` / `SNPM_AUTH_TOKEN`
 - `NPM_CONFIG_ALWAYS_AUTH` / `npm_config_always_auth` / `SNPM_ALWAYS_AUTH`
+- `npm_config_save_exact` / `npm_config_save_prefix` (also `.npmrc` `save-exact` / `save-prefix`): control the range `snpm add` writes for a bare add. `save-exact` (or `snpm add -E`) pins the exact resolved version; `save-prefix` sets the prefix otherwise (defaults to `^`). `snpm add --save-prefix <p>` overrides per-invocation. Explicit specs (`snpm add pkg@~1.2.0`) are always preserved verbatim.
 
-RC file parsing (`.snpmrc`, `.npmrc`, `.pnpmrc`) is currently home-first then ancestor-ascending, with later files overriding earlier values.
+RC file parsing (`.snpmrc`, `.npmrc`, `.pnpmrc`) is currently home-first then ancestor-ascending, with later files overriding earlier values. Recognized RC keys include `registry`, scoped `@scope:registry`, auth tokens, `always-auth`, `save-exact`, `save-prefix`, and `snpm-hoist`.
 
 Auth persistence is written to:
 - `~/.snpmrc` (or fallback to local `.snpmrc` if home dirs unavailable).

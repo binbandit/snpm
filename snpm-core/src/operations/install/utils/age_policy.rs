@@ -106,12 +106,12 @@ fn age_check_protocol(package: &ResolvedPackage) -> RegistryProtocol {
 #[cfg(test)]
 mod tests {
     use super::{age_check_protocol, should_check_registry_age, validate_graph_min_package_age};
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::config::SnpmConfig;
     use crate::resolve::{
         PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
     };
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::path::PathBuf;
+    use std::collections::BTreeMap;
+
     use time::format_description::well_known::Rfc3339;
     use time::{Duration, OffsetDateTime};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -165,29 +165,10 @@ mod tests {
 
     fn make_config(registry: String) -> SnpmConfig {
         SnpmConfig {
-            cache_dir: PathBuf::from("/tmp/cache"),
-            data_dir: PathBuf::from("/tmp/data"),
-            allow_scripts: BTreeSet::new(),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: Some(7),
-            min_package_cache_age_days: None,
             default_registry: registry,
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
-            hoisting: HoistingMode::SingleVersion,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
+            min_package_age_days: Some(7),
             registry_concurrency: 4,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: None,
-            remote_cache_auth_token: None,
-            remote_cache_read_only: false,
+            ..SnpmConfig::for_tests()
         }
     }
 

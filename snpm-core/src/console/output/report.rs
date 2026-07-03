@@ -1,5 +1,16 @@
 use super::super::logging::log_prefixed;
-use super::super::style::{cyan, dim, green, red, yellow};
+use super::super::style::{cyan, dim, green, is_tty, red, yellow};
+use std::io::{self, Write};
+
+/// Wipe any in-place status line (drawn by `status::progress`, which
+/// leaves the cursor mid-line with no trailing newline) before printing
+/// a standalone message, so warnings/errors don't get appended to it.
+fn clear_pending_status_line() {
+    if is_tty() {
+        eprint!("\r\u{1b}[K");
+        let _ = io::stderr().flush();
+    }
+}
 
 pub fn added(name: &str, version: &str, dev: bool) {
     let mark = green("+");
@@ -56,12 +67,14 @@ pub fn summary(count: usize, seconds: f32) {
 }
 
 pub fn warn(message: &str) {
+    clear_pending_status_line();
     let tag = yellow("warn");
     eprintln!("{} {}", tag, message);
     log_prefixed("WARN", message);
 }
 
 pub fn error(message: &str) {
+    clear_pending_status_line();
     let tag = red("error");
     eprintln!("{} {}", tag, message);
     log_prefixed("ERROR", message);

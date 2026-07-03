@@ -12,4 +12,6 @@ pub struct RegistryConfig {
     pub disable_global_virtual_store_for_packages: Option<BTreeSet<String>>,
     pub default_auth_basic: bool,
     pub always_auth: bool,
+    pub save_exact: Option<bool>,
+    pub save_prefix: Option<String>,
 }

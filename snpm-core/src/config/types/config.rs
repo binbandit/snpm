@@ -23,6 +23,12 @@ pub struct SnpmConfig {
     pub hoisting: HoistingMode,
     pub link_backend: LinkBackend,
     pub strict_peers: bool,
+    /// Write an exact version (no range prefix) when `snpm add` records a
+    /// newly resolved dependency. Mirrors npm's `save-exact` / `-E`.
+    pub save_exact: bool,
+    /// The range prefix `snpm add` writes for a bare add (e.g. `^` or
+    /// `~`). Mirrors npm's `save-prefix`. Ignored when `save_exact`.
+    pub save_prefix: String,
     pub frozen_lockfile_default: bool,
     pub always_auth: bool,
     pub registry_concurrency: usize,
@@ -44,9 +50,59 @@ pub struct SnpmConfig {
     pub remote_cache_read_only: bool,
 }
 
+impl SnpmConfig {
+    /// The range prefix `snpm add` should prepend to a newly resolved
+    /// version: empty when `save_exact` (pin the exact version), otherwise
+    /// the configured `save_prefix` (defaults to `^`).
+    pub fn effective_save_prefix(&self) -> &str {
+        if self.save_exact {
+            ""
+        } else {
+            &self.save_prefix
+        }
+    }
+}
+
 pub fn default_disable_global_virtual_store_for_packages() -> BTreeSet<String> {
     DEFAULT_DISABLE_GLOBAL_VIRTUAL_STORE_FOR_PACKAGES
         .into_iter()
         .map(str::to_string)
         .collect()
+}
+
+#[cfg(test)]
+impl SnpmConfig {
+    /// A baseline config for unit tests. Nearly every test module used to
+    /// hand-roll this full 24-field literal; construct the base here and
+    /// override just the fields a given test cares about with struct
+    /// update syntax: `SnpmConfig { data_dir, ..SnpmConfig::for_tests() }`.
+    pub(crate) fn for_tests() -> Self {
+        SnpmConfig {
+            cache_dir: PathBuf::from("/tmp/cache"),
+            data_dir: PathBuf::from("/tmp/data"),
+            allow_scripts: BTreeSet::new(),
+            disable_global_virtual_store_for_packages: BTreeSet::new(),
+            min_package_age_days: None,
+            min_package_cache_age_days: None,
+            default_registry: "https://registry.npmjs.org".to_string(),
+            scoped_registries: BTreeMap::new(),
+            registry_auth: BTreeMap::new(),
+            default_registry_auth_token: None,
+            default_registry_auth_scheme: AuthScheme::Bearer,
+            registry_auth_schemes: BTreeMap::new(),
+            hoisting: HoistingMode::SingleVersion,
+            link_backend: LinkBackend::Auto,
+            strict_peers: false,
+            save_exact: false,
+            save_prefix: "^".to_string(),
+            frozen_lockfile_default: false,
+            always_auth: false,
+            registry_concurrency: 64,
+            verbose: false,
+            log_file: None,
+            remote_cache_url: None,
+            remote_cache_auth_token: None,
+            remote_cache_read_only: false,
+        }
+    }
 }

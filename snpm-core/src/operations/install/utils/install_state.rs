@@ -14,9 +14,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
-// v2: the graph is stored as the bincode-safe SnapshotGraph mirror —
-// v1 serialized the raw ResolutionGraph, whose untagged enums bincode
-// can write but never read back, so v1 files were unreadable.
+// v2: the on-disk state is still bincode, but is now written through the
+// `DiskInstallStateFile`/`SnapshotGraph` mirror (tagged enums) because
+// bincode cannot round-trip the untagged enums the real graph embeds.
+// The old v1 files (which never read back) are ignored on version bump.
 const INSTALL_STATE_VERSION: u32 = 2;
 const LEGACY_GRAPH_SNAPSHOT_FILE: &str = ".snpm-graph-snapshot.bin";
 static NEXT_TMP_WRITE_ID: AtomicU64 = AtomicU64::new(0);
@@ -701,14 +702,14 @@ mod tests {
     };
     use crate::Project;
     use crate::Workspace;
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::config::{HoistingMode, SnpmConfig};
     use crate::project::Manifest;
     use crate::resolve::{
         PackageId, ResolutionGraph, ResolutionRoot, ResolvedPackage, RootDependency,
     };
     use crate::workspace::types::WorkspaceConfig;
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -717,27 +718,8 @@ mod tests {
         SnpmConfig {
             cache_dir: data_dir.join("cache"),
             data_dir,
-            allow_scripts: BTreeSet::new(),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: None,
-            min_package_cache_age_days: None,
-            default_registry: "https://registry.npmjs.org".to_string(),
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
             hoisting: HoistingMode::None,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
-            registry_concurrency: 64,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: None,
-            remote_cache_auth_token: None,
-            remote_cache_read_only: false,
+            ..SnpmConfig::for_tests()
         }
     }
 

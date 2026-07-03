@@ -161,10 +161,10 @@ fn is_valid_relative_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{load_store_residency_index_lossy, persist_store_residency_index};
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::config::SnpmConfig;
     use crate::resolve::PackageId;
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -172,27 +172,7 @@ mod tests {
         SnpmConfig {
             cache_dir: data_dir.join("cache"),
             data_dir,
-            allow_scripts: BTreeSet::new(),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: None,
-            min_package_cache_age_days: None,
-            default_registry: "https://registry.npmjs.org".to_string(),
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
-            hoisting: HoistingMode::SingleVersion,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
-            registry_concurrency: 64,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: None,
-            remote_cache_auth_token: None,
-            remote_cache_read_only: false,
+            ..SnpmConfig::for_tests()
         }
     }
 

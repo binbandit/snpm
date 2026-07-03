@@ -103,6 +103,9 @@ pub enum SnpmError {
     #[error("One-time password required")]
     OtpRequired,
 
+    #[error("{message}")]
+    Registry { message: String },
+
     #[error("I/O error at {path:?}: {source}")]
     Io {
         path: PathBuf,

@@ -117,11 +117,20 @@ pub fn pack(project: &Project, output_dir: &Path) -> Result<PackResult> {
     let safe_name = inspection.name.replace('/', "-").replace('@', "");
     let tarball_name = format!("{}-{}.tgz", safe_name, inspection.version);
     let tarball_path = output_dir.join(&tarball_name);
+
+    // Resolve workspace:/catalog: specs to real registry ranges so the
+    // published tarball is installable outside the monorepo.
+    let manifest_bytes = crate::operations::publish::rewrite::rewritten_manifest_bytes(project)?;
+    let manifest_override = manifest_bytes
+        .as_deref()
+        .map(|bytes| (project.manifest_path.as_path(), bytes));
+
     let packed_size = write_tarball(
         output_dir,
         &tarball_path,
         &project.root,
         &inspection.archive_paths,
+        manifest_override,
     )?;
 
     Ok(PackResult {

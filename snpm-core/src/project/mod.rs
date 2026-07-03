@@ -8,6 +8,7 @@ pub use manifest::{
     NamedCatalogsMap, SourceMapPolicy, WorkspacesField,
 };
 pub use package_json::format_manifest;
+pub(crate) use package_json::format_manifest_object;
 
 #[cfg(test)]
 mod tests;

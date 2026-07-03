@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 /// will look in.
 struct DepScriptJob {
     name: String,
+    version: Option<String>,
     pkg_root: PathBuf,
     scripts: serde_json::Map<String, serde_json::Value>,
     bin: Option<BinField>,
@@ -180,7 +181,10 @@ fn inspect_package(
         return Ok(());
     }
 
-    let cache_entry = match package_version(&value).filter(|version| !version.is_empty()) {
+    let version = package_version(&value)
+        .filter(|version| !version.is_empty())
+        .map(str::to_string);
+    let cache_entry = match version.as_deref() {
         Some(version) => Some(SideEffectsCacheEntry::new(config, name, version, pkg_root)?),
         None => None,
     };
@@ -202,6 +206,7 @@ fn inspect_package(
 
     jobs.push(DepScriptJob {
         name: name.to_string(),
+        version,
         pkg_root: pkg_root.to_path_buf(),
         scripts: scripts.clone(),
         bin: package_bin(&value),
@@ -304,8 +309,12 @@ fn topological_chunks(jobs: Vec<DepScriptJob>) -> Vec<Vec<DepScriptJob>> {
 }
 
 fn run_single_job(job: DepScriptJob) -> Result<()> {
+    // The version feeds npm_package_version in the script environment;
+    // npm always sets it, and dependency postinstalls use it (prebuilt
+    // binary URLs, version stamps).
     let ran = run_present_scripts(
         &job.name,
+        job.version.as_deref(),
         &job.pkg_root,
         &job.scripts,
         job.bin.as_ref(),
@@ -345,9 +354,9 @@ fn has_lifecycle_scripts(scripts: &serde_json::Map<String, serde_json::Value>) -
 #[cfg(test)]
 mod tests {
     use super::{DepScriptJob, run_install_scripts, topological_chunks};
-    use crate::config::{AuthScheme, HoistingMode, LinkBackend, SnpmConfig};
+    use crate::config::SnpmConfig;
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeSet;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -355,6 +364,7 @@ mod tests {
     fn make_job(name: &str, deps: &[&str]) -> DepScriptJob {
         DepScriptJob {
             name: name.to_string(),
+            version: None,
             pkg_root: PathBuf::from("/dev/null"),
             scripts: serde_json::Map::new(),
             bin: None,
@@ -449,26 +459,7 @@ mod tests {
             cache_dir: data_dir.join("cache"),
             data_dir,
             allow_scripts: BTreeSet::from(["dep".to_string()]),
-            disable_global_virtual_store_for_packages: BTreeSet::new(),
-            min_package_age_days: None,
-            min_package_cache_age_days: None,
-            default_registry: "https://registry.npmjs.org".to_string(),
-            scoped_registries: BTreeMap::new(),
-            registry_auth: BTreeMap::new(),
-            default_registry_auth_token: None,
-            default_registry_auth_scheme: AuthScheme::Bearer,
-            registry_auth_schemes: BTreeMap::new(),
-            hoisting: HoistingMode::SingleVersion,
-            link_backend: LinkBackend::Auto,
-            strict_peers: false,
-            frozen_lockfile_default: false,
-            always_auth: false,
-            registry_concurrency: 64,
-            verbose: false,
-            log_file: None,
-            remote_cache_url: None,
-            remote_cache_auth_token: None,
-            remote_cache_read_only: false,
+            ..SnpmConfig::for_tests()
         }
     }
 

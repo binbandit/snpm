@@ -45,17 +45,16 @@ pub(super) fn build_outdated_entries(
         let wanted = root_dep.resolved.version.clone();
         let current = current_versions.get(&name).cloned();
 
-        if current
-            .as_ref()
-            .is_some_and(|current_version| current_version == &wanted)
-        {
-            continue;
-        }
-
+        // Deps whose installed version already satisfies the range stay
+        // in as candidates: they may still have a `latest` beyond the
+        // range (an exactly-pinned dep with a newer major is the
+        // canonical case). The caller drops them after the latest
+        // enrichment when there is genuinely nothing newer.
         result.push(OutdatedEntry {
             name,
             current,
             wanted,
+            latest: None,
         });
     }
 

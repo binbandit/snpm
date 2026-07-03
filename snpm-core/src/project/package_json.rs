@@ -132,6 +132,18 @@ pub fn format_manifest(manifest: &Manifest, path: &Path) -> Result<String> {
         });
     };
 
+    format_manifest_object(object, path)
+}
+
+/// Serialize a raw manifest object to pretty JSON in npm's canonical
+/// field order. Unlike [`format_manifest`], this takes an arbitrary
+/// `serde_json` object so callers can round-trip fields the typed
+/// `Manifest` doesn't model (publish rewriting, for example) without
+/// dropping or reordering them.
+pub(crate) fn format_manifest_object(
+    object: serde_json::Map<String, Value>,
+    path: &Path,
+) -> Result<String> {
     let mut data = serde_json::to_string_pretty(&OrderedPackageJson::from_object(object)).map_err(
         |error| SnpmError::SerializeJson {
             path: path.to_path_buf(),

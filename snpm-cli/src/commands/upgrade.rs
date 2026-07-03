@@ -22,6 +22,10 @@ pub struct UpgradeArgs {
     /// Production-only filter (same selector syntax as --filter)
     #[arg(long)]
     pub filter_prod: Vec<String>,
+    /// Upgrade to each dependency's newest version, rewriting manifest
+    /// ranges beyond the current constraint (npm's `update --latest`)
+    #[arg(long)]
+    pub latest: bool,
     /// Packages to upgrade (omit to refresh the lockfile and reinstall)
     pub packages: Vec<String>,
 }
@@ -65,13 +69,44 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
                 frozen_lockfile.strict_no_lockfile,
                 args.production,
                 args.force,
+                args.latest,
             )
             .await?;
         }
         return Ok(());
     }
 
-    if !args.packages.is_empty() {
+    if !args.packages.is_empty() || args.latest {
+        // From a workspace root, `--latest` must touch every member's
+        // manifest — silently upgrading only the root package.json would
+        // leave the monorepo half-updated.
+        if args.latest
+            && let Some(workspace) = Workspace::discover(&cwd)?
+            && workspace.root == cwd
+        {
+            for (idx, mut project) in workspace.projects.into_iter().enumerate() {
+                if idx > 0 {
+                    println!();
+                }
+                console::info(&format!(
+                    "upgrade --latest in {}",
+                    workspace_selector::project_label(&project)
+                ));
+                operations::upgrade(
+                    config,
+                    &mut project,
+                    args.packages.clone(),
+                    frozen_lockfile.mode,
+                    frozen_lockfile.strict_no_lockfile,
+                    args.production,
+                    args.force,
+                    true,
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
         let mut project = Project::discover(&cwd)?;
         operations::upgrade(
             config,
@@ -81,6 +116,7 @@ pub async fn run(args: UpgradeArgs, config: &SnpmConfig) -> Result<()> {
             frozen_lockfile.strict_no_lockfile,
             args.production,
             args.force,
+            args.latest,
         )
         .await?;
         return Ok(());

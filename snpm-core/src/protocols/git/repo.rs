@@ -131,6 +131,18 @@ async fn checkout_repo(repo_dir: &Path, committish: Option<&str>, raw: &str) -> 
     .await
 }
 
+/// Git-level flags that disable the `ext::` and `fd::` remote-helper
+/// transports, which can execute arbitrary commands during a
+/// clone/fetch. Even though the spec router should never route such a URL
+/// to the git resolver, this is defense-in-depth: legitimate transports
+/// (https/ssh/git/file) are unaffected.
+const GIT_TRANSPORT_HARDENING: [&str; 4] = [
+    "-c",
+    "protocol.ext.allow=never",
+    "-c",
+    "protocol.fd.allow=never",
+];
+
 async fn run_git_command<const N: usize>(
     dir: &Path,
     raw: &str,
@@ -140,6 +152,7 @@ async fn run_git_command<const N: usize>(
 ) -> Result<()> {
     let output = Command::new("git")
         .current_dir(dir)
+        .args(GIT_TRANSPORT_HARDENING)
         .args(args)
         .output()
         .await

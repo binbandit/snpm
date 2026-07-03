@@ -15,6 +15,7 @@ pub mod project;
 pub mod protocols;
 pub mod registry;
 pub mod resolve;
+pub mod script_env;
 pub mod store;
 pub mod version;
 pub mod workspace;

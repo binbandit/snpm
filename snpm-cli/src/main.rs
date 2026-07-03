@@ -24,7 +24,8 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
-    let args = rewrite_multicall_argv(env::args_os().collect());
+    let mut args = rewrite_multicall_argv(env::args_os().collect());
+    preserve_update_script_fallback(&mut args);
     let Cli {
         verbose,
         command,
@@ -60,6 +61,7 @@ async fn run() -> Result<()> {
 
     match command {
         Command::Install(args) => commands::install::run(args, &config).await?,
+        Command::Ci(args) => commands::ci::run(args, &config).await?,
         Command::Add(args) => commands::add::run(args, &config).await?,
         Command::Remove(args) => commands::remove::run(args, &config).await?,
         Command::Run(args) => commands::run::run(args, &config).await?,
@@ -135,6 +137,27 @@ fn rewrite_multicall_argv(mut args: Vec<OsString>) -> Vec<OsString> {
     }
 
     args
+}
+
+/// `update` is a visible alias for `upgrade`, but before the alias
+/// existed an unknown `snpm update` fell through to the package-script
+/// fallback. A project that defines an `update` script keeps that
+/// behavior — silently turning those invocations into a
+/// lockfile-refreshing upgrade would be a destructive surprise. The
+/// alias applies everywhere else.
+fn preserve_update_script_fallback(args: &mut Vec<OsString>) {
+    if args.get(1).and_then(|arg| arg.to_str()) != Some("update") {
+        return;
+    }
+
+    let has_update_script = env::current_dir()
+        .ok()
+        .and_then(|cwd| snpm_core::Project::discover(&cwd).ok())
+        .is_some_and(|project| project.manifest.scripts.contains_key("update"));
+
+    if has_update_script {
+        args.insert(1, OsString::from("run"));
+    }
 }
 
 fn init_tracing() -> Result<()> {

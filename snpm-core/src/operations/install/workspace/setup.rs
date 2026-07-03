@@ -98,26 +98,17 @@ fn load_workspace_overrides(workspace: &Workspace) -> Result<BTreeMap<String, St
         .map(|config| config.overrides)
         .unwrap_or_default();
 
+    // Overrides live in the workspace ROOT manifest (matching npm/yarn,
+    // which ignore member-level overrides/resolutions).
     if let Some(root_project) = workspace
         .projects
         .iter()
         .find(|project| project.root == workspace.root)
     {
-        for (name, range) in &root_project.manifest.resolutions {
-            overrides.insert(name.clone(), range.clone());
-        }
-
-        if let Some(pnpm) = &root_project.manifest.pnpm {
-            for (name, range) in &pnpm.overrides {
-                overrides.insert(name.clone(), range.clone());
-            }
-        }
-
-        if let Some(snpm) = &root_project.manifest.snpm {
-            for (name, range) in &snpm.overrides {
-                overrides.insert(name.clone(), range.clone());
-            }
-        }
+        crate::operations::install::overrides::merge_manifest_overrides(
+            root_project,
+            &mut overrides,
+        )?;
     }
 
     Ok(overrides)

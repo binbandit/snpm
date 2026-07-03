@@ -201,6 +201,10 @@ pub struct OutdatedEntry {
     pub name: String,
     pub current: Option<String>,
     pub wanted: String,
+    /// The newest published version (the registry `latest` dist-tag),
+    /// which may be beyond the manifest range. `None` for non-registry
+    /// deps or when the lookup failed.
+    pub latest: Option<String>,
 }
 
 #[derive(Debug, Clone)]

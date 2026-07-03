@@ -13,12 +13,19 @@ pub(super) fn write_tarball(
     tarball_path: &Path,
     project_root: &Path,
     files: &[PathBuf],
+    manifest_override: Option<(&Path, &[u8])>,
 ) -> Result<u64> {
     let tar_data = Vec::new();
     let mut builder = Builder::new(tar_data);
 
     for file_path in files {
-        append_file(&mut builder, file_path, project_root, tarball_path)?;
+        append_file(
+            &mut builder,
+            file_path,
+            project_root,
+            tarball_path,
+            manifest_override,
+        )?;
     }
 
     let tar_bytes = builder.into_inner().map_err(|error| SnpmError::Archive {
@@ -57,6 +64,7 @@ fn append_file(
     file_path: &Path,
     project_root: &Path,
     tarball_path: &Path,
+    manifest_override: Option<(&Path, &[u8])>,
 ) -> Result<()> {
     let rel_path = file_path.strip_prefix(project_root).unwrap_or(file_path);
     let archive_path = Path::new("package").join(rel_path);
@@ -69,10 +77,16 @@ fn append_file(
         return Ok(());
     }
 
-    let data = fs::read(file_path).map_err(|source| SnpmError::ReadFile {
-        path: file_path.to_path_buf(),
-        source,
-    })?;
+    // The manifest may be rewritten (workspace:/catalog: specs resolved
+    // to registry ranges) before it goes into the tarball; substitute the
+    // rewritten bytes but keep the real file's mode.
+    let data = match manifest_override {
+        Some((override_path, bytes)) if file_path == override_path => bytes.to_vec(),
+        _ => fs::read(file_path).map_err(|source| SnpmError::ReadFile {
+            path: file_path.to_path_buf(),
+            source,
+        })?,
+    };
 
     let mut header = tar::Header::new_gnu();
     header.set_size(data.len() as u64);
@@ -131,6 +145,7 @@ mod tests {
             &tarball_path,
             &project_root,
             std::slice::from_ref(&bin_path),
+            None,
         )
         .unwrap();
 

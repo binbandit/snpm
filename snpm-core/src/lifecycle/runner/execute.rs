@@ -1,4 +1,4 @@
-use super::manifest::{package_bin, package_name, package_scripts, read_manifest};
+use super::manifest::{package_bin, package_name, package_scripts, package_version, read_manifest};
 use crate::linker::bins::link_known_bins;
 use crate::project::BinField;
 use crate::{Result, SnpmConfig, SnpmError, Workspace};
@@ -43,9 +43,11 @@ pub fn run_project_scripts(
     let display_name = package_name(&value)
         .filter(|name| !name.is_empty())
         .unwrap_or("root");
+    let version = package_version(&value);
     let bin = package_bin(&value);
     run_present_scripts(
         display_name,
+        version,
         project_root,
         scripts,
         bin.as_ref(),
@@ -56,6 +58,7 @@ pub fn run_project_scripts(
 
 pub(super) fn run_present_scripts(
     package_name: &str,
+    package_version: Option<&str>,
     root: &Path,
     scripts: &serde_json::Map<String, Value>,
     bin: Option<&BinField>,
@@ -70,6 +73,7 @@ pub(super) fn run_present_scripts(
     for script_name in script_names {
         ran += usize::from(run_script_if_present(
             package_name,
+            package_version,
             root,
             scripts,
             script_name,
@@ -82,6 +86,7 @@ pub(super) fn run_present_scripts(
 
 fn run_script_if_present(
     package_name: &str,
+    package_version: Option<&str>,
     root: &Path,
     scripts: &serde_json::Map<String, Value>,
     key: &str,
@@ -96,6 +101,13 @@ fn run_script_if_present(
     command.current_dir(root);
     let path_value = build_path(root, self_bin_dir, &format!("{package_name}:{key}"))?;
     command.env("PATH", path_value);
+    crate::script_env::apply(
+        &mut command,
+        root,
+        Some(package_name).filter(|name| !name.is_empty()),
+        package_version,
+        key,
+    );
 
     let status = command.status().map_err(|error| SnpmError::ScriptRun {
         name: format!("{package_name}:{key}"),
@@ -242,6 +254,7 @@ mod tests {
 
         let ran = run_present_scripts(
             "pkg",
+            None,
             dir.path(),
             &scripts,
             None,
@@ -287,6 +300,7 @@ mod tests {
 
         let ran = run_present_scripts(
             "self-bin-pkg",
+            None,
             dir.path(),
             &scripts,
             Some(&bin),

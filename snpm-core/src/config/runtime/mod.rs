@@ -12,8 +12,8 @@ use super::{
 
 use dirs::resolve_home_dirs;
 use env::{
-    apply_auth_env, apply_default_registry_env, apply_install_env, read_logging_env,
-    read_remote_cache_env,
+    apply_auth_env, apply_default_registry_env, apply_install_env, apply_save_env,
+    read_logging_env, read_remote_cache_env,
 };
 
 impl SnpmConfig {
@@ -39,6 +39,11 @@ impl SnpmConfig {
             .unwrap_or_else(default_disable_global_virtual_store_for_packages);
         let mut link_backend = LinkBackend::Auto;
         let mut strict_peers = false;
+        let mut save_exact = runtime_config.save_exact.unwrap_or(false);
+        let mut save_prefix = runtime_config
+            .save_prefix
+            .clone()
+            .unwrap_or_else(|| "^".to_string());
         let mut frozen_lockfile_default = false;
         let mut registry_concurrency = 128;
         let mut default_registry_auth_scheme = AuthScheme::Bearer;
@@ -57,6 +62,7 @@ impl SnpmConfig {
             &mut registry_concurrency,
             &mut always_auth,
         );
+        apply_save_env(&mut save_exact, &mut save_prefix);
         if let Some(packages) = read_disable_global_virtual_store_for_packages_from_env() {
             disable_global_virtual_store_for_packages = packages;
         }
@@ -85,6 +91,8 @@ impl SnpmConfig {
             hoisting,
             link_backend,
             strict_peers,
+            save_exact,
+            save_prefix,
             frozen_lockfile_default,
             always_auth,
             registry_concurrency,

@@ -109,7 +109,16 @@ pub async fn upgrade(
         });
     }
 
-    let entries = outdated(config, project, include_dev, force).await?;
+    // outdated() also reports deps whose installed version already
+    // satisfies the range but have a newer `latest` beyond it (that is
+    // what the Latest column shows). A plain upgrade has nothing to do
+    // for those — without this filter it would rewrite the identical
+    // spec, print a false "updating", and reinstall for nothing.
+    let entries: Vec<_> = outdated(config, project, include_dev, force)
+        .await?
+        .into_iter()
+        .filter(|entry| entry.current.as_deref() != Some(entry.wanted.as_str()))
+        .collect();
     if entries.is_empty() {
         return Ok(());
     }

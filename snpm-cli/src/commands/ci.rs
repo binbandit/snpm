@@ -29,11 +29,26 @@ pub async fn run(args: CiArgs, config: &SnpmConfig) -> Result<()> {
     // validates the lockfile before it removes node_modules.
     let workspace = Workspace::discover(&cwd)?;
     let (wipe_roots, lockfile_root) = match &workspace {
-        Some(workspace) => {
-            let mut roots = vec![workspace.root.clone()];
-            roots.extend(workspace.projects.iter().map(|project| project.root.clone()));
-            (roots, workspace.root.clone())
-        }
+        // `-w <name>` installs a single member, so only that member's
+        // node_modules may be wiped — wiping siblings would leave them
+        // deleted with nothing reinstalling them.
+        Some(workspace) => match &args.workspace {
+            Some(name) => {
+                let member = workspace
+                    .projects
+                    .iter()
+                    .find(|project| project.manifest.name.as_deref() == Some(name.as_str()))
+                    .with_context(|| {
+                        format!("workspace project {name} not found in {}", workspace.root.display())
+                    })?;
+                (vec![member.root.clone()], workspace.root.clone())
+            }
+            None => {
+                let mut roots = vec![workspace.root.clone()];
+                roots.extend(workspace.projects.iter().map(|project| project.root.clone()));
+                (roots, workspace.root.clone())
+            }
+        },
         None => {
             let project = Project::discover(&cwd)?;
             (vec![project.root.clone()], project.root.clone())
@@ -49,10 +64,11 @@ pub async fn run(args: CiArgs, config: &SnpmConfig) -> Result<()> {
         );
     }
 
-    // npm ci removes node_modules first for a from-scratch install. Wipe
-    // the root and every workspace member's node_modules.
+    // npm ci removes node_modules first for a from-scratch install. A
+    // partial wipe must abort — installing over a half-deleted tree
+    // silently breaks the clean-install contract this command exists for.
     for root in &wipe_roots {
-        remove_node_modules(root);
+        remove_node_modules(root)?;
     }
 
     console::verbose("ci: wiped node_modules, running frozen install");
@@ -71,9 +87,11 @@ pub async fn run(args: CiArgs, config: &SnpmConfig) -> Result<()> {
     super::install::run(install_args, config).await
 }
 
-fn remove_node_modules(root: &PathBuf) {
+fn remove_node_modules(root: &PathBuf) -> Result<()> {
     let node_modules = root.join("node_modules");
     if node_modules.is_dir() {
-        let _ = fs::remove_dir_all(&node_modules);
+        fs::remove_dir_all(&node_modules)
+            .with_context(|| format!("failed to remove {}", node_modules.display()))?;
     }
+    Ok(())
 }

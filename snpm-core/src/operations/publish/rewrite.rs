@@ -29,9 +29,7 @@ const DEP_SECTIONS: [&str; 4] = [
 /// payload's version metadata.
 pub(crate) fn prepare_manifest_for_publish(project: &Project) -> Result<Value> {
     let mut manifest = read_manifest_value(project)?;
-    let workspace = Workspace::discover(&project.root)?;
-    let catalog = CatalogConfig::load(&project.root)?;
-    rewrite_published_manifest(&mut manifest, workspace.as_ref(), catalog.as_ref())?;
+    rewrite_manifest_in_place(&mut manifest, project)?;
     Ok(manifest)
 }
 
@@ -41,10 +39,7 @@ pub(crate) fn prepare_manifest_for_publish(project: &Project) -> Result<Value> {
 /// re-serialized in npm's canonical field order.
 pub(crate) fn rewritten_manifest_bytes(project: &Project) -> Result<Option<Vec<u8>>> {
     let mut manifest = read_manifest_value(project)?;
-    let workspace = Workspace::discover(&project.root)?;
-    let catalog = CatalogConfig::load(&project.root)?;
-
-    if !rewrite_published_manifest(&mut manifest, workspace.as_ref(), catalog.as_ref())? {
+    if !rewrite_manifest_in_place(&mut manifest, project)? {
         return Ok(None);
     }
 
@@ -54,6 +49,37 @@ pub(crate) fn rewritten_manifest_bytes(project: &Project) -> Result<Option<Vec<u
 
     let formatted = format_manifest_object(object, &project.manifest_path)?;
     Ok(Some(formatted.into_bytes()))
+}
+
+/// Rewrite the manifest's monorepo-only specs, discovering the workspace
+/// and catalog only when at least one such spec exists. Discovery must
+/// stay conditional: it parses every sibling manifest and workspace
+/// yaml, so an unrelated broken file elsewhere in the monorepo (or a
+/// malformed ancestor workspace of a standalone project) would otherwise
+/// abort packing a manifest that needs no rewriting at all.
+fn rewrite_manifest_in_place(manifest: &mut Value, project: &Project) -> Result<bool> {
+    if !manifest_has_monorepo_specs(manifest) {
+        return Ok(false);
+    }
+
+    let workspace = Workspace::discover(&project.root)?;
+    let catalog = CatalogConfig::load(&project.root)?;
+    rewrite_published_manifest(manifest, workspace.as_ref(), catalog.as_ref())
+}
+
+fn manifest_has_monorepo_specs(manifest: &Value) -> bool {
+    DEP_SECTIONS.iter().any(|section| {
+        manifest
+            .get(section)
+            .and_then(Value::as_object)
+            .is_some_and(|map| {
+                map.values().any(|spec| {
+                    spec.as_str().is_some_and(|spec| {
+                        spec.starts_with("workspace:") || spec.starts_with("catalog:")
+                    })
+                })
+            })
+    })
 }
 
 /// Rewrite every `workspace:`/`catalog:` spec in the manifest's
